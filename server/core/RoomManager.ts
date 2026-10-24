@@ -1,6 +1,7 @@
 import { Socket } from 'socket.io';
 import { ConnectionManager } from './ConnectionManager.js';
 import { redisClient } from './redisClient.js';
+import { roomCardEngine } from './RoomCardEngine.js';
 
 /**
  * Generic Room & Player Abstractions.
@@ -118,6 +119,7 @@ export class RoomManager {
   }
 
   createRoom(options: {
+    preferredRoomId?: string;
     gameType: string;
     hostPlayer: { playerId: string; nickname: string; avatarId: string; beans: number };
     baseScore: number;
@@ -134,7 +136,12 @@ export class RoomManager {
       throw new Error(`Unsupported gameType: ${options.gameType}`);
     }
 
-    const roomId = this.generateRoomId();
+    const roomId =
+      options.preferredRoomId &&
+      /^\d{6}$/.test(options.preferredRoomId) &&
+      !this.rooms.has(options.preferredRoomId)
+        ? options.preferredRoomId
+        : this.generateRoomId();
     const room = factory({
       roomId,
       hostId: options.hostPlayer.playerId,
@@ -287,10 +294,16 @@ export class RoomManager {
     this.playerToRoom.delete(playerId);
     this.unbindSocketRoom(playerId, roomId);
 
+    roomCardEngine.handlePlayerLeaveOrDisconnect(roomId, playerId, false);
+
     if (!room) return;
     room.removePlayer(playerId);
 
     if (room.isEmptyOfHumans()) {
+      const rcSession = roomCardEngine.getSession(roomId);
+      if (rcSession && rcSession.roundHistory.length === 0) {
+        roomCardEngine.disbandOrSettleSession(roomId, playerId);
+      }
       room.destroy();
       this.rooms.delete(roomId);
       this.roomLastActiveAt.delete(roomId);
@@ -337,6 +350,10 @@ export class RoomManager {
         (isWaiting && now - lastActive > STALE_ROOM_CHECK_INTERVAL_MS && now - room.createdAt > STALE_WAITING_ROOM_TTL_MS);
 
       if (isAbandoned) {
+        const rcSession = roomCardEngine.getSession(roomId);
+        if (rcSession && rcSession.roundHistory.length === 0) {
+          roomCardEngine.disbandOrSettleSession(roomId);
+        }
         room.destroy();
         this.rooms.delete(roomId);
         this.roomLastActiveAt.delete(roomId);

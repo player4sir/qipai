@@ -1,32 +1,15 @@
 import React from 'react';
+import { PokerSuitSvg } from '../../../shared/ui/ModalVectorIcons';
 import { LaoYanCaiCard } from '../types';
 
-export type LaoYanCaiSpecialHighlight =
-  | 'BAOZI'
-  | 'SANGONG'
-  | 'STRAIGHT_FLUSH'
-  | 'ZHAKAI'
-  | null;
-
 export interface LaoYanCaiCardViewProps {
-  card?: LaoYanCaiCard;
-  faceDown?: boolean;
+  card: LaoYanCaiCard;
+  size?: 'sm' | 'md' | 'lg';
   isThirdDrawnCard?: boolean;
-  isZhaKaiHighlight?: boolean;
-  specialHighlight?: LaoYanCaiSpecialHighlight;
-  size?: 'xs' | 'sm' | 'md' | 'lg';
-  className?: string;
-  style?: React.CSSProperties;
+  specialHighlight?: 'BAOZI' | 'SANGONG' | 'STRAIGHT_FLUSH' | null;
 }
 
-const SUIT_ASSET_PREFIX: Record<string, string> = {
-  spade: 'Card_Spade_',
-  heart: 'Card_Heart_',
-  club: 'Card_Club_',
-  diamond: 'Card_Diamond_',
-};
-
-const RANK_STRINGS: Record<number, string> = {
+const RANK_LABELS: Record<number, string> = {
   1: 'A',
   2: '2',
   3: '3',
@@ -44,122 +27,81 @@ const RANK_STRINGS: Record<number, string> = {
 
 export const LaoYanCaiCardView: React.FC<LaoYanCaiCardViewProps> = ({
   card,
-  faceDown = false,
-  isThirdDrawnCard = false,
-  isZhaKaiHighlight = false,
-  specialHighlight = null,
   size = 'md',
-  className = '',
-  style = {},
+  isThirdDrawnCard = false,
+  specialHighlight = null,
 }) => {
-  const isBack = faceDown || !card || card.rank <= 0;
+  const isFaceDown = !card || card.rank <= 0;
+  const isRed = card?.suit === 'heart' || card?.suit === 'diamond';
 
-  const cardSrc = React.useMemo(() => {
-    if (isBack) {
-      return '/assets/ddz/cards/Card_Back_Default.png';
-    }
-    const suitKey = card.suit ? String(card.suit).toLowerCase() : 'spade';
-    const prefix = SUIT_ASSET_PREFIX[suitKey] || 'Card_Spade_';
-    const rankStr = RANK_STRINGS[card.rank] || String(card.rank);
-    return `/assets/ddz/cards/${prefix}${rankStr}.png`;
-  }, [isBack, card]);
+  const sizeClasses =
+    size === 'lg'
+      ? 'h-[86px] w-[62px] rounded-xl text-base'
+      : size === 'sm'
+        ? 'h-[54px] w-[39px] rounded-lg text-xs'
+        : 'h-[70px] w-[50px] rounded-xl text-sm';
 
-  const sizeClasses = React.useMemo(() => {
-    switch (size) {
-      case 'xs':
-        return 'w-[30px] h-[42px] sm:w-[34px] sm:h-[48px]';
-      case 'sm':
-        return 'w-[44px] h-[62px] sm:w-[50px] sm:h-[70px]';
-      case 'lg':
-        return 'w-[72px] h-[100px] sm:w-[82px] sm:h-[114px] md:w-[90px] md:h-[126px]';
-      case 'md':
-      default:
-        return 'w-[54px] h-[76px] sm:w-[62px] sm:h-[86px]';
-    }
-  }, [size]);
+  const highlightBorder =
+    specialHighlight === 'BAOZI'
+      ? 'border-2 border-amber-300 ring-2 ring-amber-400/70 shadow-[0_0_16px_rgba(245,158,11,0.75)]'
+      : specialHighlight === 'SANGONG'
+        ? 'border-2 border-fuchsia-300 ring-2 ring-fuchsia-400/70 shadow-[0_0_16px_rgba(217,70,239,0.75)]'
+        : specialHighlight === 'STRAIGHT_FLUSH'
+          ? 'border-2 border-cyan-300 ring-2 ring-cyan-400/70 shadow-[0_0_16px_rgba(34,211,238,0.75)]'
+          : isThirdDrawnCard
+            ? 'border-2 border-emerald-400 ring-1 ring-emerald-300/60 shadow-[0_4px_12px_rgba(16,185,129,0.45)]'
+            : 'border border-amber-900/25 shadow-[0_4px_10px_rgba(0,0,0,0.45)]';
 
-  const activeSpecial = !isBack
-    ? specialHighlight || (isZhaKaiHighlight ? 'ZHAKAI' : null)
-    : null;
+  if (isFaceDown) {
+    return (
+      <div
+        className={`relative flex flex-col items-center justify-center overflow-hidden border border-amber-300/55 bg-gradient-to-br from-[#7c1d12] via-[#511109] to-[#2e0703] shadow-[0_4px_10px_rgba(0,0,0,0.55)] select-none ${sizeClasses}`}
+      >
+        <div className="pointer-events-none absolute inset-1 rounded-md border border-amber-300/30 bg-[radial-gradient(circle_at_50%_50%,rgba(251,191,36,0.18),transparent_70%)]" />
+        <span className="font-display text-[10px] font-black tracking-widest text-amber-200/75">
+          滇南
+        </span>
+      </div>
+    );
+  }
 
-  const specialRingClasses = React.useMemo(() => {
-    if (activeSpecial === 'BAOZI') {
-      return 'ring-2 ring-amber-300 -translate-y-2 scale-[1.04] shadow-[0_0_24px_rgba(245,158,11,0.95),0_0_44px_rgba(220,38,38,0.65)]';
-    }
-    if (activeSpecial === 'SANGONG') {
-      return 'ring-2 ring-fuchsia-300 -translate-y-1.5 scale-[1.03] shadow-[0_0_22px_rgba(217,70,239,0.9),0_0_38px_rgba(251,191,36,0.55)]';
-    }
-    if (activeSpecial === 'STRAIGHT_FLUSH') {
-      return 'ring-2 ring-cyan-300 -translate-y-1.5 scale-[1.03] shadow-[0_0_22px_rgba(34,211,238,0.85)]';
-    }
-    if (activeSpecial === 'ZHAKAI') {
-      return 'ring-2 ring-amber-400 shadow-[0_0_18px_rgba(245,158,11,0.65)]';
-    }
-    if (isThirdDrawnCard) {
-      return 'ring-2 ring-emerald-400/90 -translate-y-1.5 shadow-[0_6px_14px_rgba(16,185,129,0.45)]';
-    }
-    return '';
-  }, [activeSpecial, isThirdDrawnCard]);
+  const rankLabel = RANK_LABELS[card.rank] || String(card.rank);
+  const centerIconSize =
+    size === 'lg' ? 'h-6 w-6' : size === 'sm' ? 'h-4 w-4' : 'h-5 w-5';
 
   return (
     <div
-      className={`
-        relative select-none rounded-[8px] sm:rounded-[10px] transition-all duration-300
-        ${sizeClasses}
-        ${specialRingClasses}
-        ${className}
-      `}
-      style={style}
+      className={`relative flex flex-col justify-between bg-gradient-to-b from-[#fffdf9] to-[#f4ece0] p-1.5 select-none ${sizeClasses} ${highlightBorder}`}
     >
-      {/* Animated Aura Pulse Layer for 豹子 & 三公 */}
-      {(activeSpecial === 'BAOZI' || activeSpecial === 'SANGONG') && (
-        <div
-          className={`pointer-events-none absolute -inset-1 z-0 animate-pulse rounded-[10px] opacity-80 blur-[3px] ${
-            activeSpecial === 'BAOZI'
-              ? 'bg-gradient-to-tr from-red-600 via-amber-400 to-yellow-200'
-              : 'bg-gradient-to-tr from-purple-700 via-fuchsia-400 to-amber-300'
-          }`}
-        />
-      )}
+      {/* Top-Left Rank & Vector Suit */}
+      <div
+        className={`flex flex-col items-start leading-none ${
+          isRed ? 'text-rose-600' : 'text-slate-900'
+        }`}
+      >
+        <span className="font-mono font-black tracking-tighter tabular-nums">
+          {rankLabel}
+        </span>
+        <PokerSuitSvg suit={card.suit} className="mt-0.5 h-2.5 w-2.5" />
+      </div>
 
-      <img
-        src={cardSrc}
-        alt={isBack ? '背面' : `${card?.suit} ${card?.rank}`}
-        className="relative z-10 h-full w-full rounded-[8px] sm:rounded-[10px] object-contain drop-shadow-[0_4px_8px_rgba(0,0,0,0.5)] pointer-events-none"
-        loading="lazy"
-        draggable={false}
-      />
+      {/* Center Vector Suit Watermark */}
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-85">
+        <PokerSuitSvg suit={card.suit} className={centerIconSize} />
+      </div>
 
-      {/* Specular Metallic Shimmer Overlay for 豹子 & 三公 */}
-      {(activeSpecial === 'BAOZI' || activeSpecial === 'SANGONG') && (
-        <div
-          className={`pointer-events-none absolute inset-0 z-15 rounded-[8px] sm:rounded-[10px] mix-blend-screen ${
-            activeSpecial === 'BAOZI'
-              ? 'bg-[linear-gradient(135deg,rgba(255,235,150,0.35)_0%,transparent_45%,rgba(251,191,36,0.28)_100%)]'
-              : 'bg-[linear-gradient(135deg,rgba(244,114,182,0.32)_0%,transparent_45%,rgba(251,191,36,0.25)_100%)]'
-          }`}
-        />
-      )}
-
-      {/* Top-Left Special Hand Crest Badge (豹 / 公 / 顺) */}
-      {activeSpecial === 'BAOZI' && size !== 'xs' && (
-        <div className="pointer-events-none absolute -top-2 -left-1.5 z-30 flex h-5 w-5 items-center justify-center rounded-full border border-yellow-100 bg-gradient-to-b from-[#ffe58f] via-[#f59e0b] to-[#dc2626] text-[10px] font-black text-[#260902] shadow-[0_0_10px_rgba(245,158,11,0.9)] animate-in zoom-in-75">
-          豹
-        </div>
-      )}
-
-      {activeSpecial === 'SANGONG' && size !== 'xs' && (
-        <div className="pointer-events-none absolute -top-2 -left-1.5 z-30 flex h-5 w-5 items-center justify-center rounded-full border border-fuchsia-100 bg-gradient-to-b from-fuchsia-300 via-purple-600 to-indigo-900 text-[10px] font-black text-amber-200 shadow-[0_0_10px_rgba(217,70,239,0.9)] animate-in zoom-in-75">
-          公
-        </div>
-      )}
-
-      {/* Subtle "捞" corner badge on the 3rd drawn card */}
-      {isThirdDrawnCard && !isBack && (
-        <div className="pointer-events-none absolute -top-1.5 -right-1.5 z-30 rounded-full border border-emerald-200 bg-gradient-to-b from-emerald-400 to-teal-700 px-1.5 py-0.2 text-[9px] font-black text-white shadow">
-          捞
-        </div>
-      )}
+      {/* Bottom-Right Point Tag or 3rd Card Badge */}
+      <div className="relative z-10 flex items-center justify-end">
+        {isThirdDrawnCard ? (
+          <span className="rounded bg-emerald-600 px-1 py-0.2 text-[9px] font-black leading-none text-white">
+            捞
+          </span>
+        ) : (
+          <span className="font-mono text-[9px] font-bold leading-none text-amber-900/60 tabular-nums">
+            {card.point}点
+          </span>
+        )}
+      </div>
     </div>
   );
 };

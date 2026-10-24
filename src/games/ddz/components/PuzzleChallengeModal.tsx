@@ -3,16 +3,16 @@ import {
   Brain,
   CheckCircle2,
   ChevronRight,
-  Cpu,
   RotateCcw,
   Sparkles,
   Trophy,
   Undo2,
-  X,
 } from 'lucide-react';
 import { soundEngine } from '../../../shared/audio/SoundEngine';
 import { hapticEngine } from '../../../shared/haptics/HapticEngine';
 import { AvatarSvg } from '../../../shared/ui/AvatarSvg';
+import { CommercialModalShell } from '../../../shared/ui/CommercialModalShell';
+import { PokerSuitSvg } from '../../../shared/ui/ModalVectorIcons';
 import { CardData, Rank, Suit } from '../types';
 
 export interface PuzzleLevel {
@@ -81,7 +81,7 @@ export const PUZZLE_LEVELS: PuzzleLevel[] = [
     difficulty: '入门',
     rewardBeans: 800,
     description: '手握三张8与单A、单4，农民握有对K与单2。',
-    strategyTip: '先用三张8带4打出（农民无三张可管），再出单A即可获胜？注意留大牌控场！',
+    strategyTip: '先用三张8带4打出，再留大王控场走完单牌！',
     landlordRanks: ['big_joker', '8', '8', '8', '4', '3'],
     peasantRanks: ['2', 'K', 'K', '9'],
   },
@@ -90,8 +90,8 @@ export const PUZZLE_LEVELS: PuzzleLevel[] = [
     title: '第三关 · 拆对制胜',
     difficulty: '进阶',
     rewardBeans: 1200,
-    description: '农民握有对J与单A，地主手握对Q、单K与单5。',
-    strategyTip: '先出对Q压死农民对J，逼其过牌后，需谨防单5被管！试试先出单K逼出农民单A！',
+    description: '农民握有对J与单A，地主手握对Q、单2与单6。',
+    strategyTip: '先出对Q压制农民对J，再用单2控回先手走完单6！',
     landlordRanks: ['2', 'Q', 'Q', '6'],
     peasantRanks: ['A', 'J', 'J', '4'],
   },
@@ -101,13 +101,13 @@ export const PUZZLE_LEVELS: PuzzleLevel[] = [
     difficulty: '困难',
     rewardBeans: 2000,
     description: '地主拥有34567顺子与对A、单3，农民握有大王与对K。',
-    strategyTip: '先打34567五张顺子，农民无法压制，随后打对A压制农民对K，最后单3走完！',
+    strategyTip: '先打34567五张顺子，随后打对A压制农民对K，最后单3走完！',
     landlordRanks: ['A', 'A', '7', '6', '5', '4', '3', '3'],
     peasantRanks: ['big_joker', 'K', 'K', '8'],
   },
   {
     id: 5,
-    title: '第五关 · 棄炸保帅',
+    title: '第五关 · 弃炸保帅',
     difficulty: '宗师',
     rewardBeans: 3500,
     description: '四张9若当炸弹打会留下两张孤立小单牌，四带二单反而一锤定音！',
@@ -120,7 +120,7 @@ export const PUZZLE_LEVELS: PuzzleLevel[] = [
     title: '第六关 · 绝境逢生',
     difficulty: '绝世',
     rewardBeans: 5000,
-    description: '巅峰残局！地主既有三带又有单张，出牌次序错一步即满盘皆输。',
+    description: '地主既有三带又有单张，出牌次序错一步即满盘皆输。',
     strategyTip: '先打单J诱出农民单2，大王管上夺回先手，再打三6带4，最后对10绝杀！',
     landlordRanks: ['big_joker', 'J', '10', '10', '6', '6', '6', '4'],
     peasantRanks: ['2', 'Q', 'Q', '5'],
@@ -154,7 +154,9 @@ function classifyPuzzleMove(cards: CardData[]): PuzzleMovePattern | null {
     list.push(c);
     byVal.set(c.value, list);
   }
-  const entries = Array.from(byVal.entries()).sort((a, b) => b[1].length - a[1].length || b[0] - a[0]);
+  const entries = Array.from(byVal.entries()).sort(
+    (a, b) => b[1].length - a[1].length || b[0] - a[0]
+  );
 
   if (n === 1) {
     return {
@@ -262,122 +264,112 @@ function canPuzzleMoveBeat(
   if (!target) return true;
   if (cand.type === 'ROCKET') return true;
   if (target.type === 'ROCKET') return false;
-  if (cand.type === 'BOMB') {
-    if (target.type !== 'BOMB') return true;
-    return cand.mainValue > target.mainValue;
-  }
+  if (cand.type === 'BOMB' && target.type !== 'BOMB') return true;
   if (cand.type !== target.type || cand.length !== target.length) return false;
   return cand.mainValue > target.mainValue;
 }
 
-function generateLegalPuzzleMoves(
+function generateAllValidMoves(
   hand: CardData[],
   target: PuzzleMovePattern | null
 ): PuzzleMovePattern[] {
+  const moves: PuzzleMovePattern[] = [];
   const byVal = new Map<number, CardData[]>();
   for (const c of hand) {
-    const list = byVal.get(c.value) ?? [];
-    list.push(c);
-    byVal.set(c.value, list);
+    const arr = byVal.get(c.value) ?? [];
+    arr.push(c);
+    byVal.set(c.value, arr);
   }
   const uniqueVals = Array.from(byVal.keys()).sort((a, b) => a - b);
-  const candidates: PuzzleMovePattern[] = [];
 
-  // Singles
   for (const v of uniqueVals) {
     const m = classifyPuzzleMove([byVal.get(v)![0]]);
-    if (m && canPuzzleMoveBeat(m, target)) candidates.push(m);
+    if (m && canPuzzleMoveBeat(m, target)) moves.push(m);
   }
-
-  // Pairs
   for (const v of uniqueVals) {
-    const grp = byVal.get(v)!;
-    if (grp.length >= 2) {
-      const m = classifyPuzzleMove(grp.slice(0, 2));
-      if (m && canPuzzleMoveBeat(m, target)) candidates.push(m);
+    const arr = byVal.get(v)!;
+    if (arr.length >= 2) {
+      const m = classifyPuzzleMove(arr.slice(0, 2));
+      if (m && canPuzzleMoveBeat(m, target)) moves.push(m);
     }
   }
-
-  // Triples, Triple+1, Triple+2
   for (const v of uniqueVals) {
-    const grp = byVal.get(v)!;
-    if (grp.length >= 3) {
-      const core = grp.slice(0, 3);
-      const t = classifyPuzzleMove(core);
-      if (t && canPuzzleMoveBeat(t, target)) candidates.push(t);
-
-      for (const kv of uniqueVals) {
-        if (kv === v) continue;
-        const kGrp = byVal.get(kv)!;
-        const ts = classifyPuzzleMove([...core, kGrp[0]]);
-        if (ts && canPuzzleMoveBeat(ts, target)) candidates.push(ts);
-        if (kGrp.length >= 2) {
-          const tp = classifyPuzzleMove([...core, ...kGrp.slice(0, 2)]);
-          if (tp && canPuzzleMoveBeat(tp, target)) candidates.push(tp);
+    const arr = byVal.get(v)!;
+    if (arr.length >= 3) {
+      const triple = arr.slice(0, 3);
+      const m3 = classifyPuzzleMove(triple);
+      if (m3 && canPuzzleMoveBeat(m3, target)) moves.push(m3);
+      for (const k of uniqueVals) {
+        if (k === v) continue;
+        const m31 = classifyPuzzleMove([...triple, byVal.get(k)![0]]);
+        if (m31 && canPuzzleMoveBeat(m31, target)) moves.push(m31);
+        if (byVal.get(k)!.length >= 2) {
+          const m32 = classifyPuzzleMove([...triple, ...byVal.get(k)!.slice(0, 2)]);
+          if (m32 && canPuzzleMoveBeat(m32, target)) moves.push(m32);
         }
       }
     }
   }
-
-  // Four + Two singles & Bombs
+  const seqVals = uniqueVals.filter((v) => v <= 14);
+  for (let len = 5; len <= seqVals.length; len++) {
+    for (let i = 0; i + len <= seqVals.length; i++) {
+      let contiguous = true;
+      for (let j = 1; j < len; j++) {
+        if (seqVals[i + j] !== seqVals[i + j - 1] + 1) {
+          contiguous = false;
+          break;
+        }
+      }
+      if (contiguous) {
+        const cards = seqVals.slice(i, i + len).map((v) => byVal.get(v)![0]);
+        const ms = classifyPuzzleMove(cards);
+        if (ms && canPuzzleMoveBeat(ms, target)) moves.push(ms);
+      }
+    }
+  }
   for (const v of uniqueVals) {
-    const grp = byVal.get(v)!;
-    if (grp.length === 4) {
-      const b = classifyPuzzleMove(grp);
-      if (b && canPuzzleMoveBeat(b, target)) candidates.push(b);
-
-      const otherVals = uniqueVals.filter((ov) => ov !== v);
+    const arr = byVal.get(v)!;
+    if (arr.length === 4) {
+      const four = arr.slice(0, 4);
+      const otherVals = uniqueVals.filter((k) => k !== v);
       for (let i = 0; i < otherVals.length; i++) {
         for (let j = i + 1; j < otherVals.length; j++) {
-          const f2 = classifyPuzzleMove([
-            ...grp,
+          const m42 = classifyPuzzleMove([
+            ...four,
             byVal.get(otherVals[i])![0],
             byVal.get(otherVals[j])![0],
           ]);
-          if (f2 && canPuzzleMoveBeat(f2, target)) candidates.push(f2);
+          if (m42 && canPuzzleMoveBeat(m42, target)) moves.push(m42);
         }
       }
+      const mb = classifyPuzzleMove(four);
+      if (mb && canPuzzleMoveBeat(mb, target)) moves.push(mb);
     }
   }
-
-  // Straights (length 5..hand.length)
-  const seqVals = uniqueVals.filter((v) => v <= 14);
-  for (let len = 5; len <= seqVals.length; len++) {
-    for (let start = 0; start + len <= seqVals.length; start++) {
-      const slice = seqVals.slice(start, start + len);
-      if (slice[slice.length - 1] - slice[0] === len - 1) {
-        const cards = slice.map((v) => byVal.get(v)![0]);
-        const st = classifyPuzzleMove(cards);
-        if (st && canPuzzleMoveBeat(st, target)) candidates.push(st);
-      }
-    }
-  }
-
-  // Rocket
   if (byVal.has(16) && byVal.has(17)) {
-    const r = classifyPuzzleMove([byVal.get(16)![0], byVal.get(17)![0]]);
-    if (r && canPuzzleMoveBeat(r, target)) candidates.push(r);
+    const mr = classifyPuzzleMove([byVal.get(16)![0], byVal.get(17)![0]]);
+    if (mr && canPuzzleMoveBeat(mr, target)) moves.push(mr);
   }
+  return moves;
+}
 
-  // Order multi-card combos first to accelerate Alpha-Beta pruning
-  candidates.sort((a, b) => b.length - a.length || a.mainValue - b.mainValue);
-  return candidates;
+function removeCards(hand: CardData[], toRemove: CardData[]): CardData[] {
+  const ids = new Set(toRemove.map((c) => c.id));
+  return hand.filter((c) => !ids.has(c.id));
 }
 
 interface MinimaxResult {
   landlordWins: boolean;
-  bestMove: PuzzleMovePattern | null; // null means PASS
+  bestMove: PuzzleMovePattern | null;
   depth: number;
 }
 
-/**
- * Whitepaper v2.0 Section 1.5: Alpha-Beta / Minimax Endgame Solver with Memoization
- */
-function solveEndgameMinimax(
+function solvePuzzleMinimax(
   landlordHand: CardData[],
   peasantHand: CardData[],
   turn: 'landlord' | 'peasant',
   lastMove: PuzzleMovePattern | null,
+  lastActor: 'landlord' | 'peasant' | null,
   memo = new Map<string, MinimaxResult>(),
   depth = 0
 ): MinimaxResult {
@@ -388,120 +380,118 @@ function solveEndgameMinimax(
     return { landlordWins: false, bestMove: null, depth };
   }
   if (depth > 26) {
-    return {
-      landlordWins: landlordHand.length <= peasantHand.length,
-      bestMove: null,
-      depth,
-    };
+    return { landlordWins: false, bestMove: null, depth };
   }
 
-  const lKey = landlordHand.map((c) => c.value).join(',');
-  const pKey = peasantHand.map((c) => c.value).join(',');
-  const mKey = lastMove ? `${lastMove.type}:${lastMove.mainValue}:${lastMove.length}` : 'FREE';
-  const stateKey = `${turn}|${lKey}|${pKey}|${mKey}`;
-
+  const lKey = landlordHand.map((c) => c.rank).join(',');
+  const pKey = peasantHand.map((c) => c.rank).join(',');
+  const mKey = lastMove
+    ? `${lastMove.type}_${lastMove.mainValue}_${lastMove.length}_${lastActor}`
+    : 'lead';
+  const stateKey = `${lKey}|${pKey}|${turn}|${mKey}`;
   const cached = memo.get(stateKey);
   if (cached) return cached;
 
-  const activeHand = turn === 'landlord' ? landlordHand : peasantHand;
-  const legalMoves = generateLegalPuzzleMoves(activeHand, lastMove);
+  const isFreeLead = !lastMove || lastActor === turn;
+  const effectiveTarget = isFreeLead ? null : lastMove;
 
   if (turn === 'landlord') {
-    let bestFallback: MinimaxResult = {
-      landlordWins: false,
-      bestMove: legalMoves[0] ?? null,
-      depth: 99,
-    };
+    const candidates = generateAllValidMoves(landlordHand, effectiveTarget);
+    candidates.sort((a, b) => b.cards.length - a.cards.length || a.mainValue - b.mainValue);
 
-    for (const move of legalMoves) {
-      const usedIds = new Set(move.cards.map((c) => c.id));
-      const nextL = landlordHand.filter((c) => !usedIds.has(c.id));
-      const sub = solveEndgameMinimax(nextL, peasantHand, 'peasant', move, memo, depth + 1);
+    let fallbackMove: PuzzleMovePattern | null = candidates[0] ?? null;
+
+    for (const move of candidates) {
+      const nextL = removeCards(landlordHand, move.cards);
+      const sub = solvePuzzleMinimax(
+        nextL,
+        peasantHand,
+        'peasant',
+        move,
+        'landlord',
+        memo,
+        depth + 1
+      );
       if (sub.landlordWins) {
-        const winRes: MinimaxResult = {
-          landlordWins: true,
-          bestMove: move,
-          depth: sub.depth,
-        };
-        memo.set(stateKey, winRes);
-        return winRes;
+        const res = { landlordWins: true, bestMove: move, depth: sub.depth };
+        memo.set(stateKey, res);
+        return res;
       }
-      bestFallback = { landlordWins: false, bestMove: move, depth: sub.depth };
     }
 
-    if (lastMove !== null) {
-      const passSub = solveEndgameMinimax(
+    if (!isFreeLead) {
+      const passSub = solvePuzzleMinimax(
         landlordHand,
         peasantHand,
         'peasant',
         null,
+        'peasant',
         memo,
         depth + 1
       );
       if (passSub.landlordWins) {
-        const winPass: MinimaxResult = {
-          landlordWins: true,
-          bestMove: null,
-          depth: passSub.depth,
-        };
-        memo.set(stateKey, winPass);
-        return winPass;
+        const res = { landlordWins: true, bestMove: null, depth: passSub.depth };
+        memo.set(stateKey, res);
+        return res;
       }
     }
 
-    memo.set(stateKey, bestFallback);
-    return bestFallback;
+    const loseRes = { landlordWins: false, bestMove: fallbackMove, depth };
+    memo.set(stateKey, loseRes);
+    return loseRes;
   } else {
-    // Peasant is minimizing (seeking landlordWins === false)
-    let longestDelay: MinimaxResult = {
-      landlordWins: true,
-      bestMove: null,
-      depth: 0,
-    };
+    const candidates = generateAllValidMoves(peasantHand, effectiveTarget);
+    candidates.sort((a, b) => b.cards.length - a.cards.length || b.mainValue - a.mainValue);
 
-    for (const move of legalMoves) {
-      const usedIds = new Set(move.cards.map((c) => c.id));
-      const nextP = peasantHand.filter((c) => !usedIds.has(c.id));
-      const sub = solveEndgameMinimax(landlordHand, nextP, 'landlord', move, memo, depth + 1);
+    let bestDefenseMove: PuzzleMovePattern | null = candidates[0] ?? null;
+    let maxDepth = depth;
+
+    for (const move of candidates) {
+      const nextP = removeCards(peasantHand, move.cards);
+      const sub = solvePuzzleMinimax(
+        landlordHand,
+        nextP,
+        'landlord',
+        move,
+        'peasant',
+        memo,
+        depth + 1
+      );
       if (!sub.landlordWins) {
-        const peasantWin: MinimaxResult = {
-          landlordWins: false,
-          bestMove: move,
-          depth: sub.depth,
-        };
-        memo.set(stateKey, peasantWin);
-        return peasantWin;
+        const res = { landlordWins: false, bestMove: move, depth: sub.depth };
+        memo.set(stateKey, res);
+        return res;
       }
-      if (sub.depth >= longestDelay.depth) {
-        longestDelay = { landlordWins: true, bestMove: move, depth: sub.depth };
+      if (sub.depth > maxDepth) {
+        maxDepth = sub.depth;
+        bestDefenseMove = move;
       }
     }
 
-    if (lastMove !== null) {
-      const passSub = solveEndgameMinimax(
+    if (!isFreeLead) {
+      const passSub = solvePuzzleMinimax(
         landlordHand,
         peasantHand,
         'landlord',
         null,
+        'landlord',
         memo,
         depth + 1
       );
       if (!passSub.landlordWins) {
-        const peasantPassWin: MinimaxResult = {
-          landlordWins: false,
-          bestMove: null,
-          depth: passSub.depth,
-        };
-        memo.set(stateKey, peasantPassWin);
-        return peasantPassWin;
-      }
-      if (passSub.depth >= longestDelay.depth) {
-        longestDelay = { landlordWins: true, bestMove: null, depth: passSub.depth };
+        const res = { landlordWins: false, bestMove: null, depth: passSub.depth };
+        memo.set(stateKey, res);
+        return res;
       }
     }
 
-    memo.set(stateKey, longestDelay);
-    return longestDelay;
+    const landlordStillWins = {
+      landlordWins: true,
+      bestMove: bestDefenseMove,
+      depth: maxDepth,
+    };
+    memo.set(stateKey, landlordStillWins);
+    return landlordStillWins;
   }
 }
 
@@ -516,35 +506,43 @@ interface HistorySnapshot {
 }
 
 export interface PuzzleChallengeModalProps {
-  initialLevelIdx?: number;
   onClose: () => void;
-  onClaimReward?: (beans: number, levelTitle: string) => void;
+  onClaimReward?: () => void;
+  initialLevelIdx?: number;
 }
 
 export const PuzzleChallengeModal: React.FC<PuzzleChallengeModalProps> = ({
-  initialLevelIdx = 0,
   onClose,
   onClaimReward,
+  initialLevelIdx = 0,
 }) => {
-  const safeInitIdx = Math.max(0, Math.min(PUZZLE_LEVELS.length - 1, initialLevelIdx));
-  const [levelIdx, setLevelIdx] = useState<number>(safeInitIdx);
+  const [levelIdx, setLevelIdx] = useState(() =>
+    Math.max(0, Math.min(PUZZLE_LEVELS.length - 1, initialLevelIdx))
+  );
   const currentLevel = PUZZLE_LEVELS[levelIdx];
 
   const [landlordHand, setLandlordHand] = useState<CardData[]>(() =>
-    buildHandFromRanks(PUZZLE_LEVELS[safeInitIdx].landlordRanks, 'L')
+    buildHandFromRanks(currentLevel.landlordRanks, 'L')
   );
   const [peasantHand, setPeasantHand] = useState<CardData[]>(() =>
-    buildHandFromRanks(PUZZLE_LEVELS[safeInitIdx].peasantRanks, 'P')
+    buildHandFromRanks(currentLevel.peasantRanks, 'P')
   );
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [turn, setTurn] = useState<'landlord' | 'peasant'>('landlord');
   const [lastMove, setLastMove] = useState<PuzzleMovePattern | null>(null);
   const [lastActor, setLastActor] = useState<'landlord' | 'peasant' | null>(null);
   const [peasantStatusText, setPeasantStatusText] = useState<string>('等待地主先手出牌');
-  const [landlordStatusText, setLandlordStatusText] = useState<string>('请选择手牌出击');
-  const [history, setHistory] = useState<HistorySnapshot[]>([]);
-  const [solvedLevels, setSolvedLevels] = useState<Set<number>>(new Set());
+  const [landlordStatusText, setLandlordStatusText] = useState<string>('请选择手牌出牌');
   const [solverHintText, setSolverHintText] = useState<string | null>(null);
+  const [history, setHistory] = useState<HistorySnapshot[]>([]);
+  const [solvedLevels, setSolvedLevels] = useState<Set<number>>(() => {
+    try {
+      const saved = localStorage.getItem('ddz_solved_puzzles_v1');
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
 
   const loadLevel = (idx: number) => {
     const lv = PUZZLE_LEVELS[idx];
@@ -556,60 +554,91 @@ export const PuzzleChallengeModal: React.FC<PuzzleChallengeModalProps> = ({
     setLastMove(null);
     setLastActor(null);
     setPeasantStatusText('等待地主先手出牌');
-    setLandlordStatusText('请选择手牌出击');
-    setHistory([]);
+    setLandlordStatusText('请选择手牌出牌');
     setSolverHintText(null);
+    setHistory([]);
+    soundEngine.playTap(740);
   };
 
-  const gameResult: 'playing' | 'win' | 'lose' =
-    landlordHand.length === 0 ? 'win' : peasantHand.length === 0 ? 'lose' : 'playing';
+  const gameResult: 'playing' | 'win' | 'lose' = useMemo(() => {
+    if (landlordHand.length === 0) return 'win';
+    if (peasantHand.length === 0) return 'lose';
+    return 'playing';
+  }, [landlordHand.length, peasantHand.length]);
 
-  // Run Minimax evaluation on current state when it's Landlord's turn
-  const minimaxEval = useMemo(() => {
-    if (gameResult !== 'playing' || turn !== 'landlord') return null;
-    const effectiveTarget = lastActor === 'peasant' ? lastMove : null;
-    return solveEndgameMinimax(landlordHand, peasantHand, 'landlord', effectiveTarget);
-  }, [landlordHand, peasantHand, turn, lastMove, lastActor, gameResult]);
-
-  // Peasant AI turn execution via Minimax Solver
   useEffect(() => {
-    if (gameResult !== 'playing' || turn !== 'peasant') return;
-    const timer = setTimeout(() => {
-      const effectiveTarget = lastActor === 'landlord' ? lastMove : null;
-      const aiDecision = solveEndgameMinimax(
+    if (gameResult === 'win') {
+      soundEngine.playVictoryFanfare();
+      hapticEngine.playCard();
+      if (!solvedLevels.has(currentLevel.id)) {
+        const next = new Set(solvedLevels);
+        next.add(currentLevel.id);
+        setSolvedLevels(next);
+        try {
+          localStorage.setItem('ddz_solved_puzzles_v1', JSON.stringify(Array.from(next)));
+        } catch {
+          // ignore
+        }
+        onClaimReward?.();
+      }
+    } else if (gameResult === 'lose') {
+      soundEngine.playDefeatTone();
+    }
+  }, [gameResult, currentLevel.id, solvedLevels, onClaimReward]);
+
+  useEffect(() => {
+    if (turn !== 'peasant' || gameResult !== 'playing') return;
+    const timer = window.setTimeout(() => {
+      const memo = new Map<string, MinimaxResult>();
+      const res = solvePuzzleMinimax(
         landlordHand,
         peasantHand,
         'peasant',
-        effectiveTarget
+        lastMove,
+        lastActor,
+        memo,
+        0
       );
 
-      if (!aiDecision.bestMove) {
-        soundEngine.playTap(440);
-        setPeasantStatusText('农民：不出');
-        setLastMove(null);
-        setLastActor(null);
-        setTurn('landlord');
-      } else {
-        const move = aiDecision.bestMove;
-        const usedIds = new Set(move.cards.map((c) => c.id));
-        const nextP = peasantHand.filter((c) => !usedIds.has(c.id));
-        soundEngine.playCardPlace(false);
+      if (res.bestMove) {
+        const move = res.bestMove;
+        soundEngine.playCardPlace(true);
+        soundEngine.playDdzCardVoice(move.type, move.mainValue);
+        const nextP = removeCards(peasantHand, move.cards);
         setPeasantHand(nextP);
         setLastMove(move);
         setLastActor('peasant');
-        setPeasantStatusText(
-          `农民打出：${move.label} [${move.cards.map((c) => c.rank).join(' ')}]`
+        setPeasantStatusText(`农民打出：${move.label}`);
+        setLandlordStatusText(
+          nextP.length === 0 ? '农民已走完手牌！' : '轮到您管牌或选择不出'
         );
-        if (nextP.length === 0) {
-          soundEngine.playDefeatTone();
-        } else {
-          setTurn('landlord');
-        }
+        setTurn('landlord');
+      } else {
+        soundEngine.playDdzActionVoice('pass');
+        setPeasantStatusText('农民选择：要不起');
+        setLandlordStatusText('农民要不起 · 您获得自由先手牌权');
+        setLastMove(null);
+        setLastActor('landlord');
+        setTurn('landlord');
       }
     }, 650);
 
     return () => clearTimeout(timer);
   }, [turn, gameResult, landlordHand, peasantHand, lastMove, lastActor]);
+
+  const minimaxEval = useMemo(() => {
+    if (gameResult !== 'playing' || turn !== 'landlord') return null;
+    const memo = new Map<string, MinimaxResult>();
+    return solvePuzzleMinimax(
+      landlordHand,
+      peasantHand,
+      'landlord',
+      lastMove,
+      lastActor,
+      memo,
+      0
+    );
+  }, [landlordHand, peasantHand, turn, lastMove, lastActor, gameResult]);
 
   const handleToggleCard = (cardId: string) => {
     if (turn !== 'landlord' || gameResult !== 'playing') return;
@@ -625,24 +654,28 @@ export const PuzzleChallengeModal: React.FC<PuzzleChallengeModalProps> = ({
 
   const handlePlaySelected = () => {
     if (turn !== 'landlord' || gameResult !== 'playing') return;
-    const picked = landlordHand.filter((c) => selectedIds.has(c.id));
-    const move = classifyPuzzleMove(picked);
+    const chosen = landlordHand.filter((c) => selectedIds.has(c.id));
+    const move = classifyPuzzleMove(chosen);
     if (!move) {
-      setSolverHintText('所选牌型不符合规则，请重新点选');
+      soundEngine.playDefeatTone();
+      hapticEngine.tap();
+      setLandlordStatusText('所选牌型不合规则，请重选');
       return;
     }
 
-    const effectiveTarget = lastActor === 'peasant' ? lastMove : null;
-    if (!canPuzzleMoveBeat(move, effectiveTarget)) {
-      setSolverHintText('所选牌型无法压制农民的出牌');
+    const isFreeLead = !lastMove || lastActor === 'landlord';
+    if (!isFreeLead && !canPuzzleMoveBeat(move, lastMove)) {
+      soundEngine.playDefeatTone();
+      hapticEngine.tap();
+      setLandlordStatusText(`压制失败：必须大过农民的【${lastMove?.label}】`);
       return;
     }
 
-    setHistory((prev) => [
-      ...prev,
+    setHistory((h) => [
+      ...h,
       {
-        landlordHand: [...landlordHand],
-        peasantHand: [...peasantHand],
+        landlordHand,
+        peasantHand,
         turn,
         lastMove,
         lastActor,
@@ -651,39 +684,33 @@ export const PuzzleChallengeModal: React.FC<PuzzleChallengeModalProps> = ({
       },
     ]);
 
-    const nextL = landlordHand.filter((c) => !selectedIds.has(c.id));
     soundEngine.playCardPlace(true);
+    soundEngine.playDdzCardVoice(move.type, move.mainValue);
     hapticEngine.playCard();
+
+    const nextL = removeCards(landlordHand, chosen);
     setLandlordHand(nextL);
     setSelectedIds(new Set());
     setLastMove(move);
     setLastActor('landlord');
-    setLandlordStatusText(`已出：${move.label} [${move.cards.map((c) => c.rank).join(' ')}]`);
+    setLandlordStatusText(`您打出：${move.label}`);
     setSolverHintText(null);
-
-    if (nextL.length === 0) {
-      soundEngine.playVictoryFanfare();
-      if (!solvedLevels.has(currentLevel.id)) {
-        setSolvedLevels((prev) => new Set(prev).add(currentLevel.id));
-        onClaimReward?.(currentLevel.rewardBeans, currentLevel.title);
-      }
-    } else {
+    if (nextL.length > 0) {
+      setPeasantStatusText('农民思考应对中...');
       setTurn('peasant');
     }
   };
 
   const handlePass = () => {
     if (turn !== 'landlord' || gameResult !== 'playing') return;
-    if (lastActor !== 'peasant' || !lastMove) {
-      setSolverHintText('当前为您的自由先手回合，必须出牌');
-      return;
-    }
+    const isFreeLead = !lastMove || lastActor === 'landlord';
+    if (isFreeLead) return;
 
-    setHistory((prev) => [
-      ...prev,
+    setHistory((h) => [
+      ...h,
       {
-        landlordHand: [...landlordHand],
-        peasantHand: [...peasantHand],
+        landlordHand,
+        peasantHand,
         turn,
         lastMove,
         lastActor,
@@ -692,10 +719,10 @@ export const PuzzleChallengeModal: React.FC<PuzzleChallengeModalProps> = ({
       },
     ]);
 
-    soundEngine.playTap(480);
+    soundEngine.playDdzActionVoice('pass');
     setSelectedIds(new Set());
     setLastMove(null);
-    setLastActor(null);
+    setLastActor('peasant');
     setLandlordStatusText('地主：不出');
     setSolverHintText(null);
     setTurn('peasant');
@@ -723,22 +750,22 @@ export const PuzzleChallengeModal: React.FC<PuzzleChallengeModalProps> = ({
     hapticEngine.smartComboLock();
 
     if (!minimaxEval.landlordWins) {
-      setSolverHintText('提示：当前局面已被农民反制，建议点击「悔棋一步」修正前序出牌！');
+      setSolverHintText('当前局面已被农民反制，建议点击「悔棋」重选前序出牌');
       return;
     }
 
     if (!minimaxEval.bestMove) {
       setSelectedIds(new Set());
-      setSolverHintText('提示：本手选择「不出」蓄力，等待农民出牌后再反击！');
+      setSolverHintText('提示：本手选择「不出」让牌，等待农民出牌后再反击');
       return;
     }
 
     const ids = new Set(minimaxEval.bestMove.cards.map((c) => c.id));
     setSelectedIds(ids);
     setSolverHintText(
-      `推荐必胜解：打出 ${minimaxEval.bestMove.label} [${minimaxEval.bestMove.cards
+      `提示：打出 ${minimaxEval.bestMove.label} [${minimaxEval.bestMove.cards
         .map((c) => (c.rank === 'big_joker' ? '大王' : c.rank === 'small_joker' ? '小王' : c.rank))
-        .join(' · ')}]（预计 ${minimaxEval.depth} 步内必胜）`
+        .join(' · ')}]`
     );
   };
 
@@ -746,16 +773,6 @@ export const PuzzleChallengeModal: React.FC<PuzzleChallengeModalProps> = ({
     const selected = selectedIds.has(card.id);
     const isRed =
       card.suit === 'heart' || card.suit === 'diamond' || card.rank === 'big_joker';
-    const suitSymbol =
-      card.suit === 'spade'
-        ? '♠'
-        : card.suit === 'heart'
-          ? '♥'
-          : card.suit === 'club'
-            ? '♣'
-            : card.suit === 'diamond'
-              ? '♦'
-              : '★';
     const rankLabel =
       card.rank === 'big_joker'
         ? '大王'
@@ -769,66 +786,104 @@ export const PuzzleChallengeModal: React.FC<PuzzleChallengeModalProps> = ({
         type="button"
         disabled={!interactive}
         onClick={() => interactive && handleToggleCard(card.id)}
-        className={`relative flex h-24 w-16 flex-col justify-between rounded-xl border-2 p-2 shadow-lg transition-all ${
+        className={`relative flex h-18 w-13 shrink-0 flex-col justify-between rounded-xl border-2 p-1.5 shadow-2xs transition-all ${
           selected
-            ? '-translate-y-3 border-amber-400 bg-amber-50 ring-2 ring-amber-400/70'
-            : 'border-slate-300 bg-white hover:-translate-y-1'
+            ? '-translate-y-2 border-[#F59E0B] bg-[#FFFBEB] ring-2 ring-[#F59E0B]/35 shadow-sm'
+            : 'border-[#DFD2B8] bg-white hover:-translate-y-0.5'
         } ${interactive ? 'cursor-pointer' : 'cursor-default opacity-95'}`}
       >
         <div
-          className={`text-left font-mono text-sm font-extrabold leading-none ${
+          className={`text-left font-mono text-xs font-black leading-none ${
             isRed ? 'text-rose-600' : 'text-slate-900'
           }`}
         >
           <div>{rankLabel}</div>
-          <div className="mt-0.5 text-xs">{suitSymbol}</div>
+          <div className="mt-0.5">
+            <PokerSuitSvg
+              suit={card.suit}
+              isRedJoker={card.rank === 'big_joker'}
+              className="h-2.5 w-2.5"
+            />
+          </div>
         </div>
-        <div
-          className={`self-end text-xl leading-none ${
-            isRed ? 'text-rose-500' : 'text-slate-800'
-          }`}
-        >
-          {suitSymbol}
+        <div className="self-end">
+          <PokerSuitSvg
+            suit={card.suit}
+            isRedJoker={card.rank === 'big_joker'}
+            className="h-4 w-4"
+          />
         </div>
       </button>
     );
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md">
-      <div className="relative flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-3xl border border-amber-400/45 bg-gradient-to-b from-[#170c06] via-[#072318] to-[#04140e] text-[#FAF8F5] shadow-2xl">
-        {/* Header */}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-400/25 bg-[#120905]/90 px-5 py-3.5">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-amber-300 to-amber-600 text-[#18181B]">
-              <Brain className="h-5 w-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="font-display text-base font-extrabold text-amber-200">
-                  残局闯关 · 极小极大求解器 (Minimax Alpha-Beta Solver)
-                </h2>
-                <span className="rounded bg-emerald-500/20 px-2 py-0.5 font-mono text-[10px] font-bold text-emerald-300">
-                  白皮书 1.5 模块
-                </span>
-              </div>
-              <p className="text-xs text-emerald-200/80">
-                全明牌博弈树搜索 · 农民 AI 采用极小极大最优防守 · 支持实时必胜路径推演
-              </p>
-            </div>
+    <CommercialModalShell
+      title="残局闯关"
+      subtitle={`${currentLevel.title} · 首通奖励 +${currentLevel.rewardBeans} 积分`}
+      icon={<Brain className="h-4.5 w-4.5" />}
+      size="lg"
+      onClose={onClose}
+      footer={
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={handleUndo}
+              disabled={history.length === 0}
+              className="flex h-9 items-center gap-1 rounded-xl border border-[#D8CEB8] bg-white px-3 text-xs font-extrabold text-[#334155] hover:bg-[#FAF8F3] disabled:opacity-40 whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              <Undo2 className="h-3.5 w-3.5" />
+              <span>悔棋</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => loadLevel(levelIdx)}
+              className="flex h-9 items-center gap-1 rounded-xl border border-[#D8CEB8] bg-white px-3 text-xs font-extrabold text-[#334155] hover:bg-[#FAF8F3] whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              <span>重玩</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleMinimaxHint}
+              disabled={turn !== 'landlord' || gameResult !== 'playing'}
+              className="flex h-9 items-center gap-1 rounded-xl border border-[#0D9488]/40 bg-[#F0FDFA] px-3 text-xs font-black text-[#0F766E] hover:bg-[#CCFBF1] disabled:opacity-40 whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              <Sparkles className="h-3.5 w-3.5 text-[#0D9488]" />
+              <span>出牌提示</span>
+            </button>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-xl border border-amber-400/30 bg-white/5 p-2 text-amber-200 hover:bg-white/10"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handlePass}
+              disabled={
+                turn !== 'landlord' ||
+                gameResult !== 'playing' ||
+                lastActor !== 'peasant' ||
+                !lastMove
+              }
+              className="flex h-9 items-center justify-center rounded-xl border border-[#D8CEB8] bg-white px-5 text-xs font-black text-[#334155] hover:bg-[#FAF8F3] disabled:opacity-40 whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              不出
+            </button>
+            <button
+              type="button"
+              onClick={handlePlaySelected}
+              disabled={turn !== 'landlord' || gameResult !== 'playing' || selectedIds.size === 0}
+              className="flex h-9 min-w-[96px] items-center justify-center rounded-xl bg-gradient-to-r from-[#F59E0B] to-[#D97706] px-6 text-xs sm:text-sm font-black text-white shadow-xs hover:brightness-105 disabled:opacity-40 whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              出牌
+            </button>
+          </div>
         </div>
-
-        {/* Level Selector Bar */}
-        <div className="flex flex-wrap items-center gap-2 border-b border-emerald-500/20 bg-[#041810]/90 px-5 py-2.5">
+      }
+    >
+      <div className="space-y-2.5">
+        {/* Compact Level Selector Pills */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
           {PUZZLE_LEVELS.map((lv, idx) => {
             const active = idx === levelIdx;
             const solved = solvedLevels.has(lv.id);
@@ -837,224 +892,99 @@ export const PuzzleChallengeModal: React.FC<PuzzleChallengeModalProps> = ({
                 key={lv.id}
                 type="button"
                 onClick={() => loadLevel(idx)}
-                className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-bold transition-all ${
+                className={`flex h-8 items-center gap-1 rounded-xl border px-2.5 text-xs font-extrabold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
                   active
-                    ? 'border-amber-300 bg-amber-500/25 text-amber-200 shadow'
-                    : 'border-emerald-500/25 bg-[#062016] text-emerald-200/80 hover:border-amber-400/40'
+                    ? 'border-[#F59E0B] bg-[#FFFBEB] text-[#B45309] shadow-2xs'
+                    : 'border-[#E8E1D0] bg-white text-[#5A6572] hover:bg-[#FAF8F3] hover:text-[#1E242B]'
                 }`}
               >
-                {solved && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />}
-                <span>{lv.title}</span>
-                <span className="rounded bg-black/30 px-1.5 py-0.5 text-[10px] text-amber-300">
-                  {lv.difficulty}
-                </span>
+                {solved && <CheckCircle2 className="h-3 w-3 text-[#0D9488]" />}
+                <span>第{lv.id}关</span>
               </button>
             );
           })}
         </div>
 
-        {/* Main Puzzle Arena */}
-        <div className="flex-1 space-y-4 overflow-y-auto p-5">
-          {/* Level Brief & Real-time Minimax Status */}
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-400/30 bg-[#0b291d]/80 px-4 py-3">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-display text-sm font-extrabold text-amber-300">
-                  {currentLevel.title}
-                </span>
-                <span className="text-xs text-emerald-200/90">
-                  首通奖励：+{currentLevel.rewardBeans} 欢乐豆
-                </span>
-              </div>
-              <p className="mt-0.5 text-xs text-emerald-100/85">{currentLevel.description}</p>
+        {/* Peasant Open Hand */}
+        <div className="rounded-xl border border-[#E8E1D0] bg-white p-3 shadow-2xs">
+          <div className="mb-2 flex items-center justify-between gap-2 text-xs">
+            <div className="flex items-center gap-2">
+              <AvatarSvg
+                avatarId="kashen"
+                size={28}
+                animState={turn === 'peasant' ? 'think' : gameResult === 'lose' ? 'win' : 'idle'}
+              />
+              <span className="font-black text-[#1E242B]">
+                守关农民（余 {peasantHand.length} 张）
+              </span>
             </div>
-
-            {minimaxEval && (
-              <div
-                className={`flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-bold ${
-                  minimaxEval.landlordWins
-                    ? 'border-emerald-400/50 bg-emerald-950/90 text-emerald-200'
-                    : 'border-rose-400/50 bg-rose-950/90 text-rose-200'
-                }`}
-              >
-                <Cpu className="h-4 w-4 text-amber-400" />
-                <span>
-                  博弈树估值：
-                  {minimaxEval.landlordWins
-                    ? `地主存在必胜解（最优 ${minimaxEval.depth} 步）`
-                    : '当前走法已被农民反制（请悔棋）'}
-                </span>
-              </div>
-            )}
+            <span className="font-bold text-[#B45309]">{peasantStatusText}</span>
           </div>
-
-          {/* Peasant AI Open Hand Zone */}
-          <div className="rounded-2xl border border-emerald-400/25 bg-[#041810]/90 p-4">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2.5">
-                <AvatarSvg
-                  avatarId="kashen"
-                  size={40}
-                  animState={turn === 'peasant' ? 'think' : gameResult === 'lose' ? 'win' : 'idle'}
-                />
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-extrabold text-white">
-                      守关农民 · 陆九渊 (Alpha-Beta AI)
-                    </span>
-                    <span className="rounded bg-emerald-800 px-2 py-0.5 text-[10px] font-bold text-emerald-200">
-                      明牌防守 · 剩 {peasantHand.length} 张
-                    </span>
-                  </div>
-                  <p className="text-xs text-amber-300">{peasantStatusText}</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center justify-center gap-2 py-1">
-              {peasantHand.map((c) => renderCardButton(c, false))}
-            </div>
+          <div className="flex flex-wrap items-center justify-center gap-1.5">
+            {peasantHand.map((c) => renderCardButton(c, false))}
           </div>
+        </div>
 
-          {/* Center Trick Table Banner */}
-          <div className="flex flex-col items-center justify-center rounded-2xl border border-amber-400/25 bg-[radial-gradient(circle_at_center,rgba(16,185,129,0.22),rgba(4,24,16,0.9))] py-4 px-4 text-center">
-            {gameResult === 'win' ? (
-              <div className="space-y-2">
-                <div className="inline-flex items-center gap-2 rounded-full bg-amber-500/25 px-4 py-1 text-sm font-extrabold text-amber-300">
-                  <Trophy className="h-4 w-4" />
-                  <span>恭喜破局！地主完美获胜！</span>
-                </div>
-                <p className="text-xs text-emerald-200">
-                  您已成功破解「{currentLevel.title}」的极小极大博弈树防线！
-                </p>
-                {levelIdx + 1 < PUZZLE_LEVELS.length && (
-                  <button
-                    type="button"
-                    onClick={() => loadLevel(levelIdx + 1)}
-                    className="mt-1 inline-flex items-center gap-1 rounded-xl bg-amber-500 px-4 py-1.5 text-xs font-extrabold text-[#18181B] hover:bg-amber-400"
-                  >
-                    <span>挑战下一关</span>
-                    <ChevronRight className="h-4 w-4" />
-                  </button>
-                )}
-              </div>
-            ) : gameResult === 'lose' ? (
-              <div className="space-y-2">
-                <div className="inline-flex items-center gap-2 rounded-full bg-rose-500/25 px-4 py-1 text-sm font-extrabold text-rose-300">
-                  <span>闯关失败 · 农民率先走完手牌</span>
-                </div>
-                <p className="text-xs text-emerald-200/80">
-                  提示：{currentLevel.strategyTip}
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-1">
-                <div className="text-xs font-bold text-amber-200">
-                  {lastMove
-                    ? `当前桌面牌型：${lastActor === 'landlord' ? '地主' : '农民'} 打出 【${
-                        lastMove.label
-                      }】`
-                    : '当前桌面为空 · 自由先手出牌'}
-                </div>
-                <div className="text-[11px] text-emerald-300/85">{landlordStatusText}</div>
-              </div>
-            )}
-
-            {solverHintText && (
-              <div className="mt-2.5 rounded-xl border border-amber-400/50 bg-amber-500/15 px-3.5 py-1.5 text-xs font-semibold text-amber-200">
-                {solverHintText}
-              </div>
-            )}
-          </div>
-
-          {/* Landlord Player Hand & Controls */}
-          <div className="rounded-2xl border border-amber-400/35 bg-[#120905]/90 p-4">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2.5">
-                <AvatarSvg
-                  avatarId="noble"
-                  size={40}
-                  isLandlord={true}
-                  animState={gameResult === 'win' ? 'win' : turn === 'landlord' ? 'play' : 'idle'}
-                />
-                <div>
-                  <span className="text-sm font-extrabold text-amber-200">
-                    破局地主（您 · 剩 {landlordHand.length} 张）
-                  </span>
-                  <p className="text-xs text-emerald-300/80">
-                    破局锦囊：{currentLevel.strategyTip}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
+        {/* Center Trick Banner */}
+        <div className="flex flex-col items-center justify-center rounded-xl border border-[#DEC99A] bg-[#F5F0E4] px-3 py-2 text-center">
+          {gameResult === 'win' ? (
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <span className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-black text-[#B45309]">
+                <Trophy className="h-4 w-4 text-[#D97706]" />
+                <span>恭喜破局获胜！</span>
+              </span>
+              {levelIdx + 1 < PUZZLE_LEVELS.length && (
                 <button
                   type="button"
-                  onClick={handleUndo}
-                  disabled={history.length === 0}
-                  className="flex items-center gap-1 rounded-xl border border-emerald-400/35 bg-emerald-950 px-3 py-1.5 text-xs font-bold text-emerald-200 hover:bg-emerald-900 disabled:opacity-40"
+                  onClick={() => loadLevel(levelIdx + 1)}
+                  className="inline-flex h-7 items-center gap-1 rounded-lg bg-gradient-to-r from-[#F59E0B] to-[#D97706] px-3 text-xs font-black text-white shadow-2xs hover:brightness-105 cursor-pointer"
                 >
-                  <Undo2 className="h-3.5 w-3.5" />
-                  <span>悔棋一步</span>
+                  <span>下一关</span>
+                  <ChevronRight className="h-3.5 w-3.5" />
                 </button>
-                <button
-                  type="button"
-                  onClick={() => loadLevel(levelIdx)}
-                  className="flex items-center gap-1 rounded-xl border border-amber-400/35 bg-amber-950/70 px-3 py-1.5 text-xs font-bold text-amber-200 hover:bg-amber-900/80"
-                >
-                  <RotateCcw className="h-3.5 w-3.5" />
-                  <span>重置本关</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleMinimaxHint}
-                  disabled={turn !== 'landlord' || gameResult !== 'playing'}
-                  className="flex items-center gap-1 rounded-xl border border-sky-400/50 bg-sky-600/30 px-3.5 py-1.5 text-xs font-bold text-sky-200 hover:bg-sky-600/45 disabled:opacity-40"
-                >
-                  <Sparkles className="h-3.5 w-3.5 text-sky-300" />
-                  <span>AI 极小极大必胜提示</span>
-                </button>
-              </div>
+              )}
             </div>
+          ) : gameResult === 'lose' ? (
+            <div className="text-xs font-bold text-rose-700">
+              闯关失败 · {currentLevel.strategyTip}
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center justify-center gap-2 text-xs">
+              <span className="font-black text-[#2C1E10]">
+                {lastMove
+                  ? `${lastActor === 'landlord' ? '地主' : '农民'}打出【${lastMove.label}】`
+                  : '桌面为空 · 请先手出牌'}
+              </span>
+              <span className="text-[#5A6572]">· {solverHintText || landlordStatusText}</span>
+            </div>
+          )}
+        </div>
 
-            <div className="my-4 flex flex-wrap items-center justify-center gap-2.5">
-              {landlordHand.map((c) => renderCardButton(c, turn === 'landlord' && gameResult === 'playing'))}
+        {/* Landlord Player Hand */}
+        <div className="rounded-xl border border-[#E8E1D0] bg-white p-3 shadow-2xs">
+          <div className="mb-2 flex items-center justify-between gap-2 text-xs">
+            <div className="flex items-center gap-2">
+              <AvatarSvg
+                avatarId="noble"
+                size={28}
+                isLandlord={true}
+                animState={gameResult === 'win' ? 'win' : turn === 'landlord' ? 'play' : 'idle'}
+              />
+              <span className="font-black text-[#1E242B]">
+                破局地主（您 · 余 {landlordHand.length} 张）
+              </span>
             </div>
-
-            <div className="flex items-center justify-center gap-4 pt-1">
-              <button
-                type="button"
-                onClick={handlePass}
-                disabled={
-                  turn !== 'landlord' ||
-                  gameResult !== 'playing' ||
-                  lastActor !== 'peasant' ||
-                  !lastMove
-                }
-                className="rounded-full border border-slate-400/40 bg-slate-700 px-6 py-2 text-xs font-extrabold text-white hover:bg-slate-600 disabled:opacity-40"
-              >
-                不 出
-              </button>
-              <button
-                type="button"
-                onClick={() => setSelectedIds(new Set())}
-                disabled={selectedIds.size === 0}
-                className="rounded-full border border-emerald-400/40 bg-emerald-900/80 px-6 py-2 text-xs font-extrabold text-emerald-100 hover:bg-emerald-800 disabled:opacity-40"
-              >
-                重 选
-              </button>
-              <button
-                type="button"
-                onClick={handlePlaySelected}
-                disabled={turn !== 'landlord' || gameResult !== 'playing' || selectedIds.size === 0}
-                className="rounded-full bg-gradient-to-r from-amber-300 via-amber-500 to-orange-500 px-8 py-2 text-sm font-extrabold text-[#18181B] shadow-lg hover:brightness-105 disabled:opacity-40"
-              >
-                出 牌
-              </button>
-            </div>
+            <span className="truncate text-[11px] font-medium text-[#6E5A44]">
+              {currentLevel.description}
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+            {landlordHand.map((c) =>
+              renderCardButton(c, turn === 'landlord' && gameResult === 'playing')
+            )}
           </div>
         </div>
       </div>
-    </div>
+    </CommercialModalShell>
   );
 };

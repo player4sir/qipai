@@ -9,6 +9,7 @@ import {
   UserProfile,
 } from './hall/HallView';
 import { soundEngine } from './shared/audio/SoundEngine';
+import { gameControlHub } from './shared/control/GameControlHub';
 import { socketClient } from './shared/network/SocketClient';
 import { GameErrorBoundary } from './shared/ui/GameErrorBoundary';
 import { SharedTableHudOverlay } from './shared/ui/SharedTableHudOverlay';
@@ -777,6 +778,7 @@ export default function App() {
       return null;
     });
     savePersistedRoomState(null, null);
+    gameControlHub.resetTableScopedState();
   }, []);
 
   // Progressive idle prefetching of all 5 game table chunks & card textures
@@ -947,6 +949,10 @@ export default function App() {
 
     unsubs.push(
       socketClient.on('s2c_left_room', (data) => {
+        if (Date.now() - gameControlHub.getState().lastSwitchTimestamp < 1500) {
+          // Switching tables in place: keep active table view mounted while quick_match joins new room
+          return;
+        }
         leaveCurrentRoom();
         soundEngine.startBgm('lobby');
         if (data?.profile) {
@@ -1033,23 +1039,49 @@ export default function App() {
     isPrivate: boolean,
     autoFillBots: boolean,
     mode = 'classic',
-    gameType = 'ddz'
+    gameType = 'ddz',
+    totalRounds = 8,
+    payMode: 'host' | 'aa' | 'winner' = 'host',
+    roomId?: string
   ) => {
     soundEngine.playTap(720);
     setActiveRoomGameType(gameType);
     syncSubHallStageForGame(gameType);
+    if (roomId) {
+      setActiveRoomId(roomId);
+    }
     socketClient.emit('c2s_create_room', {
+      roomId,
       gameType,
       baseScore,
       isPrivate,
       autoFillBots,
       mode,
+      totalRounds,
+      payMode,
     });
   };
 
-  const handleJoinRoom = (roomId: string) => {
+  const handleJoinRoom = (roomId: string, gameType?: string) => {
     soundEngine.playTap(720);
-    socketClient.emit('c2s_join_room', { roomId });
+    if (gameType) {
+      setActiveRoomGameType(gameType);
+      syncSubHallStageForGame(gameType);
+    }
+    setActiveRoomId(roomId);
+    socketClient.emit('c2s_join_room', { roomId, gameType });
+  };
+
+  const handleExchangeRoomCards = (cardCount: number, beanCost = 0) => {
+    socketClient.emit('c2s_exchange_room_cards', { cardCount, beanCost });
+    setProfile((prev) =>
+      prev
+        ? {
+            ...prev,
+            roomCards: (prev.roomCards ?? 0) + cardCount,
+          }
+        : prev
+    );
   };
 
   const handleRefreshLobby = () => {
@@ -1081,6 +1113,15 @@ export default function App() {
             <SharedTableHudOverlay
               activeRoomId={activeRoomId}
               gameType={activeRoomGameType}
+              isFullscreen={isFullscreen}
+              onToggleFullscreen={handleToggleFullscreen}
+              onShowNotice={showNotice}
+              onLeaveRoom={() => {
+                leaveCurrentRoom();
+                exitUniversalFullscreen().catch(() => {});
+                soundEngine.startBgm('lobby');
+                socketClient.emit('c2s_get_lobby_data');
+              }}
             />
             {activeRoomGameType === 'mahjong' ? (
               <MahjongTableView
@@ -1161,6 +1202,7 @@ export default function App() {
             onQuickMatchLaoYanCai={handleQuickMatchLaoYanCai}
             onCreateRoom={handleCreateRoom}
             onJoinRoom={handleJoinRoom}
+            onExchangeRoomCards={handleExchangeRoomCards}
             onRefreshLobby={handleRefreshLobby}
             onClaimSupply={handleClaimSupply}
             onUpdateProfile={handleUpdateProfile}

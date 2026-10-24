@@ -25,10 +25,10 @@ export interface ClientHandDecomposition {
 }
 
 const SUIT_SYMBOLS: Record<string, string> = {
-  spade: '♠',
-  heart: '♥',
-  club: '♣',
-  diamond: '♦',
+  spade: '黑桃',
+  heart: '红桃',
+  club: '梅花',
+  diamond: '方块',
 };
 
 const VALUE_TO_LABEL: Record<number, string> = {

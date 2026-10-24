@@ -116,17 +116,13 @@ export const NiuniuPlayerSeat: React.FC<NiuniuPlayerSeatProps> = ({
           )}
         </div>
 
-        {/* Nickname & Beans Column */}
+        {/* Nickname & Score Column */}
         <div className="flex min-w-[68px] flex-col justify-center">
           <span className="max-w-[86px] truncate text-xs font-extrabold text-white">
             {nickname}
           </span>
           <div className="mt-0.5 flex items-center gap-1">
-            <img
-              src="/assets/ui/icon_douzi.png"
-              alt="豆"
-              className="h-3 w-3 shrink-0 object-contain"
-            />
+            <span className="text-[10px] font-bold text-white/65">积分</span>
             <span className="font-mono text-[11px] font-black text-amber-300 tabular-nums">
               {beans >= 100000
                 ? `${(beans / 10000).toFixed(1)}万`

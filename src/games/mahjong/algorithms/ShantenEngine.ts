@@ -1,6 +1,10 @@
 /**
  * ShantenEngine.ts
- * 商业级麻将向听数 (Shanten) 与有效进张 (Ukeire) 评估引擎 (参考 xiyoufang/mahjong)
+ * 商业级麻将含赖子向听数 (Shanten) 与有效进张 (Ukeire) 评估引擎
+ *
+ * 核心升级：
+ * 1. 纯 34 维频次向量运算 (`calculateShantenFromCounts`)：彻底隔离外部 LegacyTileId 与内部 TileIndex (0~33)，杜绝二次转换错乱
+ * 2. 原生赖子抵扣支持 (`wildcardIndex`)：在红中赖子模式下，自动提取赖子数量并动态抵扣面子/搭子/雀头与七对单张
  *
  * 定义：
  * -1 向听：已达成胡牌
@@ -13,6 +17,7 @@ import {
   createCountsVector,
   legacyIdToTileIndex,
   TileIndex,
+  tileIndexToLegacyId,
   TIAO_END,
   TIAO_START,
   TONG_END,
@@ -21,14 +26,71 @@ import {
   WAN_END,
   WAN_START,
 } from './TileEngine';
-import { evaluateHuPattern, EvaluatorOptions } from './HandEvaluator';
+import { evaluateHuFromCounts, EvaluatorOptions } from './HandEvaluator';
+
+export interface ShantenOptions {
+  allowQiDui?: boolean;
+  allowShiSanYao?: boolean;
+  wildcardIndex?: number;
+}
 
 /**
- * 递归计算常规面子向听数 (4 面子 + 1 雀头)
- * 标准向听公式：8 - 2*面子数 - 坎/搭子数 - (有对子? 1 : 0)
+ * 递归计算常规面子向听数 (4 面子 + 1 雀头)，原生支持赖子动态抵扣
  */
-function calculateStandardShanten(counts: number[], meldCount: number): number {
+function calculateStandardShantenWithWild(
+  rawCounts: number[],
+  meldCount: number,
+  wildCount = 0
+): number {
+  const counts = [...rawCounts];
   let minShanten = 8 - 2 * meldCount;
+
+  const evaluateState = (completeSets: number, partialSets: number, hasEye: boolean) => {
+    let w = wildCount;
+    let cSets = meldCount + completeSets;
+    let pSets = partialSets;
+    let eye = hasEye;
+
+    // 3 张赖子可直接构成 1 组完整面子
+    while (w >= 3 && cSets < 4) {
+      w -= 3;
+      cSets++;
+    }
+
+    // 1 张赖子可将 1 个搭子升级为完整面子
+    while (w >= 1 && pSets > 0 && cSets < 4) {
+      w--;
+      pSets--;
+      cSets++;
+    }
+
+    // 若尚无雀头且剩余 2 张赖子，可合成雀头或面子
+    if (w >= 2 && cSets < 4) {
+      w -= 2;
+      cSets++;
+    }
+
+    // 若尚无雀头且剩余 1 张赖子，可与任意孤张配成雀头
+    if (!eye && w >= 1) {
+      w--;
+      eye = true;
+    }
+
+    // 剩余 1 张赖子可与任意孤张配成搭子
+    while (w >= 1 && cSets + pSets < 4) {
+      w--;
+      pSets++;
+    }
+
+    if (cSets + pSets > 4) {
+      pSets = Math.max(0, 4 - cSets);
+    }
+
+    const currentShanten = 8 - 2 * cSets - pSets - (eye ? 1 : 0);
+    if (currentShanten < minShanten) {
+      minShanten = currentShanten;
+    }
+  };
 
   const search = (
     pos: number,
@@ -36,16 +98,8 @@ function calculateStandardShanten(counts: number[], meldCount: number): number {
     partialSets: number,
     hasEye: boolean
   ) => {
-    const totalSets = meldCount + completeSets;
-    if (totalSets + partialSets > 4) {
-      partialSets = 4 - totalSets;
-    }
-
-    const currentShanten = 8 - 2 * (meldCount + completeSets) - partialSets - (hasEye ? 1 : 0);
-    if (currentShanten < minShanten) {
-      minShanten = currentShanten;
-    }
-
+    evaluateState(completeSets, partialSets, hasEye);
+    if (minShanten <= -1) return;
     if (pos >= TOTAL_TILE_TYPES) return;
 
     if (counts[pos] === 0) {
@@ -115,7 +169,7 @@ function calculateStandardShanten(counts: number[], meldCount: number): number {
       counts[pos + 2]++;
     }
 
-    // 7. 不成面子直接跳过孤张
+    // 7. 跳过当前孤张
     search(pos + 1, completeSets, partialSets, hasEye);
   };
 
@@ -124,28 +178,35 @@ function calculateStandardShanten(counts: number[], meldCount: number): number {
 }
 
 /**
- * 计算七对向听数 (手牌总数必须为 13 或 14 张)
- * 公式：6 - 对子数 + 种类不足惩罚
+ * 计算七对向听数 (支持赖子补对与龙七对四张算两对)
  */
 function calculateQiDuiShanten(counts: number[], wildCount = 0): number {
   let pairs = 0;
-  let uniqueCount = 0;
+  let singles = 0;
 
   for (let i = 0; i < TOTAL_TILE_TYPES; i++) {
-    if (counts[i] >= 2) pairs++;
-    if (counts[i] > 0) uniqueCount++;
+    if (counts[i] === 4) {
+      pairs += 2;
+    } else if (counts[i] === 3) {
+      pairs += 1;
+      singles += 1;
+    } else if (counts[i] === 2) {
+      pairs += 1;
+    } else if (counts[i] === 1) {
+      singles += 1;
+    }
   }
 
-  let shanten = 6 - pairs - wildCount;
-  if (uniqueCount + wildCount < 7) {
-    shanten += 7 - (uniqueCount + wildCount);
-  }
-  return Math.max(-1, shanten);
+  const wildPaired = Math.min(singles, wildCount);
+  pairs += wildPaired;
+  const remWild = wildCount - wildPaired;
+  pairs += Math.floor(remWild / 2);
+
+  return Math.max(-1, 6 - pairs);
 }
 
 /**
  * 计算十三幺向听数 (国标模式专用)
- * 公式：13 - 拥有幺九种数 - (是否有幺九雀头 ? 1 : 0) - 赖子数
  */
 function calculateShiSanYaoShanten(counts: number[], wildCount = 0): number {
   const orphanIndices = [
@@ -168,18 +229,19 @@ function calculateShiSanYaoShanten(counts: number[], wildCount = 0): number {
 }
 
 /**
- * 直接基于 34 维频次向量 counts[34] 综合评估向听数（零二次 ID 转换）
+ * 直接在 34 维频次向量 counts[34] 上计算向听数（零二次 ID 转换）
  */
 export function calculateShantenFromCounts(
-  rawCounts: number[],
+  rawCounts34: number[],
   meldCount = 0,
-  options: { allowQiDui?: boolean; allowShiSanYao?: boolean; wildcardIndex?: number } = {}
+  options: ShantenOptions = {}
 ): number {
-  const counts = [...rawCounts];
-  let total = meldCount * 3;
+  const counts = [...rawCounts34];
+  let handTileCount = 0;
   for (let i = 0; i < TOTAL_TILE_TYPES; i++) {
-    total += counts[i] || 0;
+    handTileCount += counts[i] || 0;
   }
+  const total = handTileCount + meldCount * 3;
 
   let wildCount = 0;
   if (
@@ -191,8 +253,8 @@ export function calculateShantenFromCounts(
     counts[options.wildcardIndex] = 0;
   }
 
-  // 1. 常规标准型向听数 (每张赖子可减少 1 向听)
-  let minShanten = Math.max(-1, calculateStandardShanten(counts, meldCount) - wildCount);
+  // 1. 常规标准型向听数
+  let minShanten = calculateStandardShantenWithWild(counts, meldCount, wildCount);
 
   // 2. 门清七对向听数
   if (options.allowQiDui && meldCount === 0 && (total === 13 || total === 14)) {
@@ -214,12 +276,12 @@ export function calculateShantenFromCounts(
 }
 
 /**
- * 综合评估手牌向听数
+ * 综合评估手牌向听数 (接收外部十进制牌 ID 数组，单次转换至 counts[34])
  */
 export function calculateShanten(
-  handTiles: TileIndex[],
+  handTiles: number[],
   meldCount = 0,
-  options: { allowQiDui?: boolean; allowShiSanYao?: boolean; wildcardIndex?: number } = {}
+  options: ShantenOptions = {}
 ): number {
   const counts = createCountsVector(handTiles);
   return calculateShantenFromCounts(counts, meldCount, options);
@@ -229,47 +291,59 @@ export function calculateShanten(
  * 听牌待牌与有效进张分析结果
  */
 export interface TingWaitInfo {
-  waitTile: TileIndex; // 能胡的待牌 (0..33)
+  waitTile: TileIndex; // 能胡的待牌 (0~33 索引)
+  waitTileId: number; // 能胡的待牌 (十进制协议 ID)
   remainingCount: number; // 全桌未现剩余张数 (0 ~ 4)
   fan: number; // 预期胡牌基础番数
   fanNames: string[]; // 番型明细
 }
 
 export interface DiscardTingRecommendation {
-  discardTile: TileIndex; // 建议打出的牌
+  discardTile: TileIndex; // 建议打出的牌 (0~33 索引)
+  discardTileId: number; // 建议打出的牌 (十进制协议 ID)
   shantenAfterDiscard: number; // 打出后的向听数 (0 代表成功听牌)
   waits: TingWaitInfo[]; // 能胡的待牌列表
   totalRemainingWaits: number; // 所有待牌的全桌剩余张数总和
 }
 
 /**
- * 听牌分析器 (针对 13 张手牌或 14 张摸牌打牌阶段)
+ * 听牌分析器 (全部在 counts[34] 空间内运算，彻底修复原先将 0~33 混入 handTiles 导致的二次转换错乱)
  */
 export function analyzeTingWaits(
-  handTiles: TileIndex[],
+  handTiles: number[],
   visibleCounts: number[],
   evalOptions: EvaluatorOptions = {}
 ): DiscardTingRecommendation[] {
   const total = handTiles.length;
+  const baseCounts = createCountsVector(handTiles);
   const recommendations: DiscardTingRecommendation[] = [];
 
+  // 情况 A: 已经处于 13 张 (3N + 1) 手牌状态
   if ((total - 1) % 3 === 0) {
     const waits: TingWaitInfo[] = [];
     let totalRemaining = 0;
 
     for (let w = 0; w < TOTAL_TILE_TYPES; w++) {
-      const testHand = [...handTiles, w];
-      const res = evaluateHuPattern(testHand, evalOptions);
+      baseCounts[w]++;
+      const res = evaluateHuFromCounts(baseCounts, evalOptions);
+      baseCounts[w]--;
+
       if (res.canHu) {
+        const inHand = baseCounts[w] || 0;
         const visible = visibleCounts[w] || 0;
-        const remain = Math.max(0, 4 - visible);
+        const remain = Math.max(0, 4 - inHand - visible);
         totalRemaining += remain;
         waits.push({
           waitTile: w,
+          waitTileId: tileIndexToLegacyId(w),
           remainingCount: remain,
           fan: 1,
           fanNames: [
-            res.huPattern === 'qidui' ? '七对' : res.huPattern === 'shisanyao' ? '十三幺' : '平胡',
+            res.huPattern === 'qidui'
+              ? '七对'
+              : res.huPattern === 'shisanyao'
+              ? '十三幺'
+              : '平胡',
           ],
         });
       }
@@ -278,6 +352,7 @@ export function analyzeTingWaits(
     if (waits.length > 0) {
       recommendations.push({
         discardTile: -1,
+        discardTileId: -1,
         shantenAfterDiscard: 0,
         waits,
         totalRemainingWaits: totalRemaining,
@@ -286,44 +361,47 @@ export function analyzeTingWaits(
     return recommendations;
   }
 
-  const uniqueDiscards = Array.from(new Set(handTiles.map((t) => legacyIdToTileIndex(t))));
+  // 情况 B: 摸牌后手握 14 张 (3N + 2) 手牌，在 counts[34] 上遍历打出每种有余量的牌 d
+  for (let d = 0; d < TOTAL_TILE_TYPES; d++) {
+    if (baseCounts[d] <= 0) continue;
+    if (evalOptions.wildcardIndex !== undefined && d === evalOptions.wildcardIndex) continue;
 
-  for (const d of uniqueDiscards) {
-    const idx = handTiles.findIndex((t) => legacyIdToTileIndex(t) === d);
-    if (idx === -1) continue;
-
-    const remainingHand = [...handTiles];
-    remainingHand.splice(idx, 1);
-
+    baseCounts[d]--;
     const waits: TingWaitInfo[] = [];
     let totalRemaining = 0;
 
     for (let w = 0; w < TOTAL_TILE_TYPES; w++) {
-      const testHand = [...remainingHand, w];
-      const res = evaluateHuPattern(testHand, evalOptions);
+      baseCounts[w]++;
+      const res = evaluateHuFromCounts(baseCounts, evalOptions);
+      baseCounts[w]--;
+
       if (res.canHu) {
-        let inHandCount = 0;
-        for (const t of remainingHand) {
-          if (legacyIdToTileIndex(t) === w) inHandCount++;
-        }
+        const inHandCount = baseCounts[w] || 0;
         const visibleOnTable = visibleCounts[w] || 0;
         const remain = Math.max(0, 4 - (visibleOnTable + inHandCount));
 
         totalRemaining += remain;
         waits.push({
           waitTile: w,
+          waitTileId: tileIndexToLegacyId(w),
           remainingCount: remain,
           fan: 1,
           fanNames: [
-            res.huPattern === 'qidui' ? '七对' : res.huPattern === 'shisanyao' ? '十三幺' : '平胡',
+            res.huPattern === 'qidui'
+              ? '七对'
+              : res.huPattern === 'shisanyao'
+              ? '十三幺'
+              : '平胡',
           ],
         });
       }
     }
+    baseCounts[d]++;
 
     if (waits.length > 0) {
       recommendations.push({
         discardTile: d,
+        discardTileId: tileIndexToLegacyId(d),
         shantenAfterDiscard: 0,
         waits,
         totalRemainingWaits: totalRemaining,

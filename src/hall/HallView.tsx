@@ -18,16 +18,19 @@ import { DdzArenaGrid } from './components/DdzArenaGrid';
 import { MahjongArenaGrid } from './components/MahjongArenaGrid';
 import { NiuniuArenaGrid } from './components/NiuniuArenaGrid';
 import { ZjhArenaGrid } from './components/ZjhArenaGrid';
-import { LaoYanCaiArenaGrid } from './components/LaoYanCaiArenaGrid';
 import { CommercialTierCardSpec } from './components/TierCard';
-import { InsufficientBeansModal } from './components/modals/InsufficientBeansModal';
-import { FriendRoomModal } from './components/modals/FriendRoomModal';
+import { FriendRoomModal, CreateRoomCardOptions } from './components/modals/FriendRoomModal';
+import { RoomCardCenterModal } from './components/modals/RoomCardCenterModal';
 import { DailySignInModal } from './components/modals/DailySignInModal';
 import { LeaderboardModal } from './components/modals/LeaderboardModal';
 import { MatchRecordsModal } from './components/modals/MatchRecordsModal';
 import { PublicRoomsModal } from './components/modals/PublicRoomsModal';
 import { ProfileEditorModal } from './components/modals/ProfileEditorModal';
 import { SettingsModal } from './components/modals/SettingsModal';
+import {
+  RoomCardGameType,
+  useRoomCardSession,
+} from '../shared/control/RoomCardSessionHub';
 import type { ViewportMetrics } from '../App';
 
 export interface UserProfile {
@@ -96,41 +99,16 @@ export interface HallViewProps {
     isPrivate: boolean,
     autoFillBots: boolean,
     mode?: string,
-    gameType?: string
+    gameType?: string,
+    totalRounds?: number,
+    payMode?: 'host' | 'aa' | 'winner',
+    roomId?: string
   ) => void;
-  onJoinRoom: (roomId: string) => void;
+  onJoinRoom: (roomId: string, gameType?: string) => void;
+  onExchangeRoomCards?: (cardCount: number, beanCost: number) => void;
   onRefreshLobby: () => void;
   onClaimSupply: () => void;
   onUpdateProfile: (nickname: string, avatarId: string) => void;
-}
-
-export type PortalStageType =
-  | 'main_portal'
-  | 'ddz_subhall'
-  | 'mahjong_subhall'
-  | 'niuniu_subhall'
-  | 'zhajinhua_subhall'
-  | 'laoyancai_subhall';
-
-const PORTAL_STAGE_STORAGE_KEY = 'h5_game_portal_stage';
-
-function loadPersistedPortalStage(): PortalStageType {
-  if (typeof window === 'undefined') return 'main_portal';
-  try {
-    const raw = localStorage.getItem(PORTAL_STAGE_STORAGE_KEY) as PortalStageType | null;
-    if (
-      raw === 'ddz_subhall' ||
-      raw === 'mahjong_subhall' ||
-      raw === 'niuniu_subhall' ||
-      raw === 'zhajinhua_subhall' ||
-      raw === 'laoyancai_subhall'
-    ) {
-      return raw;
-    }
-  } catch {
-    // Ignore storage error
-  }
-  return 'main_portal';
 }
 
 export type DdzArenaMode = 'classic' | 'tiandi_laizi' | 'no_shuffle' | 'puzzle';
@@ -152,10 +130,12 @@ export const HallView: React.FC<HallViewProps> = ({
   onQuickMatchLaoYanCai,
   onCreateRoom,
   onJoinRoom,
+  onExchangeRoomCards,
   onRefreshLobby,
   onClaimSupply,
   onUpdateProfile,
 }) => {
+  const { balance: roomCardBalance } = useRoomCardSession();
   const isMobileLandscape = useMemo(() => {
     if (viewport) {
       return viewport.tier !== 'tablet_desktop' && viewport.aspectRatio > 1.25;
@@ -165,24 +145,14 @@ export const HallView: React.FC<HallViewProps> = ({
     }
     return false;
   }, [viewport]);
-  const [portalStage, setPortalStage] = useState<PortalStageType>(() =>
-    loadPersistedPortalStage()
-  );
+  const [portalStage, setPortalStage] = useState<'main_portal' | 'ddz_subhall' | 'mahjong_subhall' | 'niuniu_subhall' | 'zhajinhua_subhall'>('main_portal');
   const [ddzArenaMode, setDdzArenaMode] = useState<DdzArenaMode>('classic');
-  const [selectedBaseScore, setSelectedBaseScore] = useState<number>(100);
+  const [, setSelectedBaseScore] = useState<number>(100);
   const [selectedDealMode, setSelectedDealMode] = useState<DealMode>('classic');
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(PORTAL_STAGE_STORAGE_KEY, portalStage);
-    } catch {
-      // Ignore storage error
-    }
-  }, [portalStage]);
-
   // Modals state
-  const [insufficientTier, setInsufficientTier] = useState<RoomTierConfig | null>(null);
   const [showFriendRoomModal, setShowFriendRoomModal] = useState<boolean>(false);
+  const [showRoomCardCenterModal, setShowRoomCardCenterModal] = useState<boolean>(false);
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
   const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
   const [platformModal, setPlatformModal] = useState<PlatformModalType>(null);
@@ -190,24 +160,22 @@ export const HallView: React.FC<HallViewProps> = ({
   const [puzzleInitLevelIdx, setPuzzleInitLevelIdx] = useState<number>(0);
   const [activeReplay, setActiveReplay] = useState<MatchReplayRecord | null>(null);
   const [loadingReplayId, setLoadingReplayId] = useState<string | null>(null);
-
-  // Extras
-  const [bonusRoomCards, setBonusRoomCards] = useState<number>(() => {
-    try {
-      return Number(localStorage.getItem('h5_bonus_room_cards') || '0') || 0;
-    } catch {
-      return 0;
-    }
-  });
   const [roomCardToast, setRoomCardToast] = useState<string | null>(null);
 
   useEffect(() => {
     soundEngine.startBgm('lobby');
   }, []);
 
-  const myBeans = profile?.beans ?? 12000;
-  const myRoomCards = (profile?.roomCards ?? 28) + bonusRoomCards;
-  const isBankruptAlert = myBeans < 3000;
+  const myBeans = profile?.beans ?? 0;
+  const myRoomCards = roomCardBalance;
+  const isBankruptAlert = false;
+
+  const currentDefaultGameType: RoomCardGameType = useMemo(() => {
+    if (portalStage === 'mahjong_subhall') return 'mahjong';
+    if (portalStage === 'niuniu_subhall') return 'niuniu';
+    if (portalStage === 'zhajinhua_subhall') return 'zhajinhua';
+    return 'ddz';
+  }, [portalStage]);
 
   const displayNumericId = useMemo(() => {
     const raw = profile?.playerId ?? '';
@@ -220,12 +188,7 @@ export const HallView: React.FC<HallViewProps> = ({
     return String(100000 + Math.abs(hash || 768924));
   }, [profile?.playerId]);
 
-  const recommendedTier = useMemo(() => {
-    return (
-      [...ROOM_TIER_CONFIGS].reverse().find((t) => myBeans >= t.minBeans) ??
-      ROOM_TIER_CONFIGS[0]
-    );
-  }, [myBeans]);
+  const recommendedTier = ROOM_TIER_CONFIGS[0];
 
   const showToastMessage = (msg: string) => {
     setRoomCardToast(msg);
@@ -233,18 +196,9 @@ export const HallView: React.FC<HallViewProps> = ({
   };
 
   const handleClaimRoomCards = () => {
-    soundEngine.playPowerChime(2);
+    soundEngine.playTap(760);
     hapticEngine.tap();
-    setBonusRoomCards((prev) => {
-      const next = prev + 5;
-      try {
-        localStorage.setItem('h5_bonus_room_cards', String(next));
-      } catch {
-        // Ignore storage error
-      }
-      return next;
-    });
-    showToastMessage('已免费补充 +5 张好友房卡');
+    setShowRoomCardCenterModal(true);
   };
 
   const handleOpenMatchReplay = async (match: MatchRecord) => {
@@ -275,12 +229,6 @@ export const HallView: React.FC<HallViewProps> = ({
       hapticEngine.playCard();
       setPuzzleInitLevelIdx(spec.puzzleLevelIdx);
       setShowPuzzleModal(true);
-      return;
-    }
-
-    if (myBeans < tierCfg.minBeans) {
-      soundEngine.playTap(580);
-      setInsufficientTier(tierCfg);
       return;
     }
 
@@ -326,7 +274,6 @@ export const HallView: React.FC<HallViewProps> = ({
         profile={profile}
         displayNumericId={displayNumericId}
         isMainPortal={isMainPortal}
-        portalStage={portalStage}
         myBeans={myBeans}
         myRoomCards={myRoomCards}
         isBankruptAlert={isBankruptAlert}
@@ -336,9 +283,9 @@ export const HallView: React.FC<HallViewProps> = ({
         onBackToPortal={() => setPortalStage('main_portal')}
         onOpenProfile={() => setShowProfileModal(true)}
         onClaimRoomCards={handleClaimRoomCards}
+        onOpenFriendRoom={() => setShowFriendRoomModal(true)}
         onClaimSupply={onClaimSupply}
         onOpenSettings={() => setShowSettingsModal(true)}
-        onOpenFriendRoom={() => setShowFriendRoomModal(true)}
         onCopyIdSuccess={(copiedId) => showToastMessage(`已复制玩家 ID: ${copiedId}`)}
       />
 
@@ -380,10 +327,6 @@ export const HallView: React.FC<HallViewProps> = ({
               onEnterZjhHall={() => {
                 soundEngine.playCardPlace(true);
                 setPortalStage('zhajinhua_subhall');
-              }}
-              onEnterLaoYanCaiHall={() => {
-                soundEngine.playCardPlace(true);
-                setPortalStage('laoyancai_subhall');
               }}
               onQuickStartDdz={handleQuickStart}
               onQuickStartMahjong={() => onQuickMatchMahjong?.(100)}
@@ -445,18 +388,7 @@ export const HallView: React.FC<HallViewProps> = ({
                 hapticEngine.playCard();
                 onQuickMatchMahjong?.(baseScore || 100, mode);
               }}
-              onInsufficientBeans={(tier) => {
-                setInsufficientTier({
-                  tier: 'primary',
-                  name: tier.title,
-                  badge: '麻将',
-                  baseScore: tier.baseScore,
-                  minBeans: tier.minBeans,
-                  maxMultiplier: 64,
-                  fee: 0,
-                  accentColor: 'from-emerald-500 to-teal-700',
-                });
-              }}
+              onInsufficientBeans={() => {}}
             />
           </div>
         )}
@@ -477,18 +409,7 @@ export const HallView: React.FC<HallViewProps> = ({
                 hapticEngine.playCard();
                 onQuickMatchNiuniu?.(baseScore || 100, mode);
               }}
-              onInsufficientBeans={(tier) => {
-                setInsufficientTier({
-                  tier: 'primary',
-                  name: tier.title,
-                  badge: '斗牛',
-                  baseScore: tier.baseScore,
-                  minBeans: tier.minBeans,
-                  maxMultiplier: 100,
-                  fee: 0,
-                  accentColor: 'from-amber-600 to-red-700',
-                });
-              }}
+              onInsufficientBeans={() => {}}
             />
           </div>
         )}
@@ -509,50 +430,7 @@ export const HallView: React.FC<HallViewProps> = ({
                 hapticEngine.playCard();
                 onQuickMatchZhajinhua?.(baseScore, mode);
               }}
-              onInsufficientBeans={(tier) => {
-                setInsufficientTier({
-                  tier: 'primary',
-                  name: tier.name,
-                  badge: '金花',
-                  baseScore: tier.baseScore,
-                  minBeans: tier.minBeans,
-                  maxMultiplier: 20,
-                  fee: 0,
-                  accentColor: 'from-amber-500 to-rose-700',
-                });
-              }}
-            />
-          </div>
-        )}
-
-        {/* STAGE F: LAO YAN CAI ARENA SUB-HALL */}
-        {portalStage === 'laoyancai_subhall' && (
-          <div className="relative flex h-full min-h-0 w-full flex-1 flex-col justify-between overflow-hidden animate-in fade-in zoom-in-[0.99] duration-200">
-            <LaoYanCaiArenaGrid
-              myBeans={myBeans}
-              isMobileLandscape={isMobileLandscape}
-              onSelectTier={(baseScore, mode) => {
-                soundEngine.playCardPlace(true);
-                hapticEngine.playCard();
-                onQuickMatchLaoYanCai?.(baseScore, mode);
-              }}
-              onQuickStart={(baseScore, mode) => {
-                soundEngine.playCardPlace(true);
-                hapticEngine.playCard();
-                onQuickMatchLaoYanCai?.(baseScore || 100, mode || 'kunming');
-              }}
-              onInsufficientBeans={(tier) => {
-                setInsufficientTier({
-                  tier: 'primary',
-                  name: tier.title,
-                  badge: '捞腌菜',
-                  baseScore: tier.baseScore,
-                  minBeans: tier.minBeans,
-                  maxMultiplier: 120,
-                  fee: 0,
-                  accentColor: 'from-emerald-500 to-amber-600',
-                });
-              }}
+              onInsufficientBeans={() => {}}
             />
           </div>
         )}
@@ -576,40 +454,51 @@ export const HallView: React.FC<HallViewProps> = ({
       )}
 
       {/* Modals */}
-      {insufficientTier && (
-        <InsufficientBeansModal
-          targetTier={insufficientTier}
-          recommendedTier={recommendedTier}
-          currentBeans={myBeans}
-          onClose={() => setInsufficientTier(null)}
-          onClaimSupply={onClaimSupply}
-          onEnterRecommendedTier={() => {
-            const modeToEnter: DealMode = ddzArenaMode === 'puzzle' ? 'classic' : ddzArenaMode;
-            setSelectedDealMode(modeToEnter);
-            setSelectedBaseScore(recommendedTier.baseScore);
-            onQuickMatch(recommendedTier.baseScore, true, modeToEnter);
+      {showFriendRoomModal && (
+        <FriendRoomModal
+          open={showFriendRoomModal}
+          initialGameType={currentDefaultGameType}
+          roomCards={myRoomCards}
+          rooms={rooms}
+          hostId={profile?.playerId || 'local_host'}
+          hostName={profile?.nickname || '本家牌手'}
+          onClose={() => setShowFriendRoomModal(false)}
+          onJoinRoom={(roomId, gameType) => {
+            setShowFriendRoomModal(false);
+            onJoinRoom(roomId, gameType);
+          }}
+          onCreateRoom={(opts: CreateRoomCardOptions) => {
+            setShowFriendRoomModal(false);
+            onCreateRoom(
+              opts.baseScore,
+              true,
+              opts.autoFillBots,
+              opts.subMode,
+              opts.gameType,
+              opts.totalRounds,
+              opts.payMode,
+              opts.roomId
+            );
+          }}
+          onOpenRoomCardCenter={() => {
+            setShowFriendRoomModal(false);
+            setShowRoomCardCenterModal(true);
           }}
         />
       )}
 
-      {showFriendRoomModal && (
-        <FriendRoomModal
-          onClose={() => setShowFriendRoomModal(false)}
-          onJoinRoom={onJoinRoom}
-          onCreateRoom={onCreateRoom}
-          initialGameType={
-            portalStage === 'mahjong_subhall'
-              ? 'mahjong'
-              : portalStage === 'niuniu_subhall'
-              ? 'niuniu'
-              : portalStage === 'zhajinhua_subhall'
-              ? 'zhajinhua'
-              : portalStage === 'laoyancai_subhall'
-              ? 'laoyancai'
-              : 'ddz'
-          }
-          initialMode={selectedDealMode}
-          initialBaseScore={selectedBaseScore}
+      {showRoomCardCenterModal && (
+        <RoomCardCenterModal
+          open={showRoomCardCenterModal}
+          onClose={() => setShowRoomCardCenterModal(false)}
+          onClaimPack={(cardCount) => {
+            onExchangeRoomCards?.(cardCount, 0);
+            showToastMessage(`已补充 ${cardCount} 张通用约局房卡`);
+          }}
+          onOpenFriendRoom={() => {
+            setShowRoomCardCenterModal(false);
+            setShowFriendRoomModal(true);
+          }}
         />
       )}
 

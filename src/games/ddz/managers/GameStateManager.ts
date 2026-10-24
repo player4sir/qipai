@@ -605,13 +605,13 @@ export class GameStateManager {
 
         if (factor === 4) {
           soundEngine.playPowerChime(4);
-          soundEngine.playDdzActionVoice('chaojijiabei');
+          soundEngine.playDdzActionVoice('chaojijiabei', data.seatIndex, this.state.mySeat);
         } else if (factor === 2) {
           soundEngine.playPowerChime(2);
-          soundEngine.playDdzActionVoice('jiabei');
+          soundEngine.playDdzActionVoice('jiabei', data.seatIndex, this.state.mySeat);
         } else {
           soundEngine.playTap(480);
-          soundEngine.playDdzActionVoice('bujiabei');
+          soundEngine.playDdzActionVoice('bujiabei', data.seatIndex, this.state.mySeat);
         }
       })
     );
@@ -678,7 +678,7 @@ export class GameStateManager {
             wildRanks: this.state.wildRanks,
           });
           this.scene.showSeatAction(rel, { type: 'pass' });
-          soundEngine.playDdzActionVoice('pass');
+          soundEngine.playDdzActionVoice('pass', data.seatIndex, this.state.mySeat);
         } else {
           const rawCards = (data.cards as CardData[]) || [];
           const patternType = String(data.pattern);
@@ -762,11 +762,11 @@ export class GameStateManager {
           ].includes(patternType);
 
           if (!isHeavySpecial) {
-            soundEngine.playDdzSfx('discard');
+            soundEngine.playDdzSfx('discard', data.seatIndex, this.state.mySeat);
           }
 
           // Play card voice first so any subsequent low-card alert (baojing1/2) queues cleanly behind it
-          soundEngine.playDdzCardVoice(patternType, mainVal);
+          soundEngine.playDdzCardVoice(patternType, mainVal, data.seatIndex, this.state.mySeat);
 
           if (rel !== 'bottom') {
             this.syncOpponentCountsFromMap(data.othersCount);

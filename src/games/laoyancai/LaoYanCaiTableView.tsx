@@ -10,10 +10,16 @@ import {
 } from 'lucide-react';
 import { ViewportMetrics } from '../../App';
 import { soundEngine } from '../../shared/audio/SoundEngine';
+import {
+  gameControlHub,
+  useGameControlState,
+} from '../../shared/control/GameControlHub';
+import { roomCardSessionHub } from '../../shared/control/RoomCardSessionHub';
 import { hapticEngine } from '../../shared/haptics/HapticEngine';
 import { socketClient } from '../../shared/network/SocketClient';
 import { effectCoordinator, EffectPriority } from '../../shared/EffectCoordinator';
 import { AutoLandscapeContainer } from '../../shared/components/AutoLandscapeContainer';
+import { CommercialModalShell } from '../../shared/ui/CommercialModalShell';
 import {
   LaoYanCaiCard,
   LaoYanCaiDecision,
@@ -79,6 +85,7 @@ export const LaoYanCaiTableView: React.FC<LaoYanCaiTableViewProps> = ({
   onToggleFullscreen,
   onLeaveRoom,
 }) => {
+  const controlState = useGameControlState();
   const [snapshot, setSnapshot] = useState<LaoYanCaiTableSnapshot | null>(null);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(() =>
     soundEngine.isEnabled()
@@ -98,6 +105,7 @@ export const LaoYanCaiTableView: React.FC<LaoYanCaiTableViewProps> = ({
   );
   const localDeckRef = useRef<LaoYanCaiCard[]>([]);
   const localFullHandsRef = useRef<LaoYanCaiCard[][]>([]);
+  const prevSwitchSeqRef = useRef<number>(controlState.switchTableSeq);
 
   const clearCeremonyTimers = useCallback(() => {
     for (const t of ceremonyTimersRef.current) {
@@ -256,9 +264,10 @@ export const LaoYanCaiTableView: React.FC<LaoYanCaiTableViewProps> = ({
         },
       ];
 
+      const activeSessionConfig = roomCardSessionHub.getStore().activeSession?.config;
       setLocalSnapshot({
-        roomId: '886699',
-        baseScore: 100,
+        roomId: activeSessionConfig?.roomId || '100001',
+        baseScore: activeSessionConfig?.baseScore || 100,
         playMode: 'kunming',
         phase: 'CALL_BANKER',
         countdown: 6,
@@ -355,13 +364,13 @@ export const LaoYanCaiTableView: React.FC<LaoYanCaiTableViewProps> = ({
       });
 
       if (category === 'BAOZI') {
-        soundEngine.playLaoYanCaiBaoziSfx();
+        soundEngine.playLaoYanCaiBaoziSfx(selfPlayer.seatIndex);
         soundEngine.speak(
           `${selfHandResult.name}，${selfHandResult.multiplier}倍暴击！`,
           'epic'
         );
       } else {
-        soundEngine.playLaoYanCaiSanGongSfx();
+        soundEngine.playLaoYanCaiSanGongSfx(selfPlayer.seatIndex);
         soundEngine.speak(
           `三公驾到，${selfHandResult.multiplier}倍翻番！`,
           'epic'
@@ -404,6 +413,7 @@ export const LaoYanCaiTableView: React.FC<LaoYanCaiTableViewProps> = ({
       multiplier: number;
       nickname?: string;
       isWinner?: boolean;
+      seatIndex?: number;
     }> = [];
 
     const visualCeremonies: SpecialHandCeremonyItem[] = [];
@@ -432,6 +442,7 @@ export const LaoYanCaiTableView: React.FC<LaoYanCaiTableViewProps> = ({
           multiplier: res.multiplier,
           nickname: s.nickname,
           isWinner: (s.scoreDelta ?? 0) > 0,
+          seatIndex: s.seatIndex,
         });
       }
 
@@ -803,6 +814,89 @@ export const LaoYanCaiTableView: React.FC<LaoYanCaiTableViewProps> = ({
   const countdown = activeSnapshot?.countdown ?? 0;
   const remainingDeckCount = activeSnapshot?.remainingDeckCount ?? 42;
 
+  // React to Quick Switch Table from SharedTableHudOverlay
+  useEffect(() => {
+    if (controlState.switchTableSeq === prevSwitchSeqRef.current) return;
+    prevSwitchSeqRef.current = controlState.switchTableSeq;
+    clearCeremonyTimers();
+    setActiveCeremony(null);
+    if (!snapshot) {
+      startLocalSimulatedRound();
+    }
+  }, [controlState.switchTableSeq, snapshot, clearCeremonyTimers, startLocalSimulatedRound]);
+
+  // Yunnan LaoYanCai Draw-Odds Smart Trusteeship & Auto-Next-Round Engine
+  useEffect(() => {
+    if (!activeSnapshot || !selfPlayer) return;
+
+    if (
+      phase === 'ROUND_RESULT' &&
+      (controlState.autoNextRound || controlState.isTrusteeship)
+    ) {
+      const nextTimer = window.setTimeout(() => {
+        handleReady();
+      }, gameControlHub.scaleDelay(2500));
+      return () => window.clearTimeout(nextTimer);
+    }
+
+    if (!controlState.isTrusteeship) return;
+
+    const delayMs = gameControlHub.scaleDelay(680);
+    const timer = window.setTimeout(() => {
+      const pts = selfHandResult?.points ?? 0;
+      const canZha = Boolean(selfHandResult?.canZhaKai);
+
+      if (phase === 'CALL_BANKER' && selfPlayer.callMultiplier < 0) {
+        const call = canZha ? 3 : pts >= 7 ? 2 : pts >= 5 ? 1 : 0;
+        handleCallBanker(call);
+      } else if (
+        phase === 'BETTING' &&
+        !selfPlayer.isDealer &&
+        selfPlayer.betMultiplier <= 0
+      ) {
+        const bet = canZha ? 20 : pts >= 6 ? 10 : 5;
+        handleBet(bet);
+      } else if (phase === 'BANKER_NATURAL' && selfPlayer.isDealer) {
+        handleBankerNatural(canZha);
+      } else if (
+        phase === 'PLAYER_DECISION' &&
+        !selfPlayer.isDealer &&
+        selfPlayer.decision === 'PENDING'
+      ) {
+        if (canZha) {
+          handlePlayerDecision('ZHAKAI');
+        } else if (selfDrawOdds?.recommendedAction === 'LAO' || pts <= 4) {
+          handlePlayerDecision('LAO');
+        } else {
+          handlePlayerDecision('BULAO');
+        }
+      } else if (
+        phase === 'BANKER_DECISION' &&
+        selfPlayer.isDealer &&
+        selfPlayer.decision === 'PENDING'
+      ) {
+        handleBankerDecision(pts <= 4 ? 'LAO' : 'BULAO');
+      }
+    }, delayMs);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    activeSnapshot,
+    selfPlayer,
+    selfHandResult,
+    selfDrawOdds,
+    phase,
+    controlState.isTrusteeship,
+    controlState.autoNextRound,
+    controlState.paceSpeed,
+    handleCallBanker,
+    handleBet,
+    handleBankerNatural,
+    handlePlayerDecision,
+    handleBankerDecision,
+    handleReady,
+  ]);
+
   return (
     <AutoLandscapeContainer
       baseHeight={720}
@@ -897,10 +991,10 @@ export const LaoYanCaiTableView: React.FC<LaoYanCaiTableViewProps> = ({
                       }`}
                     >
                       {activeCeremony.category === 'BAOZI'
-                        ? `🔥 ${activeCeremony.handName} · 豹子天降 🔥`
+                        ? `【${activeCeremony.handName} · 豹子天降】`
                         : activeCeremony.category === 'SANGONG'
-                        ? '👑 三公驾到 · 满堂金甲 👑'
-                        : `✨ ${activeCeremony.handName} ✨`}
+                        ? '【三公驾到 · 满堂金甲】'
+                        : `【${activeCeremony.handName}】`}
                     </div>
 
                     <div className="mt-1 flex items-center justify-center gap-2.5">
@@ -1087,51 +1181,39 @@ export const LaoYanCaiTableView: React.FC<LaoYanCaiTableViewProps> = ({
 
             {/* ================= Rule Explanation Modal ================= */}
             {showRuleModal && (
-              <div
-                className="pointer-events-auto absolute inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-xs"
-                onClick={() => setShowRuleModal(false)}
+              <CommercialModalShell
+                title="云南捞腌菜（玉溪/昆明正宗规则）"
+                subtitle="正宗滇南三腌、双腌、炸开与捞牌番型说明"
+                icon={<HelpCircle className="h-5 w-5" />}
+                size="md"
+                portalMode="stage"
+                onClose={() => setShowRuleModal(false)}
               >
-                <div
-                  className="relative flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-3xl border-2 border-amber-300/70 bg-gradient-to-b from-[#0e2a20] via-[#091c15] to-[#05100c] p-5 text-white shadow-2xl"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div className="flex items-center justify-between border-b border-white/10 pb-3">
-                    <h3 className="font-display text-lg font-black text-amber-300">
-                      云南捞腌菜（玉溪/昆明正宗规则）
-                    </h3>
-                    <button
-                      type="button"
-                      onClick={() => setShowRuleModal(false)}
-                      className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-amber-200 hover:bg-white/20 cursor-pointer"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
+                <div className="space-y-2.5 text-xs sm:text-sm leading-relaxed text-[#334155]">
+                  <div className="rounded-xl border border-[#E8E1D0] bg-white p-3 shadow-2xs">
+                    <strong className="text-[#B45309]">1. 牌库与点数计算：</strong>
+                    使用去除大小王的 52 张标准扑克。A=1点，2~9为牌面点数，10/J/Q/K 均为 0点（十点/公牌）。所有手牌点数相加取个位数（0点最小称“瘪十”，9点最大）。
                   </div>
-
-                  <div className="mt-3 flex-1 space-y-2.5 overflow-y-auto pr-1 text-xs sm:text-sm text-emerald-100/90">
-                    <p>
-                      <strong className="text-amber-300">1. 牌库与点数计算：</strong>
-                      使用去除大小王的 52 张标准扑克。A=1点，2~9为牌面点数，10/J/Q/K 均为 0点（十点/公牌）。所有手牌点数相加取个位数（0点最小称“瘪十”，9点最大）。
-                    </p>
-                    <p>
-                      <strong className="text-amber-300">2. 正宗博弈流程（炸开与捞牌）：</strong>
-                      定庄与闲家下注后，每人先发 2 张底牌。若庄家首轮 2 张牌为 8点或 9点，庄家可优先选择【炸开】直接全场比大小（无人可再捞第 3 张牌）；若庄家未炸开，闲家依次选择【炸开】（需8或9点）、【捞腌菜】（摸第 3 张牌）或【不捞】（守 2 张牌）；最后庄家决定自己是否捞第 3 张牌并开牌结算。
-                    </p>
-                    <p>
-                      <strong className="text-amber-300">3. 特殊牌型与翻倍倍率：</strong>
-                      • <span className="text-amber-200 font-bold">豹子（三条）</span>：3 张同点，5倍（血战高倍场 8倍）
-                      <br />• <span className="text-amber-200 font-bold">同花顺（顺金）</span>：3 张同花且连续，4倍（血战场 6倍）
-                      <br />• <span className="text-amber-200 font-bold">三公</span>：3 张均为 J/Q/K 人头牌，3倍（血战场 4倍）
-                      <br />• <span className="text-amber-200 font-bold">三腌（同花3张）</span>：捞牌后 3 张同花色，点数享 3倍
-                      <br />• <span className="text-amber-200 font-bold">双腌 / 对子（2张）</span>：首轮 2 张同花色或对子，点数享 2倍
-                    </p>
-                    <p>
-                      <strong className="text-amber-300">4. 大小排序：</strong>
-                      豹子 &gt; 同花顺 &gt; 三公 &gt; 天牌9点炸开 &gt; 天牌8点炸开 &gt; 9点 ~ 0点（同点数下比最大单张 K&gt;Q&gt;J&gt;10...&gt;A 及花色 ♠&gt;♥&gt;♣&gt;♦）。
-                    </p>
+                  <div className="rounded-xl border border-[#E8E1D0] bg-white p-3 shadow-2xs">
+                    <strong className="text-[#B45309]">2. 正宗博弈流程（炸开与捞牌）：</strong>
+                    定庄与闲家下注后，每人先发 2 张底牌。若庄家首轮 2 张牌为 8点或 9点，庄家可优先选择【炸开】直接全场比大小（无人可再捞第 3 张牌）；若庄家未炸开，闲家依次选择【炸开】（需8或9点）、【捞腌菜】（摸第 3 张牌）或【不捞】（守 2 张牌）；最后庄家决定自己是否捞第 3 张牌并开牌结算。
+                  </div>
+                  <div className="rounded-xl border border-[#E8E1D0] bg-white p-3 shadow-2xs">
+                    <strong className="text-[#B45309]">3. 特殊牌型与翻倍倍率：</strong>
+                    <div className="mt-1 space-y-1 text-xs">
+                      <div>· <span className="font-bold text-[#1E242B]">豹子（三条）</span>：3 张同点，5倍（血战高倍场 8倍）</div>
+                      <div>· <span className="font-bold text-[#1E242B]">同花顺（顺金）</span>：3 张同花且连续，4倍（血战场 6倍）</div>
+                      <div>· <span className="font-bold text-[#1E242B]">三公</span>：3 张均为 J/Q/K 人头牌，3倍（血战场 4倍）</div>
+                      <div>· <span className="font-bold text-[#1E242B]">三腌（同花3张）</span>：捞牌后 3 张同花色，点数享 3倍</div>
+                      <div>· <span className="font-bold text-[#1E242B]">双腌 / 对子（2张）</span>：首轮 2 张同花色或对子，点数享 2倍</div>
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-[#E8E1D0] bg-white p-3 shadow-2xs">
+                    <strong className="text-[#B45309]">4. 大小排序：</strong>
+                    豹子 &gt; 同花顺 &gt; 三公 &gt; 天牌9点炸开 &gt; 天牌8点炸开 &gt; 9点 ~ 0点（同点数下比最大单张 K&gt;Q&gt;J&gt;10...&gt;A 及花色 黑桃&gt;红桃&gt;梅花&gt;方块）。
                   </div>
                 </div>
-              </div>
+              </CommercialModalShell>
             )}
           </div>
         </div>

@@ -85,20 +85,20 @@ export const SUIT_CONFIG: Record<
   Exclude<Suit, null>,
   { symbol: string; color: number }
 > = {
-  spade: { symbol: '♠', color: 0x18181b },
-  heart: { symbol: '♥', color: 0xdc2626 },
-  club: { symbol: '♣', color: 0x18181b },
-  diamond: { symbol: '♦', color: 0xdc2626 },
+  spade: { symbol: 'S', color: 0x18181b },
+  heart: { symbol: 'H', color: 0xdc2626 },
+  club: { symbol: 'C', color: 0x18181b },
+  diamond: { symbol: 'D', color: 0xdc2626 },
 };
 
 /**
  * Commercial 4.0 Vector Playing Card Engine (aligned with open-source Vector-Playing-Cards / svg-cards geometry).
- * Provides crisp Bezier suit pips (♠ ♥ ♣ ♦), J/Q/K royal court illustrations, Dragon Joker totems,
+ * Provides crisp Bezier suit pips (Spade, Heart, Club, Diamond), J/Q/K royal court illustrations, Dragon Joker totems,
  * and dual-theme ornate card backs (Crimson Cloud Brocade & Imperial Gold Dragon Scale).
  */
 export class CardAtlasGenerator {
   /**
-   * Draw precision vector suit pip (♠ ♥ ♣ ♦) centered at (cx, cy) with radius `size`.
+   * Draw precision vector suit pip centered at (cx, cy) with radius `size`.
    */
   static drawSuitPip(
     g: Graphics,
@@ -201,7 +201,7 @@ export class CardAtlasGenerator {
       return;
     }
 
-    // Club (♣) — 3 trefoil leaves + stem
+    // Club — 3 trefoil leaves + stem
     const leafR = size * 0.44;
     g.circle(cx, cy - size * 0.48, leafR).fill({ color });
     g.circle(cx - size * 0.46, cy + size * 0.12, leafR).fill({ color });

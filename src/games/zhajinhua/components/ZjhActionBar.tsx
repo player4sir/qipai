@@ -1,16 +1,19 @@
 import React, { useEffect, useState } from 'react';
-import type { ZjhSnapshot } from '../types';
+import type { ZjhDynamicPotOddsSnapshot, ZjhEquityAnalysis, ZjhSnapshot } from '../types';
 import { formatZjhBeans } from './ZjhSeat';
 
 export interface ZjhActionBarProps {
   snapshot: ZjhSnapshot;
   comparing: boolean;
+  equityAnalysis?: ZjhEquityAnalysis;
+  dynamicPotOdds?: ZjhDynamicPotOddsSnapshot;
   onLook: () => void;
   onFold: () => void;
   onCall: () => void;
   onRaise: (level: number) => void;
   onToggleCompare: () => void;
   onAllIn: () => void;
+  onNextRound?: () => void;
 }
 
 const Btn: React.FC<{
@@ -34,7 +37,7 @@ const Btn: React.FC<{
       disabled={disabled}
       onClick={onClick}
       className={[
-        'flex h-[54px] min-w-[104px] flex-col items-center justify-center rounded-xl border bg-gradient-to-b px-4',
+        'relative flex h-[52px] min-w-[100px] flex-col items-center justify-center rounded-xl border bg-gradient-to-b px-4 whitespace-nowrap shrink-0',
         'font-black leading-tight shadow-[0_4px_12px_rgba(0,0,0,0.5)] transition active:scale-95',
         tones[tone],
         active ? 'ring-2 ring-white' : '',
@@ -42,7 +45,7 @@ const Btn: React.FC<{
       ].join(' ')}
     >
       <span className="text-[15px]">{label}</span>
-      {sub && <span className="font-mono text-[11px] font-bold opacity-85">{sub}</span>}
+      {sub && <span className="font-mono text-[11px] font-bold opacity-85 tabular-nums">{sub}</span>}
     </button>
   );
 };
@@ -56,23 +59,23 @@ export const ZjhActionBar: React.FC<ZjhActionBarProps> = ({
   onRaise,
   onToggleCompare,
   onAllIn,
+  onNextRound,
 }) => {
   const [raiseOpen, setRaiseOpen] = useState(false);
   const { my, phase, mySeat } = snapshot;
   const me = mySeat >= 0 ? snapshot.seats[mySeat] : null;
 
-  // Close the raise popover whenever the turn moves on.
   useEffect(() => {
     if (!my.canAct) setRaiseOpen(false);
   }, [my.canAct]);
 
-  const wrap = 'flex min-h-[54px] items-center justify-center gap-3';
+  const wrap = 'flex min-h-[52px] items-center justify-center gap-3';
 
   if (phase === 'WAITING') {
     return (
       <div className={wrap}>
-        <span className="rounded-full bg-black/60 px-5 py-2 text-sm font-bold text-amber-200">
-          {snapshot.countdown > 0 ? `牌局即将开始 ${snapshot.countdown}` : '等待开局…'}
+        <span className="rounded-lg border border-amber-300/25 bg-black/65 px-5 py-2 text-sm font-bold text-amber-200">
+          {snapshot.countdown > 0 ? `牌局即将开始 ${snapshot.countdown}s` : '等待开局'}
         </span>
       </div>
     );
@@ -80,16 +83,28 @@ export const ZjhActionBar: React.FC<ZjhActionBarProps> = ({
   if (phase === 'SHOWDOWN') {
     return (
       <div className={wrap}>
-        <span className="rounded-full bg-black/60 px-5 py-2 text-sm font-bold text-fuchsia-200">全员开牌中…</span>
+        <span className="rounded-lg border border-fuchsia-300/35 bg-black/65 px-5 py-2 text-sm font-bold text-fuchsia-200">
+          全员开牌 · 边池比牌结算中
+        </span>
       </div>
     );
   }
   if (phase === 'RESULT') {
     return (
       <div className={wrap}>
-        <span className="rounded-full bg-black/60 px-5 py-2 text-sm font-bold text-amber-200">
-          下一局 {snapshot.countdown > 0 ? `${snapshot.countdown}s` : ''}
-        </span>
+        {onNextRound ? (
+          <button
+            type="button"
+            onClick={onNextRound}
+            className="rounded-xl border-2 border-amber-200 bg-gradient-to-b from-[#ffe58f] via-[#f59e0b] to-[#c2410c] px-7 py-2 text-sm font-black text-[#240e03] shadow-xl active:scale-95 cursor-pointer hover:brightness-110 whitespace-nowrap"
+          >
+            再来一局 {snapshot.countdown > 0 ? `(${snapshot.countdown}s)` : ''}
+          </button>
+        ) : (
+          <span className="rounded-lg border border-amber-300/25 bg-black/65 px-5 py-2 text-sm font-bold text-amber-200">
+            下一局即将开始 {snapshot.countdown > 0 ? `${snapshot.countdown}s` : ''}
+          </span>
+        )}
       </div>
     );
   }
@@ -97,8 +112,8 @@ export const ZjhActionBar: React.FC<ZjhActionBarProps> = ({
   if (!me || me.status === 'folded' || me.status === 'lost' || me.status === 'waiting') {
     return (
       <div className={wrap}>
-        <span className="rounded-full bg-black/60 px-5 py-2 text-sm font-bold text-neutral-300">
-          {me?.status === 'lost' ? '比牌落败，观战中' : me?.status === 'folded' ? '已弃牌，观战中' : '本局观战中'}
+        <span className="rounded-lg border border-white/15 bg-black/65 px-5 py-2 text-sm font-bold text-neutral-300">
+          {me?.status === 'lost' ? '比牌落败 · 观战中' : me?.status === 'folded' ? '已弃牌 · 观战中' : '本局观战中'}
         </span>
       </div>
     );
@@ -108,9 +123,9 @@ export const ZjhActionBar: React.FC<ZjhActionBarProps> = ({
     snapshot.currentTurnSeat >= 0 ? (snapshot.seats[snapshot.currentTurnSeat]?.nickname ?? '') : '';
 
   return (
-    <div className="relative">
+    <div className="relative flex flex-col items-center gap-2">
       {raiseOpen && my.raiseOptions.length > 0 && (
-        <div className="absolute -top-[66px] left-1/2 flex -translate-x-1/2 gap-2 rounded-2xl border border-amber-300/50 bg-black/85 p-2 shadow-xl">
+        <div className="absolute -top-[68px] left-1/2 z-50 flex -translate-x-1/2 gap-2 rounded-2xl border border-amber-300/50 bg-black/90 p-2 shadow-xl">
           {my.raiseOptions.map((o) => (
             <button
               key={o.level}
@@ -119,10 +134,10 @@ export const ZjhActionBar: React.FC<ZjhActionBarProps> = ({
                 setRaiseOpen(false);
                 onRaise(o.level);
               }}
-              className="flex min-w-[78px] cursor-pointer flex-col items-center rounded-xl border border-amber-200/60 bg-gradient-to-b from-amber-400 to-amber-700 px-3 py-1.5 font-black text-black transition active:scale-95 hover:brightness-110"
+              className="flex min-w-[82px] cursor-pointer flex-col items-center rounded-xl border border-amber-200/60 bg-gradient-to-b from-amber-400 to-amber-700 px-3 py-1.5 font-black text-black transition active:scale-95 hover:brightness-110 whitespace-nowrap"
             >
               <span className="text-[13px]">加到 {formatZjhBeans(o.stake)}</span>
-              <span className="font-mono text-[11px] opacity-80">付 {formatZjhBeans(o.cost)}</span>
+              <span className="font-mono text-[11px] opacity-80 tabular-nums">付 {formatZjhBeans(o.cost)}</span>
             </button>
           ))}
         </div>
@@ -135,7 +150,12 @@ export const ZjhActionBar: React.FC<ZjhActionBarProps> = ({
           <>
             <Btn label="弃牌" tone="danger" onClick={onFold} />
             {my.mustAllIn ? (
-              <Btn label="全押" sub={`${formatZjhBeans(me.beans)}`} tone="violet" onClick={onAllIn} />
+              <Btn
+                label="全押"
+                sub={`${formatZjhBeans(me.beans)}`}
+                tone="violet"
+                onClick={onAllIn}
+              />
             ) : (
               <>
                 <Btn
@@ -163,8 +183,8 @@ export const ZjhActionBar: React.FC<ZjhActionBarProps> = ({
             />
           </>
         ) : (
-          <span className="rounded-full bg-black/60 px-5 py-2 text-sm font-bold text-neutral-200">
-            {turnName ? `等待 ${turnName} 操作…` : '发牌中…'}
+          <span className="rounded-lg border border-white/15 bg-black/65 px-5 py-2 text-sm font-bold text-neutral-200">
+            {turnName ? `等待 ${turnName} 决策` : '发牌准备中'}
           </span>
         )}
       </div>

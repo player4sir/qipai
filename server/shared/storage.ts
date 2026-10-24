@@ -8,6 +8,7 @@ export interface UserProfile {
   nickname: string;
   avatarId: string;
   roomCards: number;
+  frozenRoomCards?: number;
   beans: number;
   gamesPlayed: number;
   gamesWon: number;
@@ -19,6 +20,14 @@ export type BeanLedgerReason =
   | 'BANKRUPTCY_RELIEF'
   | 'FREE_SUPPLY'
   | 'ROOM_CREATE'
+  | 'ROOM_REFUND'
+  | 'ROOM_AA_PAY'
+  | 'ROOM_WINNER_PAY'
+  | 'ROOM_ESCROW_FREEZE'
+  | 'ROOM_ESCROW_RELEASE'
+  | 'ROOM_ESCROW_CAPTURE'
+  | 'ROOM_WINNER_SETTLE'
+  | 'CARD_EXCHANGE'
   | 'ROUND_SETTLEMENT'
   | 'REALTIME_TRANSFER';
 
@@ -31,6 +40,8 @@ export interface BeanLedgerEntry {
   balanceAfter: number;
   deltaRoomCards?: number;
   roomCardsAfter?: number;
+  frozenCardsAfter?: number;
+  note?: string;
   reason: BeanLedgerReason;
   timestamp: number;
 }
@@ -230,16 +241,6 @@ export class StorageService {
       if (avatarId) {
         existing.avatarId = avatarId;
       }
-      if (existing.beans < 1000) {
-        const delta = 5000 - existing.beans;
-        existing.beans = 5000;
-        this.appendLedger({
-          playerId,
-          deltaBeans: delta,
-          balanceAfter: existing.beans,
-          reason: 'BANKRUPTCY_RELIEF',
-        });
-      }
       this.save();
       return existing;
     }
@@ -250,8 +251,8 @@ export class StorageService {
       playerId,
       nickname: preferredNickname?.trim() || `${randomTitle}${suffix}`,
       avatarId: avatarId || 'noble',
-      roomCards: 10,
-      beans: 12000,
+      roomCards: 12,
+      beans: 0,
       gamesPlayed: 0,
       gamesWon: 0,
       createdAt: Date.now(),
@@ -259,10 +260,10 @@ export class StorageService {
     this.data.users[playerId] = profile;
     this.appendLedger({
       playerId,
-      deltaBeans: 12000,
-      balanceAfter: 12000,
-      deltaRoomCards: 10,
-      roomCardsAfter: 10,
+      deltaBeans: 0,
+      balanceAfter: 0,
+      deltaRoomCards: 12,
+      roomCardsAfter: 12,
       reason: 'INITIAL_GRANT',
     });
     this.save();
@@ -286,7 +287,13 @@ export class StorageService {
     return u;
   }
 
-  consumeRoomCard(playerId: string, count = 1, roomId?: string, gameType?: string): boolean {
+  consumeRoomCard(
+    playerId: string,
+    count = 1,
+    roomId?: string,
+    gameType?: string,
+    reason: BeanLedgerReason = 'ROOM_CREATE'
+  ): boolean {
     const u = this.data.users[playerId];
     if (!u || u.roomCards < count) return false;
     u.roomCards -= count;
@@ -298,10 +305,173 @@ export class StorageService {
       balanceAfter: u.beans,
       deltaRoomCards: -count,
       roomCardsAfter: u.roomCards,
-      reason: 'ROOM_CREATE',
+      frozenCardsAfter: u.frozenRoomCards ?? 0,
+      reason,
     });
     this.save();
     return true;
+  }
+
+  /**
+   * Phase 1 (Freeze): Atomically moves `count` room cards from available `roomCards`
+   * into `frozenRoomCards` escrow when creating or joining a room before Round 1 starts.
+   */
+  freezeRoomCard(
+    playerId: string,
+    count: number,
+    roomId: string,
+    gameType: string,
+    note?: string
+  ): { ok: boolean; profile: UserProfile | null } {
+    const u = this.data.users[playerId];
+    if (!u || count < 0) return { ok: false, profile: u ?? null };
+    if (count === 0) return { ok: true, profile: u };
+    if (u.roomCards < count) return { ok: false, profile: u };
+
+    u.roomCards -= count;
+    u.frozenRoomCards = (u.frozenRoomCards ?? 0) + count;
+    this.appendLedger({
+      playerId,
+      roomId,
+      gameType,
+      deltaBeans: 0,
+      balanceAfter: u.beans,
+      deltaRoomCards: -count,
+      roomCardsAfter: u.roomCards,
+      frozenCardsAfter: u.frozenRoomCards,
+      note: note ?? `包间 #${roomId} 预冻结托管 ${count} 张房卡`,
+      reason: 'ROOM_ESCROW_FREEZE',
+    });
+    this.save();
+    return { ok: true, profile: u };
+  }
+
+  /**
+   * Phase 2a (Release): Atomically unfreezes `count` room cards from `frozenRoomCards`
+   * back to available `roomCards` when a room is disbanded or left before Round 1 starts.
+   */
+  releaseFrozenRoomCard(
+    playerId: string,
+    count: number,
+    roomId: string,
+    gameType: string,
+    note?: string
+  ): UserProfile | null {
+    const u = this.data.users[playerId];
+    if (!u || count <= 0) return u ?? null;
+    const currentFrozen = u.frozenRoomCards ?? 0;
+    const releaseAmount = Math.min(currentFrozen, count);
+    u.frozenRoomCards = Math.max(0, currentFrozen - releaseAmount);
+    u.roomCards += count;
+    this.appendLedger({
+      playerId,
+      roomId,
+      gameType,
+      deltaBeans: 0,
+      balanceAfter: u.beans,
+      deltaRoomCards: count,
+      roomCardsAfter: u.roomCards,
+      frozenCardsAfter: u.frozenRoomCards,
+      note: note ?? `包间 #${roomId} 未开局解冻退回 ${count} 张房卡`,
+      reason: 'ROOM_ESCROW_RELEASE',
+    });
+    this.save();
+    return u;
+  }
+
+  /**
+   * Phase 2b (Capture): Permanently captures `count` frozen room cards once Round 1 starts/settles.
+   */
+  captureFrozenRoomCard(
+    playerId: string,
+    count: number,
+    roomId: string,
+    gameType: string,
+    note?: string
+  ): UserProfile | null {
+    const u = this.data.users[playerId];
+    if (!u || count <= 0) return u ?? null;
+    const currentFrozen = u.frozenRoomCards ?? 0;
+    u.frozenRoomCards = Math.max(0, currentFrozen - count);
+    this.appendLedger({
+      playerId,
+      roomId,
+      gameType,
+      deltaBeans: 0,
+      balanceAfter: u.beans,
+      deltaRoomCards: 0,
+      roomCardsAfter: u.roomCards,
+      frozenCardsAfter: u.frozenRoomCards,
+      note: note ?? `包间 #${roomId} 首局开牌正式划扣 ${count} 张冻结房卡`,
+      reason: 'ROOM_ESCROW_CAPTURE',
+    });
+    this.save();
+    return u;
+  }
+
+  /**
+   * Winner-Pay Settlement: Deducts `count` room cards from the adjudicated Big Winner at Grand Settlement.
+   */
+  settleWinnerRoomCard(
+    playerId: string,
+    count: number,
+    roomId: string,
+    gameType: string,
+    note?: string
+  ): { deducted: number; profile: UserProfile | null } {
+    const u = this.data.users[playerId];
+    if (!u || count <= 0) return { deducted: 0, profile: u ?? null };
+    const actualDeduct = Math.min(u.roomCards, count);
+    u.roomCards = Math.max(0, u.roomCards - actualDeduct);
+    this.appendLedger({
+      playerId,
+      roomId,
+      gameType,
+      deltaBeans: 0,
+      balanceAfter: u.beans,
+      deltaRoomCards: -actualDeduct,
+      roomCardsAfter: u.roomCards,
+      frozenCardsAfter: u.frozenRoomCards ?? 0,
+      note: note ?? `包间 #${roomId} 终局大赢家结账扣减 ${actualDeduct} 张房卡`,
+      reason: 'ROOM_WINNER_SETTLE',
+    });
+    this.save();
+    return { deducted: actualDeduct, profile: u };
+  }
+
+  refundRoomCard(playerId: string, count = 1, roomId?: string, gameType?: string): UserProfile | null {
+    const u = this.data.users[playerId];
+    if (!u || count <= 0) return u ?? null;
+    u.roomCards += count;
+    this.appendLedger({
+      playerId,
+      roomId,
+      gameType,
+      deltaBeans: 0,
+      balanceAfter: u.beans,
+      deltaRoomCards: count,
+      roomCardsAfter: u.roomCards,
+      frozenCardsAfter: u.frozenRoomCards ?? 0,
+      reason: 'ROOM_REFUND',
+    });
+    this.save();
+    return u;
+  }
+
+  exchangeBeansForRoomCards(playerId: string, cardCount: number, _beanCost = 0): UserProfile | null {
+    const u = this.data.users[playerId];
+    if (!u || cardCount <= 0) return null;
+    u.roomCards += cardCount;
+    this.appendLedger({
+      playerId,
+      deltaBeans: 0,
+      balanceAfter: u.beans,
+      deltaRoomCards: cardCount,
+      roomCardsAfter: u.roomCards,
+      reason: 'CARD_EXCHANGE',
+    });
+    this.save();
+    return u;
   }
 
   updateBeans(
@@ -311,15 +481,13 @@ export class StorageService {
   ): number {
     const u = this.data.users[playerId];
     if (!u) return 0;
-    const prev = u.beans;
-    u.beans = Math.max(0, u.beans + delta);
-    const actualDelta = u.beans - prev;
-    if (actualDelta !== 0) {
+    u.beans += delta;
+    if (delta !== 0) {
       this.appendLedger({
         playerId,
         roomId: meta?.roomId,
         gameType: meta?.gameType,
-        deltaBeans: actualDelta,
+        deltaBeans: delta,
         balanceAfter: u.beans,
         reason: meta?.reason ?? 'REALTIME_TRANSFER',
       });
@@ -331,26 +499,16 @@ export class StorageService {
   claimFreeSupply(playerId: string): UserProfile | null {
     const u = this.data.users[playerId];
     if (!u) return null;
-    let deltaBeans = 0;
-    let deltaCards = 0;
-    if (u.beans < 3000) {
-      u.beans += 5000;
-      deltaBeans = 5000;
-    }
-    if (u.roomCards < 3) {
-      u.roomCards += 5;
-      deltaCards = 5;
-    }
-    if (deltaBeans > 0 || deltaCards > 0) {
-      this.appendLedger({
-        playerId,
-        deltaBeans,
-        balanceAfter: u.beans,
-        deltaRoomCards: deltaCards || undefined,
-        roomCardsAfter: u.roomCards,
-        reason: 'FREE_SUPPLY',
-      });
-    }
+    const deltaCards = 5;
+    u.roomCards += deltaCards;
+    this.appendLedger({
+      playerId,
+      deltaBeans: 0,
+      balanceAfter: u.beans,
+      deltaRoomCards: deltaCards,
+      roomCardsAfter: u.roomCards,
+      reason: 'FREE_SUPPLY',
+    });
     this.save();
     return u;
   }
@@ -377,14 +535,12 @@ export class StorageService {
       const u = this.data.users[r.playerId];
       if (u) {
         if (!skipBeanUpdate) {
-          const prev = u.beans;
-          u.beans = Math.max(0, u.beans + r.scoreDelta);
-          const actualDelta = u.beans - prev;
+          u.beans += r.scoreDelta;
           this.appendLedger({
             playerId: r.playerId,
             roomId,
             gameType,
-            deltaBeans: actualDelta,
+            deltaBeans: r.scoreDelta,
             balanceAfter: u.beans,
             reason: 'ROUND_SETTLEMENT',
           });

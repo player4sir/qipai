@@ -28,10 +28,15 @@ import {
 } from 'lucide-react';
 import { computeViewportMetrics, type ViewportMetrics } from '../../App';
 import { soundEngine } from '../../shared/audio/SoundEngine';
+import {
+  gameControlHub,
+  useGameControlState,
+} from '../../shared/control/GameControlHub';
 import { hapticEngine } from '../../shared/haptics/HapticEngine';
 import { socketClient } from '../../shared/network/SocketClient';
 import { AvatarSvg } from '../../shared/ui/AvatarSvg';
 import { AutoLandscapeContainer } from '../../shared/components/AutoLandscapeContainer';
+import { CommercialModalShell } from '../../shared/ui/CommercialModalShell';
 import { ReplayViewerModal } from './components/ReplayViewerModal';
 import {
   DdzViewState,
@@ -181,6 +186,7 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
   const metricsRef = useRef<ViewportMetrics>(measuredMetrics);
   metricsRef.current = measuredMetrics;
 
+  const controlState = useGameControlState();
   const [viewState, setViewState] = useState<DdzViewState>(INITIAL_VIEW_STATE);
   const [showRecorder, setShowRecorder] = useState(false);
   const [showChatPanel, setShowChatPanel] = useState(false);
@@ -501,6 +507,33 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
   const rightPlayer = viewState.players[rightSeat];
   const leftPlayer = viewState.players[leftSeat];
   const isMyTurn = viewState.currentSeat === viewState.mySeat;
+
+  // Sync GameControlHub trusteeship & Auto-Next-Round with Dou Dizhu GameStateManager
+  useEffect(() => {
+    if (
+      viewState.phase === 'SETTLEMENT' &&
+      (controlState.autoNextRound || controlState.isTrusteeship)
+    ) {
+      const nextTimer = window.setTimeout(() => {
+        managerRef.current?.readyForNextRound();
+      }, gameControlHub.scaleDelay(2600));
+      return () => window.clearTimeout(nextTimer);
+    }
+
+    if (!myPlayer || viewState.phase === 'WAITING' || viewState.phase === 'SETTLEMENT') {
+      return;
+    }
+
+    if (Boolean(myPlayer.trusteeship) !== controlState.isTrusteeship) {
+      managerRef.current?.toggleTrusteeship();
+    }
+  }, [
+    viewState.phase,
+    myPlayer,
+    controlState.isTrusteeship,
+    controlState.autoNextRound,
+    controlState.paceSpeed,
+  ]);
 
   const getRelationLabel = (seatIdx: number): { text: string; isTeammate: boolean } | null => {
     if (seatIdx === viewState.mySeat || viewState.landlordSeat === null) return null;
@@ -1147,13 +1180,13 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
               className="ui-scale-smooth ui-scaled-font pointer-events-auto flex flex-col items-end"
             >
               {showChatPanel && (
-                <div className="mb-2 w-60 rounded-2xl border border-amber-400/45 bg-[#062016]/96 p-3 shadow-2xl backdrop-blur-md">
-                  <div className="mb-2 flex items-center justify-between border-b border-emerald-800/70 pb-1.5">
-                    <span className="text-xs font-bold text-amber-300">快捷语</span>
+                <div className="mb-2 w-60 rounded-2xl border border-[#DFD2B8] bg-[#FAF8F3]/98 p-3 text-[#1E242B] shadow-2xl backdrop-blur-md">
+                  <div className="mb-2 flex items-center justify-between border-b border-[#E6DEC8] pb-1.5">
+                    <span className="text-xs font-black text-[#2C1E10]">牌桌快捷语</span>
                     <button
                       type="button"
                       onClick={() => setShowChatPanel(false)}
-                      className="text-emerald-300 hover:text-white"
+                      className="rounded-full p-0.5 text-[#5A6572] hover:bg-black/5 hover:text-[#1E242B]"
                     >
                       <X className="h-3.5 w-3.5" />
                     </button>
@@ -1168,7 +1201,7 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
                           managerRef.current?.sendChat(item.text);
                           setShowChatPanel(false);
                         }}
-                        className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs text-emerald-100 hover:bg-emerald-800/60 hover:text-amber-200 transition-colors"
+                        className="flex w-full items-center gap-2 rounded-xl border border-transparent bg-white px-2.5 py-1.5 text-left text-xs font-bold text-[#334155] hover:border-[#F59E0B] hover:bg-[#FFFBEB] hover:text-[#B45309] transition-colors cursor-pointer"
                       >
                         <span className="truncate">{item.text}</span>
                       </button>
@@ -1211,26 +1244,26 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
 
           {/* Waiting For Players Overlay when in WAITING phase */}
           {viewState.phase === 'WAITING' && (
-            <div className="pointer-events-auto absolute inset-0 z-30 flex items-center justify-center bg-black/35 backdrop-blur-[2px]">
+            <div className="pointer-events-auto absolute inset-0 z-30 flex items-center justify-center bg-slate-950/40 backdrop-blur-[2px]">
               <div
                 style={{ transform: `scale(${uiElementScale})` }}
-                className="w-full max-w-md rounded-2xl border border-amber-400/35 bg-[#072B1E]/95 p-6 text-center shadow-2xl"
+                className="w-full max-w-md overflow-hidden rounded-3xl border border-[#DFD2B8] bg-gradient-to-b from-[#FAF8F3] to-[#F3EFE6] p-6 text-center text-[#1E242B] shadow-[0_24px_60px_rgba(20,16,10,0.28)]"
               >
-                <h3 className="font-display text-xl font-bold text-[#FAF8F5]">
+                <h3 className="font-display text-xl font-black text-[#2C1E10]">
                   正在等待牌友入座 ({viewState.players.filter(Boolean).length}/3)
                 </h3>
-                <p className="mt-1.5 text-xs text-emerald-200/80">
+                <p className="mt-1.5 text-xs font-medium text-[#5A6572]">
                   房间号{' '}
-                  <span className="font-mono font-bold text-amber-300 tabular-nums">
+                  <span className="font-mono font-black text-[#D97706] tabular-nums">
                     {viewState.roomId}
                   </span>{' '}
-                  · 底分 <span className="tabular-nums">{viewState.baseScore}</span> 欢乐豆
+                  · 底分 <span className="font-mono font-bold tabular-nums">{viewState.baseScore}</span> 积分
                 </p>
                 <div className="mt-5 flex items-center justify-center gap-3">
                   <button
                     type="button"
                     onClick={() => managerRef.current?.addBot()}
-                    className="flex items-center gap-2 rounded-xl bg-amber-500 px-5 py-2.5 text-xs font-bold text-[#18181B] shadow hover:bg-amber-400 transition-colors whitespace-nowrap shrink-0"
+                    className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#F59E0B] to-[#D97706] px-5 py-2.5 text-xs font-black text-white shadow-sm hover:brightness-105 transition-all whitespace-nowrap shrink-0 cursor-pointer"
                   >
                     <UserPlus className="h-4 w-4" />
                     <span>一键添加 AI 机器人立即开局</span>
@@ -1238,12 +1271,12 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
                   <button
                     type="button"
                     onClick={handleCopyRoomId}
-                    className="flex items-center gap-1.5 rounded-xl border border-emerald-400/30 bg-emerald-900/60 px-4 py-2.5 text-xs font-medium text-emerald-100 hover:bg-emerald-800/80 transition-colors whitespace-nowrap shrink-0"
+                    className="flex items-center gap-1.5 rounded-xl border border-[#D8CEB8] bg-white px-4 py-2.5 text-xs font-extrabold text-[#334155] hover:bg-[#FAF8F3] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
                   >
                     {copied ? (
-                      <Check className="h-4 w-4 text-emerald-400" />
+                      <Check className="h-4 w-4 text-[#0D9488]" />
                     ) : (
-                      <Copy className="h-4 w-4" />
+                      <Copy className="h-4 w-4 text-[#5A6572]" />
                     )}
                     <span>{copied ? '已复制房号' : '复制房号邀好友'}</span>
                   </button>
@@ -1254,124 +1287,37 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
 
           {/* Toast Notification */}
           {viewState.errorToast && (
-            <div className="pointer-events-none absolute top-1/2 left-1/2 z-40 -translate-x-1/2 -translate-y-1/2 rounded-xl border border-amber-400/50 bg-[#062016]/95 px-5 py-2.5 text-sm font-medium text-amber-200 shadow-xl">
+            <div className="pointer-events-none absolute top-1/2 left-1/2 z-40 -translate-x-1/2 -translate-y-1/2 rounded-xl border border-[#F59E0B] bg-[#FFFBEB]/95 px-5 py-2.5 text-sm font-black text-[#B45309] shadow-xl">
               {viewState.errorToast}
             </div>
           )}
 
           {/* Authoritative Settlement Modal (SETTLEMENT phase) */}
           {viewState.phase === 'SETTLEMENT' && viewState.settlement && (
-            <div className="pointer-events-auto absolute inset-0 z-30 flex items-center justify-center bg-black/65 px-4 backdrop-blur-sm">
-              <div
-                style={{ transform: `scale(${uiElementScale})` }}
-                className="w-full max-w-lg rounded-2xl border border-amber-400/40 bg-[#082E20] p-6 shadow-2xl"
-              >
-                <div className="flex items-center justify-between border-b border-emerald-800/80 pb-4">
-                  <div className="flex items-center gap-3">
-                    <img
-                      src={
-                        (myPlayer && (viewState.settlement.scoreChanges[myPlayer.playerId] ?? 0) >= 0)
-                          ? '/assets/ui/sy_shengli.png'
-                          : '/assets/ui/sy_shibai.png'
-                      }
-                      alt="胜负"
-                      className="h-11 w-auto object-contain drop-shadow-[0_4px_12px_rgba(0,0,0,0.65)]"
-                    />
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h2 className="font-display text-xl font-extrabold text-amber-300">
-                          {viewState.settlement.isLandlordWin ? '地主获胜' : '农民合力获胜'}
-                        </h2>
-                        {(viewState.settlement.isSpring || viewState.settlement.isAntiSpring) && (
-                          <img
-                            src="/assets/ui/sy_chuntian.png"
-                            alt="春天"
-                            className="h-6 w-auto object-contain drop-shadow"
-                          />
-                        )}
-                        <span className="rounded-md border border-emerald-400/35 bg-emerald-900/70 px-2 py-0.5 text-[11px] font-bold text-emerald-200">
-                          {currentRoomTier.name}
-                        </span>
-                        {viewState.settlement.isCapped && (
-                          <span className="rounded-md border border-amber-300/70 bg-amber-500/25 px-2 py-0.5 text-[11px] font-extrabold text-amber-200">
-                            已触发封顶 ×{viewState.settlement.maxMultiplier}
-                          </span>
-                        )}
-                      </div>
-                      <p className="mt-1 text-xs text-emerald-200/80 tabular-nums">
-                        底分 {viewState.settlement.baseScore} · 抢地主 ×
-                        {viewState.settlement.grabMultiplier} · 加倍 ×
-                        {viewState.settlement.doubleMultiplier ?? 1} · 炸弹 ×
-                        {viewState.settlement.bombMultiplier}
-                        {(viewState.settlement.isSpring || viewState.settlement.isAntiSpring) &&
-                          ` · ${viewState.settlement.isSpring ? '春天' : '反春'} ×2`}{' '}
-                        · 原始 ×{viewState.settlement.totalMultiplier}
-                      </p>
-                    </div>
+            <CommercialModalShell
+              title={viewState.settlement.isLandlordWin ? '地主获胜 · 本局结算' : '农民合力获胜 · 本局结算'}
+              subtitle={`${currentRoomTier.name} · 底分 ${viewState.settlement.baseScore} · 抢地主 ×${viewState.settlement.grabMultiplier} · 加倍 ×${viewState.settlement.doubleMultiplier ?? 1} · 炸弹 ×${viewState.settlement.bombMultiplier}${(viewState.settlement.isSpring || viewState.settlement.isAntiSpring) ? ` · ${viewState.settlement.isSpring ? '春天' : '反春'} ×2` : ''}`}
+              size="lg"
+              portalMode="stage"
+              closeOnBackdrop={false}
+              onClose={() => {
+                managerRef.current?.leaveRoom();
+                onLeaveRoom();
+              }}
+              headerExtra={
+                <div className="rounded-xl border border-[#DEC99A] bg-white px-3 py-1 text-right shadow-2xs tabular-nums">
+                  <div className="text-[10px] font-bold text-[#6E5A44]">
+                    {viewState.settlement.isCapped
+                      ? `封顶有效倍数`
+                      : '结算有效倍数'}
                   </div>
-                  <div className="text-right tabular-nums">
-                    <span className="text-xs text-emerald-300">结算有效倍数</span>
-                    <div className="font-mono text-2xl font-extrabold text-amber-400">
-                      ×{viewState.settlement.effectiveMultiplier ?? viewState.settlement.totalMultiplier}
-                    </div>
+                  <div className="font-mono text-base sm:text-lg font-black text-[#D97706]">
+                    ×{viewState.settlement.effectiveMultiplier ?? viewState.settlement.totalMultiplier}
                   </div>
                 </div>
-
-                <div className="mt-4 space-y-2.5">
-                  {viewState.players.map((p, idx) => {
-                    if (!p) return null;
-                    const delta = viewState.settlement!.scoreChanges[p.playerId] ?? 0;
-                    const isLandlord = idx === viewState.landlordSeat;
-                    const isMe = idx === viewState.mySeat;
-                    const isProtected = (
-                      viewState.settlement!.bankruptProtectedIds ?? []
-                    ).includes(p.playerId);
-                    return (
-                      <div
-                        key={p.playerId}
-                        className={`flex items-center justify-between rounded-xl px-4 py-2.5 ${
-                          isMe
-                            ? 'border border-amber-400/40 bg-emerald-900/60'
-                            : 'bg-emerald-950/60'
-                        }`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <AvatarSvg avatarId={p.avatarId} size={36} />
-                          <div>
-                            <div className="flex items-center gap-1.5 text-sm font-semibold text-white">
-                              <span>{p.nickname}</span>
-                              <span className="text-xs font-normal text-emerald-300">
-                                · {isLandlord ? '地主' : '农民'}
-                              </span>
-                              {isMe && (
-                                <span className="text-xs font-normal text-amber-300">
-                                  · 我
-                                </span>
-                              )}
-                              {isProtected && (
-                                <span className="rounded bg-rose-500/25 px-1.5 py-0.5 text-[10px] font-bold text-rose-200">
-                                  防爆保护
-                                </span>
-                              )}
-                            </div>
-                            <div className="text-[11px] text-emerald-300/75 tabular-nums">
-                              剩余手牌 {(viewState.settlement!.remainingHands[p.playerId] ?? []).length} 张
-                            </div>
-                          </div>
-                        </div>
-                        <div
-                          className={`font-mono text-base font-bold tabular-nums ${
-                            delta >= 0 ? 'text-amber-400' : 'text-rose-400'
-                          }`}
-                        >
-                          {delta >= 0 ? `+${delta.toLocaleString()}` : delta.toLocaleString()} 豆
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+              }
+              footer={
+                <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     {viewState.settlement.replay && (
                       <button
@@ -1380,9 +1326,9 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
                           hapticEngine.tap();
                           setActiveReplay(viewState.settlement!.replay!);
                         }}
-                        className="flex items-center gap-1.5 rounded-xl border border-amber-400/50 bg-amber-500/15 px-4 py-2.5 text-xs font-bold text-amber-200 hover:bg-amber-500/25 transition-colors whitespace-nowrap shrink-0"
+                        className="flex items-center gap-1.5 rounded-xl border border-[#F59E0B] bg-[#FFFBEB] px-4 py-2 text-xs font-black text-[#B45309] hover:bg-[#FEF3C7] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
                       >
-                        <Film className="h-4 w-4 text-amber-300" />
+                        <Film className="h-4 w-4 text-[#D97706]" />
                         <span>回看本局（三家明牌复盘）</span>
                       </button>
                     )}
@@ -1394,34 +1340,92 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
                         managerRef.current?.leaveRoom();
                         onLeaveRoom();
                       }}
-                      className="rounded-xl border border-emerald-400/30 bg-emerald-900/50 px-4 py-2.5 text-xs font-medium text-emerald-100 hover:bg-emerald-800/70 transition-colors whitespace-nowrap shrink-0"
+                      className="flex h-9 min-w-[116px] items-center justify-center rounded-xl border border-[#D8CEB8] bg-white px-4 text-xs font-extrabold text-[#5A6572] hover:bg-[#FAF8F3] hover:text-[#1E242B] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
                     >
                       返回大厅
                     </button>
                     <button
                       type="button"
                       onClick={() => managerRef.current?.readyForNextRound()}
-                      className="flex items-center gap-1.5 rounded-xl bg-amber-500 px-6 py-2.5 text-xs font-bold text-[#18181B] shadow hover:bg-amber-400 transition-colors whitespace-nowrap shrink-0"
+                      className="flex h-9 min-w-[136px] items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-[#F59E0B] to-[#D97706] px-6 text-xs font-black text-white shadow-sm hover:brightness-105 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
                     >
                       <RotateCcw className="h-4 w-4" />
                       <span>再来一局</span>
                     </button>
                   </div>
                 </div>
+              }
+            >
+              <div className="space-y-2.5">
+                {viewState.players.map((p, idx) => {
+                  if (!p) return null;
+                  const delta = viewState.settlement!.scoreChanges[p.playerId] ?? 0;
+                  const isLandlord = idx === viewState.landlordSeat;
+                  const isMe = idx === viewState.mySeat;
+                  const isProtected = (
+                    viewState.settlement!.bankruptProtectedIds ?? []
+                  ).includes(p.playerId);
+                  return (
+                    <div
+                      key={p.playerId}
+                      className={`flex items-center justify-between rounded-xl border px-4 py-2.5 ${
+                        isMe
+                          ? 'border-[#F59E0B] bg-[#FFFBEB] shadow-xs'
+                          : 'border-[#E8E1D0] bg-white'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <AvatarSvg
+                          avatarId={p.avatarId}
+                          size={36}
+                          isLandlord={isLandlord}
+                        />
+                        <div>
+                          <div className="flex items-center gap-1.5 text-sm font-black text-[#1E242B]">
+                            <span>{p.nickname}</span>
+                            <span className="text-xs font-bold text-[#B45309]">
+                              · {isLandlord ? '地主' : '农民'}
+                            </span>
+                            {isMe && (
+                              <span className="text-xs font-extrabold text-[#0D9488]">
+                                · 我
+                              </span>
+                            )}
+                            {isProtected && (
+                              <span className="text-xs font-bold text-rose-600">
+                                · 防爆保护
+                              </span>
+                            )}
+                          </div>
+                          <div className="font-mono text-[11px] font-medium text-[#5A6572] tabular-nums">
+                            剩余手牌 {(viewState.settlement!.remainingHands[p.playerId] ?? []).length} 张
+                          </div>
+                        </div>
+                      </div>
+                      <div
+                        className={`font-mono text-base font-black tabular-nums ${
+                          delta >= 0 ? 'text-[#D97706]' : 'text-rose-600'
+                        }`}
+                      >
+                        {delta >= 0 ? `+${delta.toLocaleString()}` : delta.toLocaleString()} 积分
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            </div>
+            </CommercialModalShell>
+          )}
+
+          {/* Full-Perspective 3-Seat Open-Card Replay Viewer Modal */}
+          {activeReplay && (
+            <ReplayViewerModal
+              replay={activeReplay}
+              viewerPlayerId={myPlayer?.playerId}
+              onClose={() => setActiveReplay(null)}
+            />
           )}
         </div>
       </div>
-
-      {/* Full-Perspective 3-Seat Open-Card Replay Viewer Modal */}
-      {activeReplay && (
-        <ReplayViewerModal
-          replay={activeReplay}
-          viewerPlayerId={myPlayer?.playerId}
-          onClose={() => setActiveReplay(null)}
-        />
-      )}
     </div>
   );
 };

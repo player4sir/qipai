@@ -1,221 +1,161 @@
 import React, { useState } from 'react';
+import { Play } from 'lucide-react';
 import { soundEngine } from '../../shared/audio/SoundEngine';
-import { hapticEngine } from '../../shared/haptics/HapticEngine';
-import { ZJH_TIERS, type ZjhMode, type ZjhTierConfig } from '../../games/zhajinhua/types';
 
-const MODES: Array<{ id: ZjhMode; label: string; onlineFactor: number }> = [
-  { id: 'classic', label: '经典金花', onlineFactor: 1.2 },
-  { id: 'special', label: '235 玩法', onlineFactor: 0.95 },
-];
-
-interface TierTheme {
-  cardGradient: string;
-  borderColor: string;
-  titleStroke: string;
-  titleShadow: string;
-  emblemIcon: string;
-  online: number;
+export interface ZjhTierSpec {
+  id: string;
+  name: string;
+  subtitle: string;
+  baseScore: number;
+  minBeans: number;
+  bgGradient: string;
+  borderClass: string;
 }
-
-const THEMES: Record<string, TierTheme> = {
-  zjh_t1: {
-    cardGradient: 'from-[#34c395] to-[#167a57]',
-    borderColor: 'border-[#7ce8c3]/80',
-    titleStroke: '#105c40',
-    titleShadow: '#073624',
-    emblemIcon: '/assets/ui/icon_1.png',
-    online: 4120,
-  },
-  zjh_t2: {
-    cardGradient: 'from-[#4f86f7] to-[#2347b8]',
-    borderColor: 'border-[#9ec0ff]/80',
-    titleStroke: '#1b358f',
-    titleShadow: '#0e1d54',
-    emblemIcon: '/assets/ui/icon_2.png',
-    online: 5360,
-  },
-  zjh_t3: {
-    cardGradient: 'from-[#9b6bf2] to-[#5e2ca5]',
-    borderColor: 'border-[#dec4ff]/80',
-    titleStroke: '#481d85',
-    titleShadow: '#280d4f',
-    emblemIcon: '/assets/ui/icon_3.png',
-    online: 3180,
-  },
-  zjh_t4: {
-    cardGradient: 'from-[#f47b4b] via-[#dc4726] to-[#991b1b]',
-    borderColor: 'border-[#ffc299]/80',
-    titleStroke: '#7f1d09',
-    titleShadow: '#450a03',
-    emblemIcon: '/assets/ui/icon_cs.png',
-    online: 1760,
-  },
-};
-
-const TIER_TITLES = ['新手场', '初级场', '中级场', '至尊场'];
 
 export interface ZjhArenaGridProps {
   myBeans: number;
   isMobileLandscape?: boolean;
   onSelectTier: (baseScore: number, mode: string) => void;
-  onQuickStart?: (baseScore: number, mode: string) => void;
-  onInsufficientBeans: (tier: ZjhTierConfig) => void;
+  onQuickStart: (baseScore: number, mode: string) => void;
+  onInsufficientBeans: (tier: ZjhTierSpec) => void;
 }
+
+const ZJH_MODES = [
+  { id: 'classic', label: '经典闷抓', capDesc: '10轮封顶 · 边池结算' },
+  { id: 'special', label: '235吃豹子', capDesc: '异色235 · 克制豹子' },
+  { id: 'bloody', label: '血拼百倍', capDesc: '15轮封顶 · 巅峰心理' },
+  { id: 'quick', label: '极速竞技', capDesc: '首轮可比 · 8轮封顶' },
+];
+
+const ZJH_TIERS: ZjhTierSpec[] = [
+  {
+    id: 'z1',
+    name: '新手金花场',
+    subtitle: '底池温和 · 轻松练胆',
+    baseScore: 100,
+    minBeans: 1000,
+    bgGradient: 'from-[#1f8a65] to-[#0f4d36]',
+    borderClass: 'border-emerald-300/60',
+  },
+  {
+    id: 'z2',
+    name: '初级闷牌场',
+    subtitle: '暗注博弈 · 赔率反击',
+    baseScore: 300,
+    minBeans: 3000,
+    bgGradient: 'from-[#2574a9] to-[#123d5e]',
+    borderClass: 'border-sky-300/60',
+  },
+  {
+    id: 'z3',
+    name: '中级竞技场',
+    subtitle: '顺金争锋 · 闪电比牌',
+    baseScore: 800,
+    minBeans: 8000,
+    bgGradient: 'from-[#8e44ad] to-[#4a1c60]',
+    borderClass: 'border-purple-300/60',
+  },
+  {
+    id: 'z4',
+    name: '至尊豹子场',
+    subtitle: '全押亮剑 · 豪取边池',
+    baseScore: 2000,
+    minBeans: 20000,
+    bgGradient: 'from-[#d35400] to-[#6e2c00]',
+    borderClass: 'border-amber-300/70',
+  },
+];
 
 export const ZjhArenaGrid: React.FC<ZjhArenaGridProps> = ({
   myBeans,
   onSelectTier,
+  onQuickStart,
   onInsufficientBeans,
 }) => {
-  const [mode, setMode] = useState<ZjhMode>('classic');
-  const modeMeta = MODES.find((m) => m.id === mode) ?? MODES[0];
+  const [selectedMode, setSelectedMode] = useState<string>('classic');
+  const activeModeObj = ZJH_MODES.find((m) => m.id === selectedMode) || ZJH_MODES[0];
 
-  const pick = (tier: ZjhTierConfig) => {
-    soundEngine.playTap(760);
-    hapticEngine.tap();
-    if (myBeans < tier.minBeans) {
-      onInsufficientBeans(tier);
-      return;
-    }
-    onSelectTier(tier.baseScore, mode);
-  };
-
-  const recommendedTierId =
-    ([...ZJH_TIERS].reverse().find((t) => myBeans >= t.minBeans) ??
-      ZJH_TIERS[0]).id;
+  const recommendedTier =
+    [...ZJH_TIERS].reverse().find((t) => myBeans >= t.minBeans * 2) || ZJH_TIERS[0];
 
   return (
-    <div className="relative flex h-full min-h-0 w-full flex-1 flex-col items-center justify-between overflow-hidden select-none px-1 py-1 sm:py-2">
-      {/* 1. CLEAN COMMERCIAL 2-MODE SWITCHER BAR (Zero subtitles, zero tags) */}
-      <div className="mx-auto grid w-full max-w-[min(430px,calc((100dvh-132px)*0.8))] sm:max-w-[460px] shrink-0 grid-cols-2 gap-1.5 rounded-2xl border border-amber-200/25 bg-[#1e120a]/80 p-1 shadow-[inset_0_2px_4px_rgba(0,0,0,0.45),0_4px_12px_rgba(0,0,0,0.25)] backdrop-blur-md sm:gap-2 sm:p-1.5 landscape:max-w-[480px]">
-        {MODES.map((m) => {
-          const active = m.id === mode;
+    <div className="my-auto mx-auto flex w-full max-w-[760px] flex-col items-center justify-center gap-4 py-2 sm:gap-5">
+      {/* Top 4-Mode Segmented Bar */}
+      <div className="mx-auto grid w-full max-w-[480px] grid-cols-4 gap-2">
+        {ZJH_MODES.map((m) => (
+          <button
+            key={m.id}
+            type="button"
+            onClick={() => {
+              soundEngine.playTap(720);
+              setSelectedMode(m.id);
+            }}
+            className={`flex h-9 sm:h-10 items-center justify-center rounded-xl px-2 text-xs sm:text-sm font-black transition-all cursor-pointer whitespace-nowrap truncate ${
+              selectedMode === m.id
+                ? 'bg-gradient-to-b from-amber-300 to-amber-500 text-[#1e0d04] shadow-lg'
+                : 'border border-amber-200/25 bg-black/50 text-amber-100 hover:bg-black/70'
+            }`}
+          >
+            {m.label}
+          </button>
+        ))}
+      </div>
+
+      {/* 4 Commercial Tier Cards */}
+      <div className="grid w-full max-w-[740px] grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-3.5">
+        {ZJH_TIERS.map((tier, idx) => {
+          const isRec = idx === 1;
           return (
             <button
-              key={m.id}
+              key={tier.id}
               type="button"
               onClick={() => {
-                soundEngine.playTap(780);
-                hapticEngine.selectCard();
-                setMode(m.id);
+                soundEngine.playTap(760);
+                onSelectTier(tier.baseScore, selectedMode);
               }}
-              className={`relative flex h-8.5 items-center justify-center rounded-xl px-2 transition-all duration-150 active:scale-[0.98] sm:h-9.5 cursor-pointer ${
-                active
-                  ? 'border border-amber-200 bg-gradient-to-b from-[#ffe48a] via-[#f59e0b] to-[#d97706] text-[#1f0c04] shadow-[0_2px_10px_rgba(245,158,11,0.4)]'
-                  : 'border border-transparent bg-white/[0.06] text-amber-100/85 hover:bg-white/[0.12] hover:text-white'
-              }`}
+              className={`relative flex h-[138px] sm:h-[156px] w-full flex-col justify-between rounded-2xl border-2 ${tier.borderClass} bg-gradient-to-b ${tier.bgGradient} p-3.5 text-left text-white shadow-xl transition-transform duration-150 hover:brightness-105 active:scale-95 cursor-pointer`}
             >
-              <span className="font-display text-xs font-black tracking-wide whitespace-nowrap sm:text-sm">
-                {m.label}
-              </span>
+              {isRec && (
+                <span className="absolute top-2.5 right-2.5 rounded-md bg-amber-400 px-2 py-0.5 text-[10px] font-black text-[#18181B] shadow">
+                  推荐
+                </span>
+              )}
+              <div>
+                <div className="font-display text-base sm:text-lg font-black">{tier.name}</div>
+                <div className="mt-0.5 text-[11px] sm:text-xs text-white/80 truncate">
+                  {tier.subtitle}
+                </div>
+              </div>
+              <div className="border-t border-white/15 pt-2">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[11px] text-white/75">底分</span>
+                  <span className="font-mono text-sm sm:text-base font-black text-amber-300 tabular-nums">
+                    {tier.baseScore}
+                  </span>
+                </div>
+                <div className="mt-0.5 flex items-baseline justify-between text-[11px] text-white/75">
+                  <span>计分</span>
+                  <span className="font-mono tabular-nums">积分零和结算</span>
+                </div>
+              </div>
             </button>
           );
         })}
       </div>
 
-      {/* 2. 4 CLEAN COMMERCIAL ARENA CARDS */}
-      <div
-        className="
-          mx-auto my-auto grid min-h-0 w-full place-items-center
-          max-w-[min(430px,calc((100dvh-132px)*0.8))] sm:max-w-[460px]
-          max-h-[min(100%,540px)]
-          grid-cols-2 grid-rows-2
-          gap-2.5 sm:gap-3.5
-          landscape:max-w-[min(700px,calc((100dvh-116px)*2.85))] landscape:max-h-[240px] landscape:grid-cols-4 landscape:grid-rows-1 landscape:gap-3
-        "
-      >
-        {ZJH_TIERS.map((tier, i) => {
-          const theme = THEMES[tier.id] ?? THEMES.zjh_t1;
-          const canAfford = myBeans >= tier.minBeans;
-          const isRecommended = tier.id === recommendedTierId;
-          const online = Math.round(theme.online * modeMeta.onlineFactor);
-          const displayTitle = TIER_TITLES[i] ?? tier.name;
-
-          return (
-            <button
-              key={tier.id}
-              type="button"
-              onClick={() => pick(tier)}
-              className={`
-                group relative mx-auto flex h-full max-h-[250px] min-h-0 w-full max-w-[205px] aspect-[3/3.85]
-                landscape:max-h-[225px] landscape:max-w-[166px] landscape:aspect-[3/3.8]
-                cursor-pointer flex-col items-center justify-between
-                overflow-hidden rounded-[20px] sm:rounded-[24px] border-2 ${theme.borderColor}
-                bg-gradient-to-b ${theme.cardGradient}
-                px-3 pt-2.5 pb-2.5 text-center
-                shadow-[0_10px_22px_rgba(25,12,4,0.32),inset_0_1.5px_1px_rgba(255,255,255,0.45)]
-                transition-all duration-150 active:scale-[0.98] [@media(hover:hover)]:hover:brightness-105
-                ${isRecommended ? 'ring-2 ring-amber-300/90' : ''}
-                ${canAfford ? '' : 'opacity-85'}
-              `}
-            >
-              {/* Soft Top Specular Highlight */}
-              <div className="pointer-events-none absolute inset-x-0 top-0 h-2/3 bg-[radial-gradient(circle_at_50%_20%,rgba(255,255,255,0.22),transparent_70%)]" />
-
-              {/* Top Row: Recommended Tag + Compact Online Counter */}
-              <div className="relative z-20 flex w-full shrink-0 items-center justify-between">
-                {isRecommended ? (
-                  <span className="rounded-md bg-amber-300/95 px-1.5 py-0.5 text-[9px] font-black tracking-wider text-[#2b1405] shadow-xs">
-                    推荐
-                  </span>
-                ) : (
-                  <span />
-                )}
-                <div className="flex items-center gap-1 rounded-full bg-black/22 px-2 py-0.5 text-[10px] sm:text-xs font-bold text-white/95 backdrop-blur-xs">
-                  <img
-                    src="/assets/ui/icon_online.png"
-                    alt="在线"
-                    className="h-2.5 w-2.5 sm:h-3 sm:w-3 shrink-0 object-contain brightness-0 invert opacity-95"
-                  />
-                  <span className="font-mono tabular-nums">{online.toLocaleString()}</span>
-                </div>
-              </div>
-
-              {/* Center Stage: Single Clean 3D Emblem + 3D Title + Clean Unboxed Base Score */}
-              <div className="relative z-10 my-auto flex flex-col items-center justify-center gap-1.5 py-0.5">
-                <div className="relative flex h-13 w-16 sm:h-16 sm:w-20 landscape:h-12 landscape:w-16 items-center justify-center transition-transform duration-300 [@media(hover:hover)]:group-hover:scale-106 pointer-events-none">
-                  <img
-                    src={theme.emblemIcon}
-                    alt=""
-                    className="h-full w-auto object-contain drop-shadow-[0_6px_12px_rgba(0,0,0,0.35)]"
-                    draggable={false}
-                  />
-                </div>
-
-                <h3
-                  className="font-display text-[clamp(1.25rem,4vw,1.75rem)] leading-none font-black tracking-wider text-white whitespace-nowrap landscape:text-[clamp(1.15rem,2.6vw,1.5rem)]"
-                  style={{
-                    textShadow: `0 1.5px 0 ${theme.titleStroke}, 0 -1px 0 ${theme.titleStroke}, 1.5px 0 0 ${theme.titleStroke}, -1.5px 0 0 ${theme.titleStroke}, 0 3px 0 ${theme.titleShadow}, 0 4px 8px rgba(0,0,0,0.4)`,
-                  }}
-                >
-                  {displayTitle}
-                </h3>
-
-                <div className="font-mono text-xs sm:text-sm font-extrabold text-white/95 drop-shadow-xs tabular-nums whitespace-nowrap">
-                  底分 {tier.baseScore.toLocaleString()}
-                </div>
-              </div>
-
-              {/* Bottom Clean Unboxed Entry Beans Line */}
-              <div className="relative z-20 flex w-full shrink-0 items-center justify-center gap-1 border-t border-white/20 pt-2 font-mono text-xs sm:text-sm font-extrabold">
-                <img
-                  src="/assets/ui/icon_douzi.png"
-                  alt="豆"
-                  className="h-3.5 w-3.5 shrink-0 object-contain drop-shadow"
-                />
-                <span
-                  className={`tabular-nums whitespace-nowrap ${
-                    canAfford ? 'text-amber-200' : 'text-rose-200'
-                  }`}
-                >
-                  {canAfford
-                    ? `${tier.minBeans.toLocaleString()} 豆准入`
-                    : `需 ${tier.minBeans.toLocaleString()} 豆`}
-                </span>
-              </div>
-            </button>
-          );
-        })}
+      {/* Bottom Quick Start CTA */}
+      <div className="flex justify-center">
+        <button
+          type="button"
+          onClick={() => {
+            soundEngine.playTap(820);
+            onQuickStart(recommendedTier.baseScore, selectedMode);
+          }}
+          className="flex h-11 min-w-[180px] items-center justify-center gap-2 rounded-2xl border-2 border-amber-300 bg-gradient-to-b from-amber-300 via-amber-400 to-amber-500 px-8 font-display text-sm font-black text-[#261300] shadow-xl hover:brightness-105 active:scale-95 cursor-pointer whitespace-nowrap shrink-0"
+        >
+          <Play className="h-4 w-4 fill-current" />
+          <span>快速开始 · {activeModeObj.label}</span>
+        </button>
       </div>
     </div>
   );
