@@ -1,7 +1,7 @@
 import { MahjongSuit } from '../types';
 import {
   buildDeckForMode,
-  getTileNameById,
+  getTileDisplayName,
   getTileRank as getTileRank34,
   getTileSuit as getTileSuit34,
   HONG_ZHONG_INDEX,
@@ -23,22 +23,19 @@ export const HONOR_TILES = [
   31, 46, 47,     // 中发白
 ];
 
-// 当前活跃牌桌玩法模式上下文（默认 'puer' 普洱麻将，仅在 'hongzhong' / 'hongzhong_xueliu' 下红中作为百搭）
-let currentActiveMahjongMode = 'puer';
+let currentMahjongMode: string = 'puer';
 
-export function setCurrentMahjongMode(mode?: string): void {
-  if (mode) {
-    currentActiveMahjongMode = mode;
-  }
+export function setCurrentMahjongMode(mode: string): void {
+  currentMahjongMode = mode || 'puer';
 }
 
 export function getCurrentMahjongMode(): string {
-  return currentActiveMahjongMode;
+  return currentMahjongMode;
 }
 
 export function isHongZhongWildMode(mode?: string): boolean {
-  const effectiveMode = mode ?? currentActiveMahjongMode;
-  return effectiveMode === 'hongzhong' || effectiveMode === 'hongzhong_xueliu';
+  const target = mode ?? currentMahjongMode;
+  return target === 'hongzhong' || target === 'hongzhong_xueliu';
 }
 
 export function getSuit(tileId: number): MahjongSuit {
@@ -53,11 +50,8 @@ export function getRank(tileId: number): number {
   return getTileRank34(idx);
 }
 
-/**
- * 判断某张牌在指定模式下是否为百搭赖子
- * 严格遵循 Confirmed Decision 2：仅在红中赖子模式 (hongzhong / hongzhong_xueliu) 下红中才作为百搭！
- */
 export function isWildcard(tileId: number, mode?: string): boolean {
+  // 只有红中赖子模式 (hongzhong / hongzhong_xueliu) 下红中才作为万能百搭牌
   if (!isHongZhongWildMode(mode)) {
     return false;
   }
@@ -65,31 +59,30 @@ export function isWildcard(tileId: number, mode?: string): boolean {
   return idx === HONG_ZHONG_INDEX;
 }
 
-/**
- * 获取十进制牌 ID 对应的标准中文名称（修复原先二次调用 legacyIdToTileIndex 导致的跨花色名称错乱）
- */
 export function getTileName(tileId: number): string {
-  return getTileNameById(tileId);
+  const idx = legacyIdToTileIndex(tileId);
+  return getTileDisplayName(idx);
 }
 
-export function sortTiles(tiles: number[], modeOrWild?: string | boolean): number[] {
-  const hongzhongWild =
-    typeof modeOrWild === 'boolean' ? modeOrWild : isHongZhongWildMode(modeOrWild);
+export function sortTiles(tiles: number[], isHongzhongWildOrMode: boolean | string = true): number[] {
+  const isWildMode =
+    typeof isHongzhongWildOrMode === 'string'
+      ? isHongZhongWildMode(isHongzhongWildOrMode)
+      : isHongzhongWildOrMode;
+
   return [...tiles].sort((a, b) => {
     const idxA = legacyIdToTileIndex(a);
     const idxB = legacyIdToTileIndex(b);
-    if (hongzhongWild) {
-      const isWildA = idxA === HONG_ZHONG_INDEX;
-      const isWildB = idxB === HONG_ZHONG_INDEX;
-      if (isWildA && !isWildB) return 1;
-      if (!isWildA && isWildB) return -1;
-    }
+    const isWildA = isWildMode && idxA === HONG_ZHONG_INDEX;
+    const isWildB = isWildMode && idxB === HONG_ZHONG_INDEX;
+    if (isWildA && !isWildB) return -1; // 红中百搭置左或置前便于识别
+    if (!isWildA && isWildB) return 1;
     return idxA - idxB;
   });
 }
 
 /**
- * 按玩法模式生成十进制协议牌库
+ * 按玩法模式生成牌库
  * 1. puer (普洱麻将): 136 张全副 (万条筒 + 东南西北中发白)
  * 2. xuezhan (血战到底): 108 张数字牌 (万条筒)
  * 3. guobiao (大众国标): 136 张标准全副 (万条筒 + 风箭)

@@ -1,13 +1,10 @@
 import {
   FourCardOddsAnalysis,
   NiuniuCard,
-  NiuniuDynamicPotOddsSnapshot,
   NiuniuHandResult,
   NiuniuHandType,
-  NiuniuPlayerInfo,
   NiuniuPlayMode,
   NiuniuSuit,
-  NiuniuTableSnapshot,
 } from '../types';
 
 export const SUIT_ORDER: Record<NiuniuSuit, number> = {
@@ -106,7 +103,7 @@ export function findMaxCard(cards: NiuniuCard[]): NiuniuCard {
 }
 
 /**
- * 根据玩法模式（经典抢庄/通比/经典算牛 vs 疯狂加倍）映射牌型倍数
+ * 根据玩法模式（经典抢庄/通比 vs 疯狂加倍）映射牌型倍数
  */
 export function getModeMultiplier(
   handType: NiuniuHandType,
@@ -114,10 +111,8 @@ export function getModeMultiplier(
   playMode: NiuniuPlayMode = 'qiangzhuang'
 ): number {
   if (playMode === 'crazy') {
-    // 疯狂加倍商业倍率表：牛五起翻倍，牛牛6倍，五小牛10倍，同花顺牛12倍
+    // 疯狂加倍商业倍率表：牛五起翻倍，牛牛6倍，五小牛10倍
     switch (handType) {
-      case 'STRAIGHT_FLUSH_NIU':
-        return 12;
       case 'FIVE_SMALL_NIU':
         return 10;
       case 'BOMB_NIU':
@@ -145,9 +140,8 @@ export function getModeMultiplier(
     }
   }
 
-  // 标准商业抢庄/通比/经典倍率表
+  // 标准商业抢庄/通比倍率表
   switch (handType) {
-    case 'STRAIGHT_FLUSH_NIU':
     case 'FIVE_SMALL_NIU':
       return 10;
     case 'BOMB_NIU':
@@ -172,21 +166,8 @@ export function getModeMultiplier(
 }
 
 /**
- * 计算 2 张牛数组合的优选权重（用于同牛数多解 3+2 组合择优：对子优先 > 最大单牌优先）
- */
-function scoreBullGroupPreference(bullPair: NiuniuCard[]): number {
-  if (bullPair.length !== 2) return 0;
-  const [a, b] = bullPair;
-  const isPair = a.rank === b.rank ? 10000 : 0;
-  const high = Math.max(a.rank, b.rank);
-  const low = Math.min(a.rank, b.rank);
-  const highSuit = a.rank >= b.rank ? SUIT_ORDER[a.suit] : SUIT_ORDER[b.suit];
-  return isPair + high * 100 + low * 5 + highSuit;
-}
-
-/**
  * 商业化牛牛全牌型综合判定与最优 3+2 分牌求解算法
- * 判定等级：同花顺牛(18) > 五小牛(17) > 炸弹牛(16) > 五花牛(15) > 四花牛(14) > 葫芦牛(13) > 同花牛(12) > 顺子牛(11) > 牛牛(10) > 牛9(9)..牛1(1) > 无牛(0)
+ * 判定等级：五小牛(17) > 炸弹牛(16) > 五花牛(15) > 四花牛(14) > 葫芦牛(13) > 同花牛(12) > 顺子牛(11) > 牛牛(10) > 牛9(9)..牛1(1) > 无牛(0)
  */
 export function evaluateNiuniuHand(
   cards: NiuniuCard[],
@@ -202,9 +183,8 @@ export function evaluateNiuniuHand(
   });
   const maxCard = findMaxCard(sortedCards);
 
-  // 遍历 C(5,3)=10 种 3+2 组合，同牛数下按对子/最大余牌择优
+  // 先预求是否存在普通 3+2 凑十组合（用于特殊牌型展示时优先排列3+2）
   let bestBullLevel = -1;
-  let bestBullPref = -1;
   let bestTenGroup: NiuniuCard[] = [];
   let bestBullGroup: NiuniuCard[] = [];
 
@@ -220,14 +200,9 @@ export function evaluateNiuniuHand(
           const cRemain2 = cards[remainIndices[1]];
           const sum2 = (cRemain1.value + cRemain2.value) % 10;
           const bullCount = sum2 === 0 ? 10 : sum2;
-          const bullPref = scoreBullGroupPreference([cRemain1, cRemain2]);
 
-          if (
-            bullCount > bestBullLevel ||
-            (bullCount === bestBullLevel && bullPref > bestBullPref)
-          ) {
+          if (bullCount > bestBullLevel) {
             bestBullLevel = bullCount;
-            bestBullPref = bullPref;
             bestTenGroup = [cards[i], cards[j], cards[k]];
             bestBullGroup = [cRemain1, cRemain2];
           }
@@ -239,48 +214,7 @@ export function evaluateNiuniuHand(
   const defaultTen = bestTenGroup.length === 3 ? bestTenGroup : sortedCards.slice(0, 3);
   const defaultBull = bestBullGroup.length === 2 ? bestBullGroup : sortedCards.slice(3, 5);
 
-  // 检查是否同花与是否顺子
-  const isFlush = sortedCards.every((c) => c.suit === sortedCards[0].suit);
-  const uniqueRanks = new Set(sortedCards.map((c) => c.rank));
-  let isStraight = false;
-  let straightMaxCard = maxCard;
-
-  if (uniqueRanks.size === 5) {
-    const ranksAsc = [...sortedCards].map((c) => c.rank).reverse();
-    const isNormalStraight = ranksAsc[4] - ranksAsc[0] === 4;
-    const isRoyalStraight =
-      ranksAsc[0] === 1 &&
-      ranksAsc[1] === 10 &&
-      ranksAsc[2] === 11 &&
-      ranksAsc[3] === 12 &&
-      ranksAsc[4] === 13;
-    if (isNormalStraight || isRoyalStraight) {
-      isStraight = true;
-      if (isRoyalStraight) {
-        // 10-J-Q-K-A 皇家顺子中 A 视作最高牌
-        const aceCard = sortedCards.find((c) => c.rank === 1)!;
-        straightMaxCard = { ...aceCard, rank: 14 };
-      } else {
-        straightMaxCard = sortedCards[0];
-      }
-    }
-  }
-
-  // 0. 同花顺牛 / 一条龙 (Level 18)：既是同花又是顺子
-  if (isFlush && isStraight) {
-    return {
-      handType: 'STRAIGHT_FLUSH_NIU',
-      level: 18,
-      multiplier: getModeMultiplier('STRAIGHT_FLUSH_NIU', 18, playMode),
-      name: '同花顺牛',
-      tenGroup: defaultTen,
-      bullGroup: defaultBull,
-      maxCard: straightMaxCard,
-      optimalReason: '五张同花且点数连续，至尊特殊牌型',
-    };
-  }
-
-  // 1. 五小牛 (Level 17)：5张牌点数均 <= 4 且总点数 <= 10
+  // 1. 五小牛：5张牌点数均 <= 4 且总点数 <= 10
   const isFiveSmall =
     sortedCards.every((c) => c.rank <= 4) &&
     sortedCards.reduce((acc, c) => acc + c.value, 0) <= 10;
@@ -293,11 +227,10 @@ export function evaluateNiuniuHand(
       tenGroup: defaultTen,
       bullGroup: defaultBull,
       maxCard,
-      optimalReason: '五张点数均小于5且总和不超过10',
     };
   }
 
-  // 2. 炸弹牛 / 四炸 (Level 16)：4张相同点数
+  // 2. 炸弹牛 / 四炸：4张相同点数
   const rankCountMap: Record<number, NiuniuCard[]> = {};
   for (const c of sortedCards) {
     if (!rankCountMap[c.rank]) rankCountMap[c.rank] = [];
@@ -314,11 +247,10 @@ export function evaluateNiuniuHand(
       tenGroup: fourOfKind.slice(0, 3),
       bullGroup: [fourOfKind[3], singleCard],
       maxCard: fourOfKind[0], // 炸弹牛比四张炸弹牌的点数
-      optimalReason: '四张同点炸弹牛',
     };
   }
 
-  // 3. 五花牛 / 金牛 (Level 15)：5张牌全部为 J/Q/K
+  // 3. 五花牛 / 金牛：5张牌全部为 J/Q/K
   const isGoldNiu = sortedCards.every((c) => c.rank >= 11);
   if (isGoldNiu) {
     return {
@@ -329,11 +261,10 @@ export function evaluateNiuniuHand(
       tenGroup: sortedCards.slice(0, 3),
       bullGroup: sortedCards.slice(3, 5),
       maxCard,
-      optimalReason: '五张全为J/Q/K花牌',
     };
   }
 
-  // 4. 四花牛 / 银牛 (Level 14)：4张 J/Q/K + 1张 10
+  // 4. 四花牛 / 银牛：4张 J/Q/K + 1张 10
   const faceCards = sortedCards.filter((c) => c.rank >= 11);
   const tenCards = sortedCards.filter((c) => c.rank === 10);
   if (faceCards.length === 4 && tenCards.length === 1) {
@@ -345,11 +276,10 @@ export function evaluateNiuniuHand(
       tenGroup: faceCards.slice(0, 3),
       bullGroup: [faceCards[3], tenCards[0]],
       maxCard,
-      optimalReason: '四张花牌配一张10',
     };
   }
 
-  // 5. 葫芦牛 (Level 13)：3张相同 + 1对相同
+  // 5. 葫芦牛：3张相同 + 1对相同
   const threeOfKind = Object.values(rankCountMap).find((g) => g.length === 3);
   const pairOfKind = Object.values(rankCountMap).find((g) => g.length === 2);
   if (threeOfKind && pairOfKind) {
@@ -361,11 +291,11 @@ export function evaluateNiuniuHand(
       tenGroup: threeOfKind,
       bullGroup: pairOfKind,
       maxCard: threeOfKind[0], // 葫芦牛比三张同点牌的大小
-      optimalReason: '三条配一对组成葫芦牛',
     };
   }
 
-  // 6. 同花牛 (Level 12)：5张花色相同
+  // 6. 同花牛：5张花色相同
+  const isFlush = sortedCards.every((c) => c.suit === sortedCards[0].suit);
   if (isFlush) {
     return {
       handType: 'FLUSH_NIU',
@@ -375,22 +305,31 @@ export function evaluateNiuniuHand(
       tenGroup: defaultTen,
       bullGroup: defaultBull,
       maxCard,
-      optimalReason: '五张同花色',
     };
   }
 
-  // 7. 顺子牛 (Level 11)：5张点数连续
-  if (isStraight) {
-    return {
-      handType: 'STRAIGHT_NIU',
-      level: 11,
-      multiplier: getModeMultiplier('STRAIGHT_NIU', 11, playMode),
-      name: '顺子牛',
-      tenGroup: defaultTen,
-      bullGroup: defaultBull,
-      maxCard: straightMaxCard,
-      optimalReason: '五张点数连续成顺',
-    };
+  // 7. 顺子牛：5张点数连续（无重复且连续，含 A-10-J-Q-K）
+  const uniqueRanks = new Set(sortedCards.map((c) => c.rank));
+  if (uniqueRanks.size === 5) {
+    const ranksAsc = [...sortedCards].map((c) => c.rank).reverse();
+    const isNormalStraight = ranksAsc[4] - ranksAsc[0] === 4;
+    const isRoyalStraight =
+      ranksAsc[0] === 1 &&
+      ranksAsc[1] === 10 &&
+      ranksAsc[2] === 11 &&
+      ranksAsc[3] === 12 &&
+      ranksAsc[4] === 13;
+    if (isNormalStraight || isRoyalStraight) {
+      return {
+        handType: 'STRAIGHT_NIU',
+        level: 11,
+        multiplier: getModeMultiplier('STRAIGHT_NIU', 11, playMode),
+        name: '顺子牛',
+        tenGroup: defaultTen,
+        bullGroup: defaultBull,
+        maxCard,
+      };
+    }
   }
 
   // 8. 牛牛 (level = 10)
@@ -403,7 +342,6 @@ export function evaluateNiuniuHand(
       tenGroup: bestTenGroup,
       bullGroup: bestBullGroup,
       maxCard,
-      optimalReason: '三张凑十且余二张之和亦为10的倍数',
     };
   }
 
@@ -431,10 +369,6 @@ export function evaluateNiuniuHand(
       tenGroup: bestTenGroup,
       bullGroup: bestBullGroup,
       maxCard,
-      optimalReason:
-        bestBullGroup[0]?.rank === bestBullGroup[1]?.rank
-          ? '优选余牌成对3+2组合'
-          : '优选最大余牌3+2组合',
     };
   }
 
@@ -447,7 +381,6 @@ export function evaluateNiuniuHand(
     tenGroup: [],
     bullGroup: sortedCards,
     maxCard,
-    optimalReason: '无任意三张之和为10的倍数',
   };
 }
 
@@ -524,7 +457,7 @@ export function verifyManualThreeCards(
 
 /**
  * 商业化看牌抢庄：基于前 4 张明牌的 48 张未知牌全组合精确概率与期望分析器
- * 遍历牌堆剩余全部 48 张牌，精确计算成牛率、高倍牛率、5人局预估胜率、期望倍数与最优抢庄/下注策略
+ * 遍历牌堆剩余全部 48 张牌，精确计算成牛率、高倍牛率、期望倍数与最优抢庄/下注策略
  */
 export function analyzeFourCardOdds(
   first4Cards: NiuniuCard[],
@@ -536,18 +469,11 @@ export function analyzeFourCardOdds(
       niuProb: 65,
       highNiuProb: 32,
       niuNiuPlusProb: 12,
-      multiWinProb: 45,
       expectedLevel: 4.8,
       expectedMultiplier: 1.6,
       bestPossibleName: '牛牛',
       recommendedCall: 1,
       recommendedBet: 10,
-      distribution: {
-        noNiu: 17,
-        lowNiu: 16,
-        highNiu: 10,
-        niuNiuPlus: 5,
-      },
     };
   }
 
@@ -555,9 +481,8 @@ export function analyzeFourCardOdds(
   const knownKeySet = new Set(knownCards.map((c) => `${c.suit}_${c.rank}`));
   const remainingDeck = fullDeck.filter((c) => !knownKeySet.has(`${c.suit}_${c.rank}`));
 
-  let noNiuCount = 0;
-  let lowNiuCount = 0;
-  let highNiuOnlyCount = 0;
+  let niuCount = 0;
+  let highNiuCount = 0;
   let niuNiuPlusCount = 0;
   let totalLevel = 0;
   let totalMultiplier = 0;
@@ -565,15 +490,9 @@ export function analyzeFourCardOdds(
 
   for (const fifthCard of remainingDeck) {
     const res = evaluateNiuniuHand([...knownCards.slice(0, 4), fifthCard], playMode);
-    if (res.level === 0) {
-      noNiuCount++;
-    } else if (res.level <= 6) {
-      lowNiuCount++;
-    } else if (res.level <= 9) {
-      highNiuOnlyCount++;
-    } else {
-      niuNiuPlusCount++;
-    }
+    if (res.level >= 1) niuCount++;
+    if (res.level >= 7) highNiuCount++;
+    if (res.level >= 10) niuNiuPlusCount++;
     totalLevel += res.level;
     totalMultiplier += res.multiplier;
     if (!bestResult || compareHands(res, bestResult) > 0) {
@@ -582,18 +501,11 @@ export function analyzeFourCardOdds(
   }
 
   const n = remainingDeck.length || 48;
-  const niuCount = lowNiuCount + highNiuOnlyCount + niuNiuPlusCount;
-  const highNiuCount = highNiuOnlyCount + niuNiuPlusCount;
-
   const niuProb = Math.round((niuCount / n) * 100);
   const highNiuProb = Math.round((highNiuCount / n) * 100);
   const niuNiuPlusProb = Math.round((niuNiuPlusCount / n) * 100);
   const expectedLevel = Number((totalLevel / n).toFixed(2));
   const expectedMultiplier = Number((totalMultiplier / n).toFixed(2));
-
-  // 单挑基准期望等级约为 4.55，映射为对庄/多人对抗胜率 (12%..96%)
-  const singleWinProb = Math.max(0.15, Math.min(0.95, 0.5 + (expectedLevel - 4.55) * 0.068));
-  const multiWinProb = Math.round(singleWinProb * 100);
 
   // 根据期望牌型等级与高倍概率推导最优抢庄倍数 (0, 1, 2, 3, 4)
   let recommendedCall = 0;
@@ -625,18 +537,11 @@ export function analyzeFourCardOdds(
     niuProb,
     highNiuProb,
     niuNiuPlusProb,
-    multiWinProb,
     expectedLevel,
     expectedMultiplier,
     bestPossibleName: bestResult?.name || '牛牛',
     recommendedCall,
     recommendedBet,
-    distribution: {
-      noNiu: noNiuCount,
-      lowNiu: lowNiuCount,
-      highNiu: highNiuOnlyCount,
-      niuNiuPlus: niuNiuPlusCount,
-    },
   };
 }
 
@@ -672,130 +577,3 @@ export function evaluateBetMultiplier(
   }
   return odds.recommendedBet;
 }
-
-/**
- * 抢庄牛牛多人底池赔率与动态胜率偏移核心算法
- * 根据牌桌各座位实时抢庄倍数(callMultiplier)、闲家下注倍数(betMultiplier)与阶段进程，
- * 利用贝叶斯手牌强度信号修正玩家实时动态胜率(dynamicWinProb)，并计算多人底池赔率(potOddsPct)与期望收益(EV)
- */
-export function calculateNiuniuMultiPotOdds(params: {
-  snapshot: NiuniuTableSnapshot;
-  selfPlayer: NiuniuPlayerInfo;
-  fourCardOdds?: FourCardOddsAnalysis;
-  handResult?: NiuniuHandResult;
-  previousWinProb?: number;
-}): NiuniuDynamicPotOddsSnapshot {
-  const { snapshot, selfPlayer, fourCardOdds, handResult, previousWinProb } = params;
-  const baseScore = snapshot.baseScore || 100;
-  const activePlayers = snapshot.seats.filter((s): s is NiuniuPlayerInfo => Boolean(s));
-  const activeSeats = activePlayers.length || 1;
-
-  const dealerPlayer =
-    activePlayers.find((s) => s.isDealer) ||
-    (snapshot.dealerSeatId >= 0 ? snapshot.seats[snapshot.dealerSeatId] : null);
-  const dealerCallMult = Math.max(1, dealerPlayer?.callMultiplier && dealerPlayer.callMultiplier > 0 ? dealerPlayer.callMultiplier : 1);
-
-  // 1. 计算先验基准胜率 (Base Win Prob)
-  let baseWinProb = fourCardOdds?.multiWinProb ?? 50;
-  if (handResult && (snapshot.phase === 'SHOWDOWN' || snapshot.phase === 'COMPARE_AND_SETTLE' || snapshot.phase === 'ROUND_RESULT')) {
-    // 5张牌揭晓后根据精确牌型等级修正基础胜率 (Level 0..18)
-    baseWinProb = Math.round(Math.max(8, Math.min(98, 16 + handResult.level * 5.2)));
-  }
-
-  // 2. 统计全场对手的抢庄与下注压力信号，执行贝叶斯动态胜率修正
-  const opponents = activePlayers.filter((p) => p.seatIndex !== selfPlayer.seatIndex);
-  let opponentSignalPressure = 0;
-  let totalBetMultiplierSum = 0;
-
-  for (const opp of opponents) {
-    const callM = opp.callMultiplier >= 0 ? opp.callMultiplier : 1;
-    const betM = opp.betMultiplier > 0 ? opp.betMultiplier : 5;
-
-    // 抢庄倍数信号：0倍(-1.8%), 1倍(-0.3%), 2倍(+1.0%), 3倍(+2.6%), 4倍(+4.5%)
-    if (opp.callMultiplier >= 0) {
-      const callPressure = (callM - 1.25) * 1.45;
-      opponentSignalPressure += opp.isDealer ? callPressure * 1.55 : callPressure * 0.75;
-    }
-
-    // 闲家下注倍数信号：5倍基准，10倍(+1.2%), 15倍(+2.5%), 20倍(+4.0%)
-    if (!opp.isDealer && opp.betMultiplier > 0) {
-      const betPressure = ((betM - 8.5) / 5) * 1.35;
-      opponentSignalPressure += selfPlayer.isDealer ? betPressure * 1.15 : betPressure * 0.55;
-    }
-
-    if (!opp.isDealer) {
-      totalBetMultiplierSum += betM;
-    }
-  }
-
-  const selfExpectedMult = handResult?.multiplier ?? fourCardOdds?.expectedMultiplier ?? 1.6;
-  const avgHandMult = Math.max(1.4, (selfExpectedMult + 1.85) / 2);
-
-  // 计算自身投入风险与多人总底池规模
-  const selfBetMult = selfPlayer.isDealer
-    ? Math.max(5, Math.round(totalBetMultiplierSum / Math.max(1, opponents.length)))
-    : selfPlayer.betMultiplier > 0
-    ? selfPlayer.betMultiplier
-    : fourCardOdds?.recommendedBet ?? 5;
-
-  if (!selfPlayer.isDealer) {
-    totalBetMultiplierSum += selfBetMult;
-  }
-
-  const estimatedTotalPot = Math.round(
-    baseScore * dealerCallMult * Math.max(5, totalBetMultiplierSum) * avgHandMult
-  );
-
-  const selfCommittedRisk = selfPlayer.isDealer
-    ? Math.round(baseScore * dealerCallMult * Math.max(5, totalBetMultiplierSum) * 1.35)
-    : Math.round(baseScore * dealerCallMult * selfBetMult * 1.35);
-
-  // 动态胜率 = 先验胜率 - 对手高倍信号压缩
-  const dynamicWinProb = Number(
-    Math.max(5, Math.min(97, baseWinProb - opponentSignalPressure)).toFixed(1)
-  );
-  const refPrev = previousWinProb !== undefined ? previousWinProb : baseWinProb;
-  const winProbDelta = Number((dynamicWinProb - refPrev).toFixed(1));
-
-  // 多人底池赔率门槛 = 自身风险敞口 / (预估总底池 + 自身风险敞口)
-  const potOddsFrac = selfCommittedRisk / Math.max(1, estimatedTotalPot + selfCommittedRisk);
-  const potOddsPct = Number((potOddsFrac * 100).toFixed(1));
-  const equityEdgePct = Number((dynamicWinProb - potOddsPct).toFixed(1));
-
-  // 计算期望净收益 EV (豆)
-  const winRateFrac = dynamicWinProb / 100;
-  const potentialGain = selfPlayer.isDealer
-    ? Math.round(baseScore * dealerCallMult * Math.max(5, totalBetMultiplierSum) * selfExpectedMult)
-    : Math.round(baseScore * dealerCallMult * selfBetMult * selfExpectedMult);
-  const expectedEv = Math.round(winRateFrac * potentialGain - (1 - winRateFrac) * selfCommittedRisk);
-
-  // 推导动态最优下注倍数建议
-  let optimalMultiplier = fourCardOdds?.recommendedBet ?? 5;
-  if (snapshot.phase === 'CALL_BANKER') {
-    optimalMultiplier = fourCardOdds?.recommendedCall ?? 1;
-  } else {
-    if (dynamicWinProb >= 68 && equityEdgePct >= 18) optimalMultiplier = 20;
-    else if (dynamicWinProb >= 55 && equityEdgePct >= 8) optimalMultiplier = 15;
-    else if (dynamicWinProb >= 44 && equityEdgePct >= 0) optimalMultiplier = 10;
-    else optimalMultiplier = 5;
-  }
-
-  return {
-    phase: snapshot.phase,
-    activeSeats,
-    dealerSeatId: snapshot.dealerSeatId,
-    dealerCallMult,
-    totalBetMultiplierSum,
-    estimatedTotalPot,
-    selfCommittedRisk,
-    baseWinProb,
-    dynamicWinProb,
-    winProbDelta,
-    potOddsPct,
-    equityEdgePct,
-    expectedEv,
-    optimalMultiplier,
-  };
-}
-
-

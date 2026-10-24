@@ -1,5 +1,6 @@
 import { ConnectionManager } from '../../core/ConnectionManager.js';
 import { IGameRoom, RoomPlayerInfo, RoomSummary } from '../../core/RoomManager.js';
+import { roomCardEngine } from '../../core/RoomCardEngine.js';
 import { storageService } from '../../shared/storage.js';
 import {
   AvailableAction,
@@ -37,11 +38,14 @@ const BOT_PROFILES = [
   { nickname: '凌霄剑仙AI', avatarId: 'warrior' },
 ];
 
+const PRE_DEAL_ESCROW_WINDOW_MS = 3200;
+
 export class MahjongRoom implements IGameRoom {
   roomId: string;
   gameType = 'mahjong';
   hostId: string;
   baseScore: number;
+  initialScore: number;
   isPrivate: boolean;
   maxPlayers = 4;
   createdAt: number = Date.now();
@@ -51,6 +55,8 @@ export class MahjongRoom implements IGameRoom {
   private phase: MahjongPhase = 'WAITING';
   private connectionManager: ConnectionManager;
   private onRoomDestroyed: (roomId: string) => void;
+  private hasDealtFirstRound = false;
+  private preDealTimer: NodeJS.Timeout | null = null;
 
   // Mahjong State
   private deck: number[] = [];
@@ -85,6 +91,7 @@ export class MahjongRoom implements IGameRoom {
     roomId: string;
     hostId: string;
     baseScore: number;
+    initialScore?: number;
     isPrivate: boolean;
     mode?: string;
     connectionManager: ConnectionManager;
@@ -93,6 +100,10 @@ export class MahjongRoom implements IGameRoom {
     this.roomId = options.roomId;
     this.hostId = options.hostId;
     this.baseScore = options.baseScore || 100;
+    this.initialScore =
+      options.initialScore && options.initialScore > 0
+        ? options.initialScore
+        : Math.max(2000, this.baseScore * 20);
     this.isPrivate = options.isPrivate;
     this.playMode = options.mode || 'puer';
     this.connectionManager = options.connectionManager;
@@ -168,8 +179,47 @@ export class MahjongRoom implements IGameRoom {
     return this.seats.every((s) => !s || s.isBot);
   }
 
-  setPlayerReady(_playerId: string, _ready?: boolean): void {
-    // Auto-starts upon fill
+  setPlayerReady(playerId: string, ready = true): void {
+    const seat = this.seats.find((s) => s?.playerId === playerId);
+    if (!seat) return;
+    if (ready && !seat.isBot && seat.beans < this.baseScore) {
+      this.connectionManager.emitToPlayer(playerId, 's2c_bankruptcy_prompt', {
+        roomId: this.roomId,
+        gameType: this.gameType,
+        currentScore: seat.beans,
+        baseScore: this.baseScore,
+        initialScore: this.initialScore,
+      });
+      return;
+    }
+    seat.ready = ready;
+    if (ready && (this.phase === 'WAITING' || this.phase === 'SETTLEMENT')) {
+      this.startRound();
+    }
+  }
+
+  rebuySeatScore(playerId: string, addedScore: number): number {
+    const seat = this.seats.find((s) => s?.playerId === playerId);
+    if (!seat) return 0;
+    seat.beans = Math.max(0, seat.beans) + Math.max(0, Math.round(addedScore));
+    seat.ready = true;
+    this.broadcastSnapshot();
+    if (this.phase === 'WAITING' || this.phase === 'SETTLEMENT') {
+      this.startRound();
+    }
+    return seat.beans;
+  }
+
+  triggerImmediateDeal(): void {
+    if (this.phase !== 'WAITING' && this.phase !== 'SETTLEMENT') return;
+    if (this.preDealTimer) {
+      clearTimeout(this.preDealTimer);
+      this.preDealTimer = null;
+    }
+    while (this.getPlayerCount() < this.maxPlayers) {
+      this.addBotPlayer();
+    }
+    this.startRound();
   }
 
   addBotPlayer(): boolean {
@@ -187,7 +237,7 @@ export class MahjongRoom implements IGameRoom {
       playerId: `bot_${this.roomId}_${emptyIdx}_${Date.now()}`,
       nickname: botProfile.nickname,
       avatarId: botProfile.avatarId,
-      beans: 50000,
+      beans: this.initialScore,
       isBot: true,
       seatIndex: emptyIdx,
       ready: true,
@@ -230,10 +280,69 @@ export class MahjongRoom implements IGameRoom {
     while (this.getPlayerCount() < this.maxPlayers) {
       this.addBotPlayer();
     }
-    this.startRound();
+    this.broadcastSnapshot();
+    if (!this.hasDealtFirstRound) {
+      if (this.preDealTimer) clearTimeout(this.preDealTimer);
+      this.preDealTimer = setTimeout(() => {
+        this.preDealTimer = null;
+        if (this.phase === 'WAITING' && !this.isEmptyOfHumans()) {
+          this.startRound();
+        }
+      }, PRE_DEAL_ESCROW_WINDOW_MS);
+    } else {
+      this.startRound();
+    }
+  }
+
+  private commitFirstRoundEscrow(): void {
+    const { capturedTotal, session } = roomCardEngine.captureEscrowOnFirstRound(this.roomId);
+    if (!session) return;
+    for (const seat of this.seats) {
+      if (seat && !seat.isBot) {
+        const updatedProfile = storageService.getUser(seat.playerId);
+        this.connectionManager.emitToPlayer(seat.playerId, 's2c_rc_session_sync', {
+          session,
+          profile: updatedProfile,
+          action: 'escrow_captured',
+          capturedTotal,
+        });
+        if (updatedProfile && capturedTotal > 0) {
+          this.connectionManager.emitToPlayer(seat.playerId, 's2c_profile_updated', {
+            profile: updatedProfile,
+          });
+        }
+      }
+    }
   }
 
   startRound(): void {
+    if (this.preDealTimer) {
+      clearTimeout(this.preDealTimer);
+      this.preDealTimer = null;
+    }
+
+    for (const s of this.seats) {
+      if (s && !s.isBot && s.beans < this.baseScore) {
+        s.ready = false;
+        this.connectionManager.emitToPlayer(s.playerId, 's2c_bankruptcy_prompt', {
+          roomId: this.roomId,
+          gameType: this.gameType,
+          currentScore: s.beans,
+          baseScore: this.baseScore,
+          initialScore: this.initialScore,
+        });
+        return;
+      }
+      if (s && s.isBot && s.beans < this.baseScore) {
+        s.beans = this.initialScore;
+      }
+    }
+
+    if (!this.hasDealtFirstRound) {
+      this.hasDealtFirstRound = true;
+      this.commitFirstRoundEscrow();
+    }
+
     this.phase = 'DEALING';
     this.deck = createDeckForPlayMode(this.playMode);
     this.hands = [[], [], [], []];
@@ -910,12 +1019,12 @@ export class MahjongRoom implements IGameRoom {
   }
 
   private transferBeans(winnerSeat: number, loserSeat: number, amount: number): void {
-    const RAKE_RATE = 0.05;
+    const RAKE_RATE = 0;
     if (loserSeat === -1) {
       let totalDeducted = 0;
       for (let s = 0; s < 4; s++) {
         if (s !== winnerSeat && this.seats[s]) {
-          const actualDeduct = Math.min(this.seats[s]!.beans, amount);
+          const actualDeduct = Math.min(Math.max(0, this.seats[s]!.beans), amount);
           this.seats[s]!.beans -= actualDeduct;
           totalDeducted += actualDeduct;
           if (!this.seats[s]!.isBot) {
@@ -931,7 +1040,7 @@ export class MahjongRoom implements IGameRoom {
         }
       }
     } else if (this.seats[loserSeat] && this.seats[winnerSeat]) {
-      const actualDeduct = Math.min(this.seats[loserSeat]!.beans, amount);
+      const actualDeduct = Math.min(Math.max(0, this.seats[loserSeat]!.beans), amount);
       this.seats[loserSeat]!.beans -= actualDeduct;
       const winAfterRake = Math.floor(actualDeduct * (1 - RAKE_RATE));
       this.seats[winnerSeat]!.beans += winAfterRake;
@@ -1139,6 +1248,47 @@ export class MahjongRoom implements IGameRoom {
       undefined,
       true // skipBeanUpdate: true, beans already transferred in real-time
     );
+
+    const humanIdx = this.seats.findIndex((s) => s && !s.isBot);
+    if (humanIdx !== -1 && this.seats[humanIdx]) {
+      const human = this.seats[humanIdx]!;
+      const updatedRcSession = roomCardEngine.recordRoundSettlement({
+        roomId: this.roomId,
+        heroId: human.playerId,
+        heroDelta: scoreDeltas[humanIdx] ?? 0,
+        heroName: human.nickname,
+        summaryText: winners.length > 0 ? '胡牌结算' : '流局查叫结算',
+        peerDeltas: this.seats
+          .map((s, idx) =>
+            s && idx !== humanIdx
+              ? { id: s.playerId, name: s.nickname, delta: scoreDeltas[idx] ?? 0 }
+              : null
+          )
+          .filter((x): x is { id: string; name: string; delta: number } => Boolean(x)),
+      });
+      if (updatedRcSession) {
+        for (const s of this.seats) {
+          if (s && !s.isBot) {
+            this.connectionManager.emitToPlayer(s.playerId, 's2c_rc_session_sync', {
+              session: updatedRcSession,
+            });
+          }
+        }
+      }
+    }
+
+    for (const s of this.seats) {
+      if (s && !s.isBot && s.beans < this.baseScore) {
+        s.ready = false;
+        this.connectionManager.emitToPlayer(s.playerId, 's2c_bankruptcy_prompt', {
+          roomId: this.roomId,
+          gameType: this.gameType,
+          currentScore: s.beans,
+          baseScore: this.baseScore,
+          initialScore: this.initialScore,
+        });
+      }
+    }
   }
 
   buildSnapshotForPlayer(playerId: string): MahjongTableSnapshot {
@@ -1443,6 +1593,7 @@ export class MahjongRoom implements IGameRoom {
       mode: this.mode,
       hostId: this.hostId,
       baseScore: this.baseScore,
+      initialScore: this.initialScore,
       isPrivate: this.isPrivate,
       status: this.status,
       playerCount: this.getPlayerCount(),
@@ -1456,6 +1607,7 @@ export class MahjongRoom implements IGameRoom {
   }
 
   destroy(): void {
+    if (this.preDealTimer) clearTimeout(this.preDealTimer);
     if (this.turnTimer) clearTimeout(this.turnTimer);
     if (this.botTimer) clearTimeout(this.botTimer);
     if (this.responseTimer) clearTimeout(this.responseTimer);

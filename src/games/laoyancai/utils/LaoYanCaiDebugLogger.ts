@@ -5,62 +5,43 @@ import {
   LaoYanCaiHandResult,
   LaoYanCaiPlayMode,
   LaoYanCaiSettlement,
-} from '../types.js';
-
-const SUIT_SYMBOLS: Record<string, string> = {
-  spade: '黑桃',
-  heart: '红桃',
-  club: '梅花',
-  diamond: '方块',
-};
-
-const RANK_LABELS: Record<number, string> = {
-  1: 'A',
-  2: '2',
-  3: '3',
-  4: '4',
-  5: '5',
-  6: '6',
-  7: '7',
-  8: '8',
-  9: '9',
-  10: '10',
-  11: 'J',
-  12: 'Q',
-  13: 'K',
-};
-
-export function formatLaoYanCaiCards(cards: LaoYanCaiCard[]): string {
-  if (!cards || cards.length === 0) return '[]';
-  return cards
-    .map((c) => {
-      if (!c || c.rank <= 0) return '[暗牌]';
-      return `${SUIT_SYMBOLS[c.suit] || ''}${RANK_LABELS[c.rank] || c.rank}`;
-    })
-    .join(' ');
-}
+} from '../types';
+import { formatCardLabel } from '../algorithms/LaoYanCaiLogic';
 
 export class LaoYanCaiDebugLogger {
+  private static enabled = true;
+
+  static setEnabled(flag: boolean): void {
+    this.enabled = flag;
+  }
+
   static logInitialDealAndOdds(
     seatIndex: number,
     nickname: string,
     isDealer: boolean,
     cards: LaoYanCaiCard[],
-    handResult: LaoYanCaiHandResult,
-    drawOdds: LaoYanCaiDrawOdds,
-    playMode: LaoYanCaiPlayMode
+    evalResult: LaoYanCaiHandResult,
+    odds: LaoYanCaiDrawOdds,
+    mode: LaoYanCaiPlayMode
   ): void {
+    if (!this.enabled) return;
+    const cardStr = cards.map(formatCardLabel).join(' ');
     const roleTag = isDealer ? '庄家' : '闲家';
-    console.info(
-      `[LaoYanCai][Deal2][${playMode}] 座位#${seatIndex} ${nickname}(${roleTag}) | 底牌: ${formatLaoYanCaiCards(
-        cards
-      )} -> ${handResult.name}(${handResult.badgeText}) | 捞牌提升率: ${
-        drawOdds.improveProbability
-      }% | 高点率(>=7): ${drawOdds.highPointsProbability}% | 特殊番率: ${
-        drawOdds.specialHandProbability
-      }% | 期望点数: ${drawOdds.expectedPointsAfterDraw} | AI建议: ${
-        drawOdds.recommendedAction
-      }`
+    console.log(
+      `%c[LYC-DEBUG][首轮2张与捞牌期望] 座位${seatIndex}(${nickname}·${roleTag}) | 模式=${mode}`,
+      'color:#10b981;font-weight:bold;',
+      {
+        cards: cardStr,
+        initialPoints: `${evalResult.points}点 (${evalResult.name})`,
+        initialMultiplier: `${evalResult.multiplier}x`,
+        canZhaKai: evalResult.canZhaKai ? '可炸开(天牌8/9点)' : '不可炸开',
+        improveProbability: `${odds.improveProbability}% (${odds.improveCardCount}/${odds.remainingDeckCount}张)`,
+        highHandProbability: `${odds.highHandProbability}%`,
+        specialMultiplierProbability: `${odds.specialMultiplierProbability}%`,
+        expectedPointsAfterDraw: odds.expectedPointsAfterDraw,
+        recommendation: odds.recommendation,
+        advice: odds.adviceText,
+      }
     );
   }
 
@@ -72,33 +53,54 @@ export class LaoYanCaiDebugLogger {
     drawnCard: LaoYanCaiCard | null,
     finalResult: LaoYanCaiHandResult
   ): void {
+    if (!this.enabled) return;
     const roleTag = isDealer ? '庄家' : '闲家';
-    const drawnText = drawnCard
-      ? `摸入第3张 ${formatLaoYanCaiCards([drawnCard])}`
-      : '未摸牌';
-    console.info(
-      `[LaoYanCai][Decision] 座位#${seatIndex} ${nickname}(${roleTag}) 动作=${decision} (${drawnText}) -> 终局牌型: ${formatLaoYanCaiCards(
-        finalResult.cards
-      )} [${finalResult.name} · ${finalResult.badgeText}]`
+    const actionMap: Record<LaoYanCaiDecision, string> = {
+      PENDING: '思考中',
+      ZHAKAI: '🔥 炸开亮牌',
+      LAO: `🥬 捞第3张牌 (${drawnCard ? formatCardLabel(drawnCard) : ''})`,
+      BULAO: '🛡️ 不捞守牌',
+    };
+    console.log(
+      `%c[LYC-DEBUG][博弈抉择] 座位${seatIndex}(${nickname}·${roleTag}) -> ${actionMap[decision]}`,
+      'color:#f59e0b;font-weight:bold;',
+      {
+        finalCards: finalResult.cards.map(formatCardLabel).join(' '),
+        finalHandName: finalResult.name,
+        badge: finalResult.badgeText,
+        points: finalResult.points,
+        multiplier: `${finalResult.multiplier}x`,
+        weight: finalResult.weight,
+      }
     );
   }
 
   static logRoundSettlement(
     roomId: string,
-    playMode: LaoYanCaiPlayMode,
+    mode: LaoYanCaiPlayMode,
     dealerSeatIndex: number,
     settlement: LaoYanCaiSettlement
   ): void {
-    const summary = settlement.players
-      .map(
-        (p) =>
-          `#${p.seatIndex}${p.isDealer ? '(庄)' : '(闲)'}${p.nickname}: ${
-            p.handName
-          }(×${p.multiplier}) ${p.scoreDelta >= 0 ? '+' : ''}${p.scoreDelta}`
-      )
-      .join(' | ');
-    console.info(
-      `[LaoYanCai][Settlement] 房间=${roomId} 模式=${playMode} 庄家座位=#${dealerSeatIndex} | ${summary}`
+    if (!this.enabled) return;
+    console.groupCollapsed(
+      `%c[LYC-DEBUG][本局结算总表] 房间=${roomId} | 模式=${mode} | 庄家座位=${dealerSeatIndex}${
+        settlement.bankerZhaKaiAll ? ' (庄家天牌炸开通杀局)' : ''
+      }`,
+      'color:#fbbf24;font-weight:bold;'
     );
+    console.table(
+      settlement.players.map((p) => ({
+        座位: p.seatIndex,
+        昵称: p.nickname,
+        身份: p.isDealer ? `庄(${Math.max(1, p.callMultiplier)}x)` : `闲(下${p.betMultiplier}x)`,
+        抉择: p.decision === 'ZHAKAI' ? '炸开' : p.decision === 'LAO' ? '捞牌(3张)' : '不捞(2张)',
+        手牌: p.cards.map(formatCardLabel).join(' '),
+        牌型: `${p.handName} (${p.badgeText})`,
+        倍数: `${p.multiplier}x`,
+        本局盈亏: p.scoreDelta > 0 ? `+${p.scoreDelta}` : String(p.scoreDelta),
+        当前余额: p.balance,
+      }))
+    );
+    console.groupEnd();
   }
 }

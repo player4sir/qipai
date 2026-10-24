@@ -1,5 +1,6 @@
 import { ConnectionManager } from '../../core/ConnectionManager.js';
 import { IGameRoom, RoomPlayerInfo, RoomSummary } from '../../core/RoomManager.js';
+import { roomCardEngine } from '../../core/RoomCardEngine.js';
 import { storageService } from '../../shared/storage.js';
 import {
   NiuniuCard,
@@ -34,6 +35,7 @@ export class NiuniuRoom implements IGameRoom {
   gameType = 'niuniu';
   hostId: string;
   baseScore: number;
+  initialScore: number;
   isPrivate: boolean;
   maxPlayers = 5;
   createdAt: number = Date.now();
@@ -43,6 +45,7 @@ export class NiuniuRoom implements IGameRoom {
   private phase: NiuniuPhase = 'WAITING';
   private connectionManager: ConnectionManager;
   private onRoomDestroyed: (roomId: string) => void;
+  private hasDealtFirstRound = false;
 
   // Niuniu Specific Game States
   private hands: NiuniuCard[][] = [[], [], [], [], []];
@@ -71,6 +74,7 @@ export class NiuniuRoom implements IGameRoom {
     roomId: string;
     hostId: string;
     baseScore: number;
+    initialScore?: number;
     isPrivate: boolean;
     mode?: string;
     connectionManager: ConnectionManager;
@@ -79,6 +83,10 @@ export class NiuniuRoom implements IGameRoom {
     this.roomId = options.roomId;
     this.hostId = options.hostId;
     this.baseScore = options.baseScore;
+    this.initialScore =
+      options.initialScore && options.initialScore > 0
+        ? options.initialScore
+        : Math.max(2000, options.baseScore * 20);
     this.isPrivate = options.isPrivate;
     this.playMode =
       options.mode === 'tongbi' || options.mode === 'crazy' || options.mode === 'classic'
@@ -165,10 +173,42 @@ export class NiuniuRoom implements IGameRoom {
   setPlayerReady(playerId: string, ready: boolean = true): void {
     const seat = this.seats.find((s) => s?.playerId === playerId);
     if (seat) {
+      if (ready && !seat.isBot && seat.beans < this.baseScore) {
+        this.connectionManager.emitToPlayer(playerId, 's2c_bankruptcy_prompt', {
+          roomId: this.roomId,
+          gameType: this.gameType,
+          currentScore: seat.beans,
+          baseScore: this.baseScore,
+          initialScore: this.initialScore,
+        });
+        return;
+      }
       seat.ready = ready;
       this.broadcastSnapshot();
       this.checkAutoStart();
     }
+  }
+
+  rebuySeatScore(playerId: string, addedScore: number): number {
+    const seat = this.seats.find((s) => s?.playerId === playerId);
+    if (!seat) return 0;
+    seat.beans = Math.max(0, seat.beans) + Math.max(0, Math.round(addedScore));
+    seat.ready = true;
+    this.broadcastSnapshot();
+    this.checkAutoStart();
+    return seat.beans;
+  }
+
+  triggerImmediateDeal(): void {
+    if (this.phase !== 'WAITING' && this.phase !== 'ROUND_RESULT') return;
+    this.clearTimers();
+    while (this.getPlayerCount() < this.maxPlayers) {
+      this.addBotPlayer();
+    }
+    this.seats.forEach((s) => {
+      if (s) s.ready = true;
+    });
+    this.startRound();
   }
 
   addBotPlayer(): boolean {
@@ -185,7 +225,7 @@ export class NiuniuRoom implements IGameRoom {
       playerId: botId,
       nickname: profile.nickname,
       avatarId: profile.avatarId,
-      beans: Math.floor(this.baseScore * (60 + Math.random() * 90)),
+      beans: this.initialScore,
       isBot: true,
     });
   }
@@ -381,6 +421,7 @@ export class NiuniuRoom implements IGameRoom {
       mode: this.playMode,
       hostId: this.hostId,
       baseScore: this.baseScore,
+      initialScore: this.initialScore,
       isPrivate: this.isPrivate,
       status: this.phase,
       playerCount: this.getPlayerCount(),
@@ -442,14 +483,62 @@ export class NiuniuRoom implements IGameRoom {
       this.addBotPlayer();
     }
 
+    for (const s of this.seats) {
+      if (s && !s.isBot && s.beans < this.baseScore) {
+        s.ready = false;
+        this.connectionManager.emitToPlayer(s.playerId, 's2c_bankruptcy_prompt', {
+          roomId: this.roomId,
+          gameType: this.gameType,
+          currentScore: s.beans,
+          baseScore: this.baseScore,
+          initialScore: this.initialScore,
+        });
+        return;
+      }
+      if (s && s.isBot && s.beans < this.baseScore) {
+        s.beans = this.initialScore;
+      }
+    }
+
     const readyCount = this.seats.filter((s) => s && s.ready).length;
     if (readyCount === this.maxPlayers) {
-      this.startRound();
+      if (!this.hasDealtFirstRound) {
+        if (!this.countdownInterval) {
+          this.startCountdown(3, () => this.startRound());
+        }
+      } else {
+        this.startRound();
+      }
+    }
+  }
+
+  private commitFirstRoundEscrow(): void {
+    const { capturedTotal, session } = roomCardEngine.captureEscrowOnFirstRound(this.roomId);
+    if (!session) return;
+    for (const seat of this.seats) {
+      if (seat && !seat.isBot) {
+        const updatedProfile = storageService.getUser(seat.playerId);
+        this.connectionManager.emitToPlayer(seat.playerId, 's2c_rc_session_sync', {
+          session,
+          profile: updatedProfile,
+          action: 'escrow_captured',
+          capturedTotal,
+        });
+        if (updatedProfile && capturedTotal > 0) {
+          this.connectionManager.emitToPlayer(seat.playerId, 's2c_profile_updated', {
+            profile: updatedProfile,
+          });
+        }
+      }
     }
   }
 
   private startRound(): void {
     this.clearTimers();
+    if (!this.hasDealtFirstRound) {
+      this.hasDealtFirstRound = true;
+      this.commitFirstRoundEscrow();
+    }
     this.phase = 'DEAL_FIRST_4';
     this.callMultipliers = [-1, -1, -1, -1, -1];
     this.betMultipliers = [0, 0, 0, 0, 0];
@@ -812,6 +901,9 @@ export class NiuniuRoom implements IGameRoom {
     this.seats.forEach((seat, idx) => {
       if (seat) {
         seat.beans = Math.max(0, seat.beans + scoreDeltas[idx]);
+        if (seat.isBot && seat.beans < this.baseScore) {
+          seat.beans = this.initialScore;
+        }
       }
     });
 
@@ -844,6 +936,34 @@ export class NiuniuRoom implements IGameRoom {
         })
         .filter(Boolean)
     );
+
+    const humanIdx = this.seats.findIndex((s) => s && !s.isBot);
+    if (humanIdx !== -1 && this.seats[humanIdx]) {
+      const human = this.seats[humanIdx]!;
+      const updatedRcSession = roomCardEngine.recordRoundSettlement({
+        roomId: this.roomId,
+        heroId: human.playerId,
+        heroDelta: scoreDeltas[humanIdx] ?? 0,
+        heroName: human.nickname,
+        summaryText: `抢庄牛牛·${this.handResults[humanIdx]?.name || '比牌结算'}`,
+        peerDeltas: this.seats
+          .map((s, idx) =>
+            s && idx !== humanIdx
+              ? { id: s.playerId, name: s.nickname, delta: scoreDeltas[idx] ?? 0 }
+              : null
+          )
+          .filter((x): x is { id: string; name: string; delta: number } => Boolean(x)),
+      });
+      if (updatedRcSession) {
+        this.seats.forEach((s) => {
+          if (s && !s.isBot) {
+            this.connectionManager.emitToPlayer(s.playerId, 's2c_rc_session_sync', {
+              session: updatedRcSession,
+            });
+          }
+        });
+      }
+    }
 
     this.currentSettlement = {
       baseScore: this.baseScore,
@@ -888,9 +1008,22 @@ export class NiuniuRoom implements IGameRoom {
       this.phase = 'ROUND_RESULT';
       this.broadcastSnapshot();
 
+      for (const s of this.seats) {
+        if (s && !s.isBot && s.beans < this.baseScore) {
+          s.ready = false;
+          this.connectionManager.emitToPlayer(s.playerId, 's2c_bankruptcy_prompt', {
+            roomId: this.roomId,
+            gameType: this.gameType,
+            currentScore: s.beans,
+            baseScore: this.baseScore,
+            initialScore: this.initialScore,
+          });
+        }
+      }
+
       this.startCountdown(7, () => {
         this.seats.forEach((s) => {
-          if (s) s.ready = true;
+          if (s && (s.isBot || s.beans >= this.baseScore)) s.ready = true;
         });
         this.checkAutoStart();
       });

@@ -11,7 +11,6 @@ export interface MahjongTileViewProps {
   isDingQue?: boolean;
   isNewDraw?: boolean;
   kind?: 'hand' | 'ming';
-  mode?: string;
   onClick?: () => void;
   onDoubleClick?: () => void;
 }
@@ -30,11 +29,10 @@ export const MahjongTileView: React.FC<MahjongTileViewProps> = ({
   isDingQue = false,
   isNewDraw = false,
   kind = 'hand',
-  mode,
   onClick,
   onDoubleClick,
 }) => {
-  const isWild = isWildcard(tileId, mode);
+  const isWild = isWildcard(tileId) || tileId === 31 || tileId === 0x35;
   const tileCode = getTileAssetCode(tileId);
 
   // Cocos official perspective 1, 2, 3 assets

@@ -10,19 +10,11 @@ import {
 } from 'lucide-react';
 import { ViewportMetrics } from '../../App';
 import { soundEngine } from '../../shared/audio/SoundEngine';
-import { webAudioQueue } from '../../shared/audio/WebAudioQueueManager';
-import {
-  gameControlHub,
-  useGameControlState,
-} from '../../shared/control/GameControlHub';
-import { roomCardSessionHub } from '../../shared/control/RoomCardSessionHub';
 import { hapticEngine } from '../../shared/haptics/HapticEngine';
 import { socketClient } from '../../shared/network/SocketClient';
 import { AutoLandscapeContainer } from '../../shared/components/AutoLandscapeContainer';
-import { CommercialModalShell } from '../../shared/ui/CommercialModalShell';
 import {
   NiuniuCard,
-  NiuniuDynamicPotOddsSnapshot,
   NiuniuHandResult,
   NiuniuPhase,
   NiuniuPlayerInfo,
@@ -30,8 +22,6 @@ import {
   NiuniuTableSnapshot,
 } from './types';
 import {
-  analyzeFourCardOdds,
-  calculateNiuniuMultiPotOdds,
   compareHands,
   createStandardNiuniuDeck,
   evaluateBetMultiplier,
@@ -40,7 +30,6 @@ import {
   shuffleDeck,
   solveOptimalPartition,
 } from './algorithms/NiuniuLogic';
-import { NiuniuDebugLogger } from './utils/NiuniuDebugLogger';
 import { NiuniuPlayerSeat } from './components/NiuniuPlayerSeat';
 import { NiuniuActionBar } from './components/NiuniuActionBar';
 import { NiuniuSettlementModal } from './components/NiuniuSettlementModal';
@@ -50,13 +39,15 @@ export interface NiuniuTableViewProps {
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
   onLeaveRoom: () => void;
+  initialBaseScore?: number;
+  initialTableScore?: number;
 }
 
 const MODE_LABELS: Record<NiuniuPlayMode, string> = {
   qiangzhuang: '看牌抢庄',
   tongbi: '通比牛牛',
   crazy: '疯狂加倍',
-  classic: '经典算牛',
+  classic: '经典牛牛',
 };
 
 const PHASE_BANNERS: Record<NiuniuPhase, string> = {
@@ -75,8 +66,9 @@ export const NiuniuTableView: React.FC<NiuniuTableViewProps> = ({
   isFullscreen,
   onToggleFullscreen,
   onLeaveRoom,
+  initialBaseScore = 100,
+  initialTableScore = 2000,
 }) => {
-  const controlState = useGameControlState();
   const [snapshot, setSnapshot] = useState<NiuniuTableSnapshot | null>(null);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(() => soundEngine.isEnabled());
   const [showRuleModal, setShowRuleModal] = useState<boolean>(false);
@@ -85,11 +77,9 @@ export const NiuniuTableView: React.FC<NiuniuTableViewProps> = ({
   // Local simulation state if socket server snapshot is not active
   const [localSnapshot, setLocalSnapshot] = useState<NiuniuTableSnapshot | null>(null);
   const fullLocalHandsRef = useRef<NiuniuCard[][]>([]);
-  const prevSwitchSeqRef = useRef<number>(controlState.switchTableSeq);
 
-  // Initialize socket listener & preload Niuniu WAV assets into WebAudioQueueManager
+  // Initialize socket listener
   useEffect(() => {
-    webAudioQueue.preloadGameAssets('niuniu');
     soundEngine.startBgm('table');
 
     const unsub = socketClient.on('s2c_niuniu_snapshot', (data: NiuniuTableSnapshot) => {
@@ -100,7 +90,6 @@ export const NiuniuTableView: React.FC<NiuniuTableViewProps> = ({
 
     return () => {
       unsub();
-      webAudioQueue.clearAllQueues();
     };
   }, []);
 
@@ -147,13 +136,16 @@ export const NiuniuTableView: React.FC<NiuniuTableViewProps> = ({
       }));
     };
 
+    const startScore = Math.max(200, Number(initialTableScore) || 2000);
+    const startBase = Math.max(10, Number(initialBaseScore) || 100);
+
     const mockSeats: NiuniuPlayerInfo[] = [
       {
         playerId: 'self_player',
         nickname: '长安棋圣',
         avatarId: 'kashen',
         seatIndex: 0,
-        beans: existingBeans?.[0] ?? 128000,
+        beans: existingBeans?.[0] ?? startScore,
         ready: true,
         isBot: false,
         disconnected: false,
@@ -168,7 +160,7 @@ export const NiuniuTableView: React.FC<NiuniuTableViewProps> = ({
         nickname: '锦鲤·贝儿',
         avatarId: 'beier',
         seatIndex: 1,
-        beans: existingBeans?.[1] ?? 95000,
+        beans: existingBeans?.[1] ?? startScore,
         ready: true,
         isBot: true,
         disconnected: false,
@@ -183,7 +175,7 @@ export const NiuniuTableView: React.FC<NiuniuTableViewProps> = ({
         nickname: '折扇·柳如风',
         avatarId: 'scholar',
         seatIndex: 2,
-        beans: existingBeans?.[2] ?? 180000,
+        beans: existingBeans?.[2] ?? startScore,
         ready: true,
         isBot: true,
         disconnected: false,
@@ -198,7 +190,7 @@ export const NiuniuTableView: React.FC<NiuniuTableViewProps> = ({
         nickname: '财神·金百万',
         avatarId: 'noble',
         seatIndex: 3,
-        beans: existingBeans?.[3] ?? 240000,
+        beans: existingBeans?.[3] ?? startScore,
         ready: true,
         isBot: true,
         disconnected: false,
@@ -213,7 +205,7 @@ export const NiuniuTableView: React.FC<NiuniuTableViewProps> = ({
         nickname: '凌霄剑仙',
         avatarId: 'warrior',
         seatIndex: 4,
-        beans: existingBeans?.[4] ?? 88000,
+        beans: existingBeans?.[4] ?? startScore,
         ready: true,
         isBot: true,
         disconnected: false,
@@ -225,10 +217,9 @@ export const NiuniuTableView: React.FC<NiuniuTableViewProps> = ({
       },
     ];
 
-    const activeSessionConfig = roomCardSessionHub.getStore().activeSession?.config;
     setLocalSnapshot({
-      roomId: activeSessionConfig?.roomId || '100001',
-      baseScore: activeSessionConfig?.baseScore || 100,
+      roomId: '888666',
+      baseScore: startBase,
       playMode: 'qiangzhuang',
       phase: 'CALL_BANKER',
       countdown: 6,
@@ -236,7 +227,7 @@ export const NiuniuTableView: React.FC<NiuniuTableViewProps> = ({
       seats: mockSeats,
       candidateDealerSeats: [],
     });
-  }, []);
+  }, [initialBaseScore, initialTableScore]);
 
   // Offline local simulation fallback initialization
   useEffect(() => {
@@ -279,171 +270,10 @@ export const NiuniuTableView: React.FC<NiuniuTableViewProps> = ({
     return evaluateNiuniuHand(validCards, activeSnapshot?.playMode || 'qiangzhuang');
   }, [selfPlayer, activeSnapshot?.playMode]);
 
-  const selfFourCardOdds = useMemo(() => {
-    if (!selfPlayer || !selfPlayer.cards) return undefined;
-    const first4 = selfPlayer.cards.filter((c) => c.rank > 0).slice(0, 4);
-    if (first4.length < 4) return undefined;
-    return analyzeFourCardOdds(first4, activeSnapshot?.playMode || 'qiangzhuang');
-  }, [selfPlayer, activeSnapshot?.playMode]);
-
-  // Track previous win rate across betting stages to compute dynamic win-rate shift (Δ%)
-  const prevNiuniuWinProbRef = useRef<number | undefined>(undefined);
-  const lastPotOddsLogKeyRef = useRef<string>('');
-
-  const selfDynamicPotOdds = useMemo<NiuniuDynamicPotOddsSnapshot | undefined>(() => {
-    if (!activeSnapshot || !selfPlayer || activeSnapshot.phase === 'WAITING') {
-      return undefined;
-    }
-    return calculateNiuniuMultiPotOdds({
-      snapshot: activeSnapshot,
-      selfPlayer,
-      fourCardOdds: selfFourCardOdds,
-      handResult: selfHandResult,
-      previousWinProb: prevNiuniuWinProbRef.current,
-    });
-  }, [activeSnapshot, selfPlayer, selfFourCardOdds, selfHandResult]);
-
-  // Log dynamic pot odds & win-rate shift after each round of call-banker or betting actions
-  useEffect(() => {
-    if (!activeSnapshot || !selfPlayer || !selfDynamicPotOdds) return;
-    if (activeSnapshot.phase === 'DEAL_FIRST_4' || activeSnapshot.phase === 'WAITING') {
-      prevNiuniuWinProbRef.current = selfDynamicPotOdds.baseWinProb;
-      return;
-    }
-    const callSig = activeSnapshot.seats.map((s) => (s ? s.callMultiplier : -9)).join(',');
-    const betSig = activeSnapshot.seats.map((s) => (s ? s.betMultiplier : -9)).join(',');
-    const sigKey = `${activeSnapshot.roomId}_${activeSnapshot.phase}_${callSig}_${betSig}`;
-    if (lastPotOddsLogKeyRef.current === sigKey) return;
-    lastPotOddsLogKeyRef.current = sigKey;
-
-    NiuniuDebugLogger.logDynamicPotOddsShift(
-      selfPlayer.seatIndex,
-      selfPlayer.nickname,
-      selfDynamicPotOdds
-    );
-    prevNiuniuWinProbRef.current = selfDynamicPotOdds.dynamicWinProb;
-  }, [activeSnapshot, selfPlayer, selfDynamicPotOdds]);
-
-  const lastLoggedPhaseRef = useRef<string>('');
-  const prevSeatStateRef = useRef<
-    Record<number, { call: number; bet: number; shown: boolean }>
-  >({});
-
-  // Action-triggered WebAudio Queue Manager for opponent/server seat transitions
-  useEffect(() => {
-    if (!activeSnapshot || !selfPlayer) return;
-    const selfIdx = selfPlayer.seatIndex;
-
-    if (activeSnapshot.phase === 'WAITING' || activeSnapshot.phase === 'DEAL_FIRST_4') {
-      prevSeatStateRef.current = {};
-    }
-
-    activeSnapshot.seats.forEach((seat, idx) => {
-      if (!seat) return;
-      const prev = prevSeatStateRef.current[idx] || {
-        call: -1,
-        bet: 0,
-        shown: false,
-      };
-
-      // Opponent call-banker action audio
-      if (seat.callMultiplier !== prev.call && seat.callMultiplier >= 0 && idx !== selfIdx) {
-        webAudioQueue.enqueueBankerAction({
-          type: 'call',
-          multiplier: seat.callMultiplier,
-          seatIndex: idx,
-          selfSeatIndex: selfIdx,
-          announceVoice: false,
-        });
-      }
-
-      // Opponent bet chip collision audio
-      if (seat.betMultiplier !== prev.bet && seat.betMultiplier > 0 && idx !== selfIdx) {
-        webAudioQueue.enqueueChipCollision({
-          count: Math.max(1, Math.round(seat.betMultiplier / 5)),
-          intensity: seat.betMultiplier >= 15 ? 'high' : 'normal',
-          seatIndex: idx,
-          selfSeatIndex: selfIdx,
-          game: 'niuniu',
-        });
-      }
-
-      // Seat hand reveal & Niu announcement (Dealer or high-niu opponent or self)
-      if (seat.hasShownHand && !prev.shown && seat.handResult) {
-        if (idx !== selfIdx && (seat.isDealer || seat.handResult.level >= 10)) {
-          webAudioQueue.enqueueNiuAnnouncement({
-            level: seat.handResult.level,
-            handName: seat.handResult.name,
-            multiplier: seat.handResult.multiplier,
-            seatIndex: idx,
-            selfSeatIndex: selfIdx,
-            isSelf: false,
-          });
-        }
-      }
-
-      prevSeatStateRef.current[idx] = {
-        call: seat.callMultiplier,
-        bet: seat.betMultiplier,
-        shown: seat.hasShownHand,
-      };
-    });
-  }, [activeSnapshot, selfPlayer]);
-
-  useEffect(() => {
-    if (!activeSnapshot || !selfPlayer) return;
-    const phaseKey = `${activeSnapshot.roomId}_${activeSnapshot.phase}`;
-    if (lastLoggedPhaseRef.current === phaseKey) return;
-    lastLoggedPhaseRef.current = phaseKey;
-
-    if (activeSnapshot.phase === 'DEAL_FIRST_4' || activeSnapshot.phase === 'CALL_BANKER') {
-      webAudioQueue.enqueueDealCascade(4, 65, undefined, selfPlayer.seatIndex);
-      if (selfFourCardOdds) {
-        NiuniuDebugLogger.logFourCardOdds(
-          selfPlayer.seatIndex,
-          selfPlayer.nickname,
-          selfPlayer.cards.filter((c) => c.rank > 0).slice(0, 4),
-          selfFourCardOdds,
-          activeSnapshot.playMode
-        );
-      }
-    } else if (activeSnapshot.phase === 'DETERMINE_BANKER') {
-      webAudioQueue.enqueueBankerAction({
-        type: 'lock',
-        seatIndex: activeSnapshot.dealerSeatId,
-        selfSeatIndex: selfPlayer.seatIndex,
-      });
-    } else if (activeSnapshot.phase === 'DEAL_5TH') {
-      webAudioQueue.enqueueDealCascade(1, 55, selfPlayer.seatIndex, selfPlayer.seatIndex);
-    } else if (activeSnapshot.phase === 'SHOWDOWN' && selfHandResult) {
-      webAudioQueue.enqueueDealCascade(1, 55, selfPlayer.seatIndex, selfPlayer.seatIndex);
-      NiuniuDebugLogger.logHandEvaluation(
-        selfPlayer.seatIndex,
-        selfPlayer.nickname,
-        selfPlayer.cards,
-        selfHandResult,
-        activeSnapshot.playMode
-      );
-    } else if (activeSnapshot.phase === 'ROUND_RESULT' && activeSnapshot.settlement) {
-      NiuniuDebugLogger.logRoundSettlement(
-        activeSnapshot.roomId,
-        activeSnapshot.playMode,
-        activeSnapshot.dealerSeatId,
-        activeSnapshot.settlement
-      );
-    }
-  }, [activeSnapshot, selfPlayer, selfFourCardOdds, selfHandResult]);
-
   // Client actions
   const handleCallBanker = useCallback(
     (multiplier: number) => {
-      webAudioQueue.enqueueBankerAction({
-        type: 'call',
-        multiplier,
-        seatIndex: selfPlayer?.seatIndex ?? 0,
-        selfSeatIndex: selfPlayer?.seatIndex ?? 0,
-        announceVoice: true,
-      });
+      soundEngine.playNiuniuCall();
       hapticEngine.tap();
       socketClient.emit('c2s_niuniu_call_banker', { callMultiplier: multiplier });
 
@@ -462,12 +292,6 @@ export const NiuniuTableView: React.FC<NiuniuTableViewProps> = ({
             .map((s) => s!.seatIndex);
           const chosenDealer =
             candidates[Math.floor(Math.random() * candidates.length)] ?? 0;
-
-          webAudioQueue.enqueueBankerAction({
-            type: 'lock',
-            seatIndex: chosenDealer,
-            selfSeatIndex: selfPlayer.seatIndex,
-          });
 
           newSeats.forEach((s, idx) => {
             if (!s) return;
@@ -515,14 +339,7 @@ export const NiuniuTableView: React.FC<NiuniuTableViewProps> = ({
 
   const handleBet = useCallback(
     (multiplier: number) => {
-      webAudioQueue.enqueueChipCollision({
-        count: Math.max(1, Math.round(multiplier / 5)),
-        intensity: multiplier >= 15 ? 'high' : 'normal',
-        seatIndex: selfPlayer?.seatIndex ?? 0,
-        selfSeatIndex: selfPlayer?.seatIndex ?? 0,
-        game: 'niuniu',
-        voiceLabel: `下${multiplier}倍`,
-      });
+      soundEngine.playNiuniuChip();
       hapticEngine.playCard();
       socketClient.emit('c2s_niuniu_bet', { betMultiplier: multiplier });
 
@@ -569,14 +386,7 @@ export const NiuniuTableView: React.FC<NiuniuTableViewProps> = ({
   }, [selfPlayer, activeSnapshot?.playMode]);
 
   const handleShowHand = useCallback(() => {
-    webAudioQueue.enqueueNiuAnnouncement({
-      level: selfHandResult?.level ?? 0,
-      handName: selfHandResult?.name ?? '无牛',
-      multiplier: selfHandResult?.multiplier ?? 1,
-      seatIndex: selfPlayer?.seatIndex ?? 0,
-      selfSeatIndex: selfPlayer?.seatIndex ?? 0,
-      isSelf: true,
-    });
+    soundEngine.playNiuniuHandReveal(selfHandResult?.level ?? 0);
     hapticEngine.playCard();
     socketClient.emit('c2s_niuniu_show_hand');
 
@@ -691,67 +501,6 @@ export const NiuniuTableView: React.FC<NiuniuTableViewProps> = ({
   const countdown = activeSnapshot?.countdown ?? 0;
   const candidateSeats = activeSnapshot?.candidateDealerSeats ?? [];
 
-  // React to Quick Switch Table from SharedTableHudOverlay
-  useEffect(() => {
-    if (controlState.switchTableSeq === prevSwitchSeqRef.current) return;
-    prevSwitchSeqRef.current = controlState.switchTableSeq;
-    setSelectedCardIds([]);
-    if (!snapshot) {
-      startLocalSimulatedRound();
-    }
-  }, [controlState.switchTableSeq, snapshot, startLocalSimulatedRound]);
-
-  // EV-Optimal Smart Trusteeship & Auto-Next-Round Engine
-  useEffect(() => {
-    if (!activeSnapshot || !selfPlayer) return;
-
-    if (
-      phase === 'ROUND_RESULT' &&
-      (controlState.autoNextRound || controlState.isTrusteeship)
-    ) {
-      const nextTimer = window.setTimeout(() => {
-        handleReady();
-      }, gameControlHub.scaleDelay(2500));
-      return () => window.clearTimeout(nextTimer);
-    }
-
-    if (!controlState.isTrusteeship) return;
-
-    const delayMs = gameControlHub.scaleDelay(680);
-    const timer = window.setTimeout(() => {
-      const fourCards = selfPlayer.cards.filter((c) => c.rank > 0).slice(0, 4);
-      if (phase === 'CALL_BANKER' && selfPlayer.callMultiplier < 0) {
-        const optimalCall = evaluateCallBankerExpected(fourCards, playMode);
-        handleCallBanker(optimalCall);
-      } else if (
-        phase === 'BETTING' &&
-        !selfPlayer.isDealer &&
-        selfPlayer.betMultiplier <= 0
-      ) {
-        const optimalBet = evaluateBetMultiplier(fourCards, playMode);
-        handleBet(optimalBet);
-      } else if (phase === 'SHOWDOWN' && !selfPlayer.hasShownHand) {
-        handleAutoPartition();
-        handleShowHand();
-      }
-    }, delayMs);
-
-    return () => window.clearTimeout(timer);
-  }, [
-    activeSnapshot,
-    selfPlayer,
-    phase,
-    playMode,
-    controlState.isTrusteeship,
-    controlState.autoNextRound,
-    controlState.paceSpeed,
-    handleCallBanker,
-    handleBet,
-    handleAutoPartition,
-    handleShowHand,
-    handleReady,
-  ]);
-
   return (
     <AutoLandscapeContainer baseHeight={720} minVirtualWidth={1280} maxVirtualWidth={1600}>
       {({ virtualWidth, virtualHeight, stageScale }) => (
@@ -784,14 +533,16 @@ export const NiuniuTableView: React.FC<NiuniuTableViewProps> = ({
                 <div className="pointer-events-none absolute inset-4 rounded-[155px] border border-[#d8b872]/25" />
               </div>
 
-              {/* Center Table Mode & Phase Plaque (No Ghost Watermark) */}
+              {/* Center Table Watermark & Compact Phase Pill */}
               <div className="pointer-events-none absolute flex flex-col items-center justify-center gap-2">
-                <div className="flex items-center gap-2.5 rounded-lg border border-[#d8b872]/35 bg-[#0c2618]/85 px-4 py-1.5 text-xs font-extrabold text-amber-100 shadow-lg backdrop-blur-xs">
-                  <span className="text-amber-300">{MODE_LABELS[playMode]}</span>
-                  <span aria-hidden="true" className="text-white/25">·</span>
+                <span className="font-display text-5xl font-black tracking-widest text-[#d8b872]/10">
+                  {MODE_LABELS[playMode]}
+                </span>
+
+                <div className="flex items-center gap-2 rounded-full border border-amber-300/30 bg-black/50 px-4 py-1 text-xs font-extrabold text-amber-100 shadow-lg backdrop-blur-xs">
                   <span>{PHASE_BANNERS[phase]}</span>
                   {countdown > 0 && phase !== 'WAITING' && (
-                    <span className="rounded bg-amber-400 px-1.5 py-0.5 font-mono text-xs font-black text-[#240e03] tabular-nums">
+                    <span className="rounded-full bg-amber-400 px-2 py-0.2 font-mono text-xs font-black text-[#240e03]">
                       {countdown}s
                     </span>
                   )}
@@ -799,76 +550,78 @@ export const NiuniuTableView: React.FC<NiuniuTableViewProps> = ({
               </div>
             </div>
 
-            {/* ================= Top Navigation Header ================= */}
-            <header className="absolute top-3 right-6 left-6 z-30 flex items-center justify-between">
-              {/* Left: Exit & Clean Mode Capsule */}
-              <div className="flex items-center gap-2.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    socketClient.emit('c2s_leave_room');
-                    onLeaveRoom();
-                  }}
-                  className="flex h-9 w-9 items-center justify-center rounded-full border border-amber-200/30 bg-black/60 text-white shadow-md active:scale-95 cursor-pointer hover:border-amber-300 hover:bg-black/80"
-                  title="返回大厅"
-                >
-                  <ArrowLeft className="h-4.5 w-4.5" />
-                </button>
-
-                <div className="flex items-center gap-2 rounded-full border border-amber-300/30 bg-black/60 px-3.5 py-1.5 text-xs font-bold text-amber-100 backdrop-blur-xs">
-                  <span className="text-amber-300">
-                    {MODE_LABELS[playMode]}
-                  </span>
-                  <span className="text-white/30">·</span>
-                  <span className="font-mono text-amber-200">
-                    底分 {activeSnapshot?.baseScore || 100}
-                  </span>
-                </div>
-              </div>
-
-              {/* Right: Sound, Rules, Fullscreen */}
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const next = soundEngine.toggle();
-                    setSoundEnabled(next);
-                  }}
-                  title={soundEnabled ? '静音' : '开启声音'}
-                  className="flex h-9 w-9 items-center justify-center rounded-full border border-amber-200/30 bg-black/60 text-white shadow-md active:scale-95 cursor-pointer hover:bg-black/80"
-                >
-                  {soundEnabled ? (
-                    <Volume2 className="h-4 w-4 text-amber-300" />
-                  ) : (
-                    <VolumeX className="h-4 w-4 text-rose-400" />
-                  )}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setShowRuleModal(true)}
-                  title="牌型倍率说明"
-                  className="flex h-9 w-9 items-center justify-center rounded-full border border-amber-200/30 bg-black/60 text-amber-200 shadow-md active:scale-95 cursor-pointer hover:bg-black/80"
-                >
-                  <HelpCircle className="h-4 w-4" />
-                </button>
-
-                {onToggleFullscreen && (
+            {/* ================= Top Navigation Header (Auto-hidden during settlement) ================= */}
+            {!(phase === 'ROUND_RESULT' && activeSnapshot?.settlement) && (
+              <header className="absolute top-3 right-6 left-6 z-30 flex items-center justify-between transition-opacity duration-200">
+                {/* Left: Exit & Clean Mode Capsule */}
+                <div className="flex items-center gap-2.5">
                   <button
                     type="button"
-                    onClick={onToggleFullscreen}
-                    title={isFullscreen ? '退出全屏' : '全屏'}
+                    onClick={() => {
+                      socketClient.emit('c2s_leave_room');
+                      onLeaveRoom();
+                    }}
+                    className="flex h-9 w-9 items-center justify-center rounded-full border border-amber-200/30 bg-black/60 text-white shadow-md active:scale-95 cursor-pointer hover:border-amber-300 hover:bg-black/80"
+                    title="返回大厅"
+                  >
+                    <ArrowLeft className="h-4.5 w-4.5" />
+                  </button>
+
+                  <div className="flex items-center gap-2 rounded-full border border-amber-300/30 bg-black/60 px-3.5 py-1.5 text-xs font-bold text-amber-100 backdrop-blur-xs">
+                    <span className="text-amber-300">
+                      {MODE_LABELS[playMode]}
+                    </span>
+                    <span className="text-white/30">·</span>
+                    <span className="font-mono text-amber-200">
+                      底分 {activeSnapshot?.baseScore || 100}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Right: Sound, Rules, Fullscreen */}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = soundEngine.toggle();
+                      setSoundEnabled(next);
+                    }}
+                    title={soundEnabled ? '静音' : '开启声音'}
                     className="flex h-9 w-9 items-center justify-center rounded-full border border-amber-200/30 bg-black/60 text-white shadow-md active:scale-95 cursor-pointer hover:bg-black/80"
                   >
-                    {isFullscreen ? (
-                      <Minimize2 className="h-4 w-4 text-amber-300" />
+                    {soundEnabled ? (
+                      <Volume2 className="h-4 w-4 text-amber-300" />
                     ) : (
-                      <Maximize2 className="h-4 w-4 text-white" />
+                      <VolumeX className="h-4 w-4 text-rose-400" />
                     )}
                   </button>
-                )}
-              </div>
-            </header>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowRuleModal(true)}
+                    title="牌型倍率说明"
+                    className="flex h-9 w-9 items-center justify-center rounded-full border border-amber-200/30 bg-black/60 text-amber-200 shadow-md active:scale-95 cursor-pointer hover:bg-black/80"
+                  >
+                    <HelpCircle className="h-4 w-4" />
+                  </button>
+
+                  {onToggleFullscreen && (
+                    <button
+                      type="button"
+                      onClick={onToggleFullscreen}
+                      title={isFullscreen ? '退出全屏' : '全屏'}
+                      className="flex h-9 w-9 items-center justify-center rounded-full border border-amber-200/30 bg-black/60 text-white shadow-md active:scale-95 cursor-pointer hover:bg-black/80"
+                    >
+                      {isFullscreen ? (
+                        <Minimize2 className="h-4 w-4 text-amber-300" />
+                      ) : (
+                        <Maximize2 className="h-4 w-4 text-white" />
+                      )}
+                    </button>
+                  )}
+                </div>
+              </header>
+            )}
 
             {/* ================= 5-Player Table Arena Ring ================= */}
             <main className="relative z-20 h-full w-full">
@@ -947,25 +700,25 @@ export const NiuniuTableView: React.FC<NiuniuTableViewProps> = ({
               </div>
             </main>
 
-            {/* ================= Action Bar Dock ================= */}
-            <footer className="pointer-events-auto absolute bottom-[14px] left-1/2 z-30 flex w-full max-w-3xl -translate-x-1/2 justify-center px-4">
-              <NiuniuActionBar
-                phase={phase}
-                playMode={playMode}
-                countdown={countdown}
-                selfPlayer={selfPlayer}
-                selectedCardIds={selectedCardIds}
-                fourCardOdds={selfFourCardOdds}
-                dynamicPotOdds={selfDynamicPotOdds}
-                onCallBanker={handleCallBanker}
-                onBet={handleBet}
-                onAutoPartition={handleAutoPartition}
-                onShowHand={handleShowHand}
-                onReady={handleReady}
-                hasNiuPrompt={selfHandResult ? selfHandResult.level > 0 : false}
-                handResult={selfHandResult}
-              />
-            </footer>
+            {/* ================= Action Bar Dock (Auto-hidden during settlement) ================= */}
+            {!(phase === 'ROUND_RESULT' && activeSnapshot?.settlement) && (
+              <footer className="pointer-events-auto absolute bottom-[14px] left-1/2 z-30 flex w-full max-w-3xl -translate-x-1/2 justify-center px-4">
+                <NiuniuActionBar
+                  phase={phase}
+                  playMode={playMode}
+                  countdown={countdown}
+                  selfPlayer={selfPlayer}
+                  selectedCardIds={selectedCardIds}
+                  onCallBanker={handleCallBanker}
+                  onBet={handleBet}
+                  onAutoPartition={handleAutoPartition}
+                  onShowHand={handleShowHand}
+                  onReady={handleReady}
+                  hasNiuPrompt={selfHandResult ? selfHandResult.level > 0 : false}
+                  handResult={selfHandResult}
+                />
+              </footer>
+            )}
 
             {/* ================= Settlement Modal ================= */}
             {phase === 'ROUND_RESULT' && activeSnapshot?.settlement && (
@@ -983,37 +736,51 @@ export const NiuniuTableView: React.FC<NiuniuTableViewProps> = ({
 
             {/* ================= Rule Explanation Modal ================= */}
             {showRuleModal && (
-              <CommercialModalShell
-                title="抢庄牛牛 · 规则与牌型倍率"
-                subtitle="4明1暗看牌抢庄 · 赔率与比大小全序说明"
-                icon={<HelpCircle className="h-5 w-5" />}
-                size="md"
-                portalMode="stage"
-                onClose={() => setShowRuleModal(false)}
+              <div
+                className="pointer-events-auto absolute inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-xs"
+                onClick={() => setShowRuleModal(false)}
               >
-                <div className="space-y-2.5 text-xs sm:text-sm leading-relaxed text-[#334155]">
-                  <div className="rounded-xl border border-[#E8E1D0] bg-white p-3 shadow-2xs">
-                    <strong className="text-[#B45309]">1. 看牌抢庄（4明1暗）：</strong>
-                    开局先发 4 张明牌与 1 张暗牌，玩家根据前 4 张牌选择抢庄倍数（不抢/1~4倍）；定庄后闲家选注（5/10/15/20倍），随后揭晓第 5 张牌算牛比大小。
+                <div
+                  className="relative flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-3xl border-2 border-amber-300/70 bg-gradient-to-b from-[#26160c] via-[#190e07] to-[#110904] p-5 text-white shadow-2xl"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                    <h3 className="font-display text-lg font-black text-amber-300">
+                      抢庄牛牛 · 规则与牌型倍率
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => setShowRuleModal(false)}
+                      className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-amber-200 hover:bg-white/20 cursor-pointer"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
                   </div>
-                  <div className="rounded-xl border border-[#E8E1D0] bg-white p-3 shadow-2xs">
-                    <strong className="text-[#B45309]">2. 结算公式：</strong>
-                    输赢豆数 = 房间底分 × 庄家抢庄倍数 × 闲家下注倍数 × 胜方牌型倍数（支持以小博大与庄家赔付封顶保护）。
-                  </div>
-                  <div className="rounded-xl border border-[#E8E1D0] bg-white p-3 shadow-2xs">
-                    <strong className="text-[#B45309]">3. 经典牌型倍率：</strong>
-                    同花顺牛/五小牛(10倍) &gt; 炸弹牛(8倍) &gt; 五花牛(6倍) &gt; 四花/葫芦/同花/顺子牛(5倍) &gt; 牛牛(4倍) &gt; 牛九(3倍) &gt; 牛八/牛七(2倍) &gt; 牛六~无牛(1倍)。
-                  </div>
-                  <div className="rounded-xl border border-[#E8E1D0] bg-white p-3 shadow-2xs">
-                    <strong className="text-[#B45309]">4. 疯狂加倍倍率：</strong>
-                    同花顺牛(12倍) &gt; 五小牛(10倍) &gt; 炸弹牛(9倍) &gt; 五花牛(8倍) &gt; 四花/葫芦/同花/顺子牛(7倍) &gt; 牛牛(6倍) &gt; 牛九(5倍) &gt; 牛八(4倍) &gt; 牛七(3倍) &gt; 牛六/牛五(2倍) &gt; 牛四~无牛(1倍)。
-                  </div>
-                  <div className="rounded-xl border border-[#E8E1D0] bg-white p-3 shadow-2xs">
-                    <strong className="text-[#B45309]">5. 同牌型比大小：</strong>
-                    牌型相同时比单张最大牌点数（K &gt; Q &gt; ... &gt; A），点数相同比花色（黑桃 &gt; 红桃 &gt; 梅花 &gt; 方块），严格全序无平局。
+
+                  <div className="mt-3 flex-1 space-y-2.5 overflow-y-auto pr-1 text-xs sm:text-sm text-amber-100/90">
+                    <p>
+                      <strong className="text-amber-300">1. 看牌抢庄（4明1暗）：</strong>
+                      开局先发 4 张明牌与 1 张暗牌，玩家根据前 4 张牌选择抢庄倍数（不抢/1~4倍）；定庄后闲家选注（5/10/15/20倍），随后揭晓第 5 张牌算牛比大小。
+                    </p>
+                    <p>
+                      <strong className="text-amber-300">2. 结算公式：</strong>
+                      输赢豆数 = 房间底分 × 庄家抢庄倍数 × 闲家下注倍数 × 胜方牌型倍数（支持以小博大与庄家赔付封顶保护）。
+                    </p>
+                    <p>
+                      <strong className="text-amber-300">3. 经典牌型倍率：</strong>
+                      五小牛(10倍) &gt; 炸弹牛(8倍) &gt; 五花牛(6倍) &gt; 四花/葫芦/同花/顺子牛(5倍) &gt; 牛牛(4倍) &gt; 牛九(3倍) &gt; 牛八/牛七(2倍) &gt; 牛六~无牛(1倍)。
+                    </p>
+                    <p>
+                      <strong className="text-amber-300">4. 疯狂加倍倍率：</strong>
+                      五小牛(10倍) &gt; 炸弹牛(9倍) &gt; 五花牛(8倍) &gt; 四花/葫芦/同花/顺子牛(7倍) &gt; 牛牛(6倍) &gt; 牛九(5倍) &gt; 牛八(4倍) &gt; 牛七(3倍) &gt; 牛六/牛五(2倍) &gt; 牛四~无牛(1倍)。
+                    </p>
+                    <p>
+                      <strong className="text-amber-300">5. 同牌型比大小：</strong>
+                      牌型相同时比单张最大牌点数（K &gt; Q &gt; ... &gt; A），点数相同比花色（黑桃 &gt; 红桃 &gt; 梅花 &gt; 方块），严格全序无平局。
+                    </p>
                   </div>
                 </div>
-              </CommercialModalShell>
+              </div>
             )}
           </div>
         </div>

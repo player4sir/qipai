@@ -1,6 +1,7 @@
 import { randomInt } from 'node:crypto';
 import { ConnectionManager } from '../../core/ConnectionManager.js';
 import { IGameRoom, RoomPlayerInfo, RoomSummary } from '../../core/RoomManager.js';
+import { roomCardEngine } from '../../core/RoomCardEngine.js';
 import { storageService } from '../../shared/storage.js';
 import {
   callCost,
@@ -39,7 +40,7 @@ const BOT_PROFILES = [
   { nickname: '凌霄剑仙AI', avatarId: 'warrior' },
 ];
 
-const START_COUNTDOWN_SECONDS = 2;
+const START_COUNTDOWN_SECONDS = 3;
 const RESULT_COUNTDOWN_SECONDS = 6;
 const DEAL_ANIMATION_MS = 1200;
 const SHOWDOWN_REVEAL_MS = 1800;
@@ -89,6 +90,7 @@ export class ZhajinhuaRoom implements IGameRoom {
   gameType = 'zhajinhua';
   hostId: string;
   baseScore: number;
+  initialScore: number;
   isPrivate: boolean;
   maxPlayers = ZJH_MAX_SEATS;
   createdAt: number = Date.now();
@@ -99,6 +101,7 @@ export class ZhajinhuaRoom implements IGameRoom {
   private phase: ZjhPhase = 'WAITING';
   private connectionManager: ConnectionManager;
   private onRoomDestroyed: (roomId: string) => void;
+  private hasDealtFirstRound = false;
 
   // Hand state
   private dealerSeat = -1;
@@ -128,6 +131,7 @@ export class ZhajinhuaRoom implements IGameRoom {
     roomId: string;
     hostId: string;
     baseScore: number;
+    initialScore?: number;
     isPrivate: boolean;
     mode?: string;
     connectionManager: ConnectionManager;
@@ -136,6 +140,10 @@ export class ZhajinhuaRoom implements IGameRoom {
     this.roomId = options.roomId;
     this.hostId = options.hostId;
     this.baseScore = options.baseScore;
+    this.initialScore =
+      options.initialScore && options.initialScore > 0
+        ? options.initialScore
+        : Math.max(2000, options.baseScore * 20);
     this.isPrivate = options.isPrivate;
     this.playMode =
       options.mode === 'special' || options.mode === 'bloody' || options.mode === 'quick'
@@ -234,8 +242,42 @@ export class ZhajinhuaRoom implements IGameRoom {
   setPlayerReady(playerId: string, ready: boolean = true): void {
     const idx = this.seatOf(playerId);
     if (idx === -1) return;
-    this.seats[idx]!.ready = ready;
+    const seat = this.seats[idx]!;
+    if (ready && !seat.isBot && seat.beans < this.baseScore) {
+      this.connectionManager.emitToPlayer(playerId, 's2c_bankruptcy_prompt', {
+        roomId: this.roomId,
+        gameType: this.gameType,
+        currentScore: seat.beans,
+        baseScore: this.baseScore,
+        initialScore: this.initialScore,
+      });
+      return;
+    }
+    seat.ready = ready;
     this.broadcastSnapshot();
+    if (ready && (this.phase === 'WAITING' || this.phase === 'RESULT')) {
+      this.checkAutoStart();
+    }
+  }
+
+  rebuySeatScore(playerId: string, addedScore: number): number {
+    const idx = this.seatOf(playerId);
+    if (idx === -1 || !this.seats[idx]) return 0;
+    const seat = this.seats[idx]!;
+    seat.beans = Math.max(0, seat.beans) + Math.max(0, Math.round(addedScore));
+    seat.ready = true;
+    this.broadcastSnapshot();
+    if (this.phase === 'WAITING' || this.phase === 'RESULT') {
+      this.startRound();
+    }
+    return seat.beans;
+  }
+
+  triggerImmediateDeal(): void {
+    if (this.phase !== 'WAITING' && this.phase !== 'RESULT') return;
+    this.clearTimers();
+    this.fillBots();
+    this.startRound();
   }
 
   addBotPlayer(): boolean {
@@ -397,6 +439,7 @@ export class ZhajinhuaRoom implements IGameRoom {
       mode: this.playMode,
       hostId: this.hostId,
       baseScore: this.baseScore,
+      initialScore: this.initialScore,
       isPrivate: this.isPrivate,
       status: this.phase,
       playerCount: this.getPlayerCount(),
@@ -433,7 +476,7 @@ export class ZhajinhuaRoom implements IGameRoom {
   }
 
   private botBankroll(): number {
-    return Math.floor(this.baseScore * (80 + Math.random() * 160));
+    return this.initialScore;
   }
 
   private clearTurnTimers(): void {
@@ -488,6 +531,27 @@ export class ZhajinhuaRoom implements IGameRoom {
     this.startCountdown(START_COUNTDOWN_SECONDS, () => this.startRound());
   }
 
+  private commitFirstRoundEscrow(): void {
+    const { capturedTotal, session } = roomCardEngine.captureEscrowOnFirstRound(this.roomId);
+    if (!session) return;
+    for (const seat of this.seats) {
+      if (seat && !seat.isBot) {
+        const updatedProfile = storageService.getUser(seat.playerId);
+        this.connectionManager.emitToPlayer(seat.playerId, 's2c_rc_session_sync', {
+          session,
+          profile: updatedProfile,
+          action: 'escrow_captured',
+          capturedTotal,
+        });
+        if (updatedProfile && capturedTotal > 0) {
+          this.connectionManager.emitToPlayer(seat.playerId, 's2c_profile_updated', {
+            profile: updatedProfile,
+          });
+        }
+      }
+    }
+  }
+
   private startRound(): void {
     if (this.destroyed) return;
     this.clearTimers();
@@ -502,9 +566,27 @@ export class ZhajinhuaRoom implements IGameRoom {
     this.fillBots();
     if (!this.hasHuman()) return;
 
+    // Check if any human seat is bankrupt (< baseScore)
+    for (const seat of this.seats) {
+      if (seat && !seat.isBot && seat.beans < this.baseScore) {
+        seat.ready = false;
+        this.phase = 'WAITING';
+        this.message = '台面积分不足，请补充积分后继续';
+        this.broadcastSnapshot();
+        this.connectionManager.emitToPlayer(seat.playerId, 's2c_bankruptcy_prompt', {
+          roomId: this.roomId,
+          gameType: this.gameType,
+          currentScore: seat.beans,
+          baseScore: this.baseScore,
+          initialScore: this.initialScore,
+        });
+        return;
+      }
+    }
+
     // Bots always sit with a healthy bankroll.
     this.seats.forEach((seat) => {
-      if (seat?.isBot && seat.beans < this.baseScore * 40) seat.beans = this.botBankroll();
+      if (seat?.isBot && seat.beans < this.baseScore * 10) seat.beans = this.botBankroll();
     });
 
     const participants = this.seats
@@ -522,9 +604,14 @@ export class ZhajinhuaRoom implements IGameRoom {
 
     if (participants.length < 2) {
       this.phase = 'WAITING';
-      this.message = '豆子不足，无法开局';
+      this.message = '积分不足，无法开局';
       this.broadcastSnapshot();
       return;
+    }
+
+    if (!this.hasDealtFirstRound) {
+      this.hasDealtFirstRound = true;
+      this.commitFirstRoundEscrow();
     }
 
     // Deal 3 cards round-robin from a freshly shuffled deck.
@@ -929,7 +1016,7 @@ export class ZhajinhuaRoom implements IGameRoom {
       const gain = payouts.get(i) ?? 0;
       st.delta = gain - st.contribution;
       st.isWinner = winners.includes(i);
-      seat.beans += gain;
+      seat.beans = Math.max(0, seat.beans + gain);
       if (!seat.isBot && st.delta !== 0) {
         storageService.updateBeans(seat.playerId, st.delta);
       }
@@ -937,8 +1024,50 @@ export class ZhajinhuaRoom implements IGameRoom {
     this.ledgerApplied = true;
     this.lastWinnerSeat = winners[0] ?? -1;
 
+    const humanIdx = this.seats.findIndex((s) => s && !s.isBot);
+    if (humanIdx !== -1 && this.seats[humanIdx]) {
+      const human = this.seats[humanIdx]!;
+      const updatedRcSession = roomCardEngine.recordRoundSettlement({
+        roomId: this.roomId,
+        heroId: human.playerId,
+        heroDelta: this.state[humanIdx]?.delta ?? 0,
+        heroName: human.nickname,
+        summaryText: this.message || '诈金花比牌结算',
+        peerDeltas: this.seats
+          .map((s, idx) =>
+            s && idx !== humanIdx
+              ? { id: s.playerId, name: s.nickname, delta: this.state[idx]?.delta ?? 0 }
+              : null
+          )
+          .filter((x): x is { id: string; name: string; delta: number } => Boolean(x)),
+      });
+      if (updatedRcSession) {
+        this.seats.forEach((s) => {
+          if (s && !s.isBot) {
+            this.connectionManager.emitToPlayer(s.playerId, 's2c_rc_session_sync', {
+              session: updatedRcSession,
+            });
+          }
+        });
+      }
+    }
+
     this.phase = 'RESULT';
     this.broadcastSnapshot();
+
+    for (const seat of this.seats) {
+      if (seat && !seat.isBot && seat.beans < this.baseScore) {
+        seat.ready = false;
+        this.connectionManager.emitToPlayer(seat.playerId, 's2c_bankruptcy_prompt', {
+          roomId: this.roomId,
+          gameType: this.gameType,
+          currentScore: seat.beans,
+          baseScore: this.baseScore,
+          initialScore: this.initialScore,
+        });
+      }
+    }
+
     this.startCountdown(RESULT_COUNTDOWN_SECONDS, () => this.startRound());
   }
 

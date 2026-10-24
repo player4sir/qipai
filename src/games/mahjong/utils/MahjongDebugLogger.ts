@@ -1,167 +1,279 @@
+import { MahjongMeld, MahjongSuit } from '../types';
 import {
-  LegacyTileId,
-  HONG_ZHONG_INDEX,
   createCountsVector,
-  getTileNameById,
-  getTileNameByIndex,
+  getTileDisplayName,
+  HONG_ZHONG_INDEX,
   legacyIdToTileIndex,
+  tileIndexToLegacyId,
+  TOTAL_TILE_TYPES,
 } from '../algorithms/TileEngine';
-import { isHongZhongWildMode, sortTiles } from '../algorithms/MahjongTile';
 import { calculateShantenFromCounts } from '../algorithms/ShantenEngine';
-import { analyzeTing, evaluateHu } from '../algorithms/MahjongRules';
 import { evaluateAIDiscardCandidates } from '../algorithms/MahjongAI';
-import { MahjongSuit } from '../types';
-import {
-  resolveMahjongTileVoiceUrl,
-  resolveMahjongActionVoiceUrl,
-} from '../../../shared/audio/SoundEngine';
+import { analyzeTing, evaluateHu } from '../algorithms/MahjongRules';
+import { isHongZhongWildMode } from '../algorithms/MahjongTile';
 
-export interface DebugSeatSnapshot {
+export interface MahjongSeatSnapshotLog {
   seat: number;
   name: string;
   isBot?: boolean;
-  hand: LegacyTileId[];
-  melds: Array<{ type: string; tiles: LegacyTileId[]; targetTile?: LegacyTileId }>;
-  discards: LegacyTileId[];
-  lackSuit?: 'wan' | 'tiao' | 'tong' | null;
+  hand: number[];
+  melds: MahjongMeld[];
+  discards: number[];
 }
 
-function formatTileList(tiles: LegacyTileId[]): string {
-  return tiles.map((id) => `${getTileNameById(id)}(${id})`).join(' ');
-}
-
-function lackSuitToMahjongSuit(lackSuit?: 'wan' | 'tiao' | 'tong' | null): MahjongSuit | null {
-  if (lackSuit === 'wan') return 0;
-  if (lackSuit === 'tiao') return 1;
-  if (lackSuit === 'tong') return 2;
-  return null;
-}
-
-function buildDiscardsCountMap(visibleTiles?: LegacyTileId[]): Record<number, number> {
-  const map: Record<number, number> = {};
-  if (!visibleTiles) return map;
-  for (const t of visibleTiles) {
-    map[t] = (map[t] || 0) + 1;
-  }
-  return map;
-}
-
-function formatSuitDistribution(hand: LegacyTileId[], mode?: string): string {
-  let wan = 0;
-  let tiao = 0;
-  let tong = 0;
-  let winds = 0;
-  let wild = 0;
-
-  for (const id of hand) {
-    if (id === 31 && isHongZhongWildMode(mode)) {
-      wild++;
-    } else if (id >= 1 && id <= 9) {
-      wan++;
-    } else if (id >= 11 && id <= 19) {
-      tiao++;
-    } else if (id >= 21 && id <= 29) {
-      tong++;
-    } else {
-      winds++;
-    }
-  }
-
-  return `万:${wan} 条:${tiao} 筒:${tong} 字:${winds}${isHongZhongWildMode(mode) ? ` 红中百搭:${wild}` : ''}`;
-}
-
+/**
+ * 商业级麻将实时控制台调试日志层 (`[MJ-DEBUG]`)
+ * 参照斗地主 `DdzDebugLogger` 标准，实时输出：
+ * 1. 开局发牌快照与各家向听数 (`logDealSnapshot`)
+ * 2. 摸牌/回合分析：34 维频次向量、当前向听数、听牌口与余牌、AI 候选出牌攻防评分表 (`logTurnAnalysis`)
+ * 3. 出牌与读牌映射：十进制协议牌 ID -> 34 维索引 -> 中文牌名 -> 语音资源路径 (`logDiscardAction`)
+ * 4. 吃/碰/杠/胡动作响应与全解最高番裁定明细 (`logActionAndSettlement`)
+ */
 export class MahjongDebugLogger {
-  private static enabled = true;
+  private static enabled: boolean = true;
 
-  public static setEnabled(flag: boolean): void {
-    this.enabled = flag;
+  static setEnabled(enabled: boolean): void {
+    this.enabled = enabled;
+  }
+
+  static formatTile(tileId: number): string {
+    const idx = legacyIdToTileIndex(tileId);
+    const name = getTileDisplayName(idx);
+    return `${name}(id:${tileId}->idx:${idx})`;
+  }
+
+  static formatTiles(tiles: number[] | undefined): string {
+    if (!tiles || tiles.length === 0) return '[]';
+    return `[${tiles.map((t) => getTileDisplayName(legacyIdToTileIndex(t))).join(' ')}]`;
+  }
+
+  static formatCounts34Summary(tiles: number[]): string {
+    const counts = createCountsVector(tiles);
+    const entries: string[] = [];
+    for (let i = 0; i < TOTAL_TILE_TYPES; i++) {
+      if (counts[i] > 0) {
+        entries.push(`${getTileDisplayName(i)}×${counts[i]}`);
+      }
+    }
+    return entries.join(' | ') || '空';
+  }
+
+  static resolveTileVoiceAsset(tileId: number, gender: 'female' | 'male' = 'female'): string {
+    const idx = legacyIdToTileIndex(tileId);
+    let file = '';
+    if (idx >= 0 && idx <= 8) file = `mjt2_${idx + 1}.mp3`;
+    else if (idx >= 9 && idx <= 17) file = `mjt3_${idx - 9 + 1}.mp3`;
+    else if (idx >= 18 && idx <= 26) file = `mjt1_${idx - 18 + 1}.mp3`;
+    else if (idx >= 27 && idx <= 30) file = `mjt4_${idx - 27 + 1}.mp3`;
+    else if (idx === 31) file = 'mjt4_5.mp3';
+    else if (idx === 32) file = 'mjt4_6.mp3';
+    else if (idx === 33) file = 'mjt4_7.mp3';
+    return `/assets/mahjong/audio/voice/${gender}/${file}`;
+  }
+
+  static resolveActionVoiceAsset(
+    action: 'peng' | 'gang' | 'hu' | 'zimo',
+    gender: 'female' | 'male' = 'female'
+  ): string {
+    return `/assets/mahjong/audio/voice/${gender}/${action}.mp3`;
   }
 
   /**
-   * 1. 开局发牌快照日志
+   * 1. 开局发牌与全局快照日志
    */
-  public static logDealSnapshot(params: {
+  static logDealSnapshot(params: {
     roomId: string;
     mode: string;
     dealerSeat: number;
     wallRemaining: number;
-    seats: DebugSeatSnapshot[];
-    source?: 'CLIENT' | 'SERVER';
+    seats: MahjongSeatSnapshotLog[];
+    source?: 'SERVER' | 'CLIENT';
   }): void {
-    if (!this.enabled) return;
-    const tag = `[MJ-DEBUG][${params.source || 'ENGINE'}][开局发牌] 房间:${params.roomId} | 模式:${params.mode} | 庄家:座位${params.dealerSeat} | 余牌:${params.wallRemaining}`;
+    if (!this.enabled || typeof console === 'undefined') return;
+    const tag = params.source || 'CLIENT';
+    const isWild = isHongZhongWildMode(params.mode);
 
-    if (typeof console.groupCollapsed === 'function') {
-      console.groupCollapsed(`%c${tag}`, 'color: #06b6d4; font-weight: bold;');
-    } else {
-      console.log(tag);
-    }
-
+    console.groupCollapsed(
+      `%c[MJ-DEBUG][${tag}][发牌快照] 房间:${params.roomId} | 模式:${params.mode}${isWild ? '(红中赖子)' : '(标准字牌)'} | 庄家:Seat#${params.dealerSeat} | 牌墙余:${params.wallRemaining}张`,
+      'color:#fbbf24;font-weight:bold;'
+    );
     for (const s of params.seats) {
-      const sorted = sortTiles([...s.hand], params.mode);
-      const counts = createCountsVector(sorted);
+      if (!s.hand || s.hand.length === 0) continue;
+      const counts = createCountsVector(s.hand);
       const shanten = calculateShantenFromCounts(counts, s.melds.length, {
-        wildcardIndex: isHongZhongWildMode(params.mode) ? HONG_ZHONG_INDEX : undefined,
         allowQiDui: s.melds.length === 0,
+        allowShiSanYao: params.mode === 'guobiao' && s.melds.length === 0,
+        wildcardIndex: isWild ? HONG_ZHONG_INDEX : undefined,
       });
       console.log(
-        `  [座位${s.seat} ${s.name}${s.isBot ? '(AI)' : ''}] 手牌(${sorted.length}张): ${formatTileList(sorted)} | 分布:[${formatSuitDistribution(sorted, params.mode)}] | 初始向听:${shanten}${s.lackSuit ? ` | 定缺:${s.lackSuit}` : ''}`
+        `Seat#${s.seat} ${s.name}${s.isBot ? '(AI)' : '(玩家)'} [向听数:${shanten}]:`,
+        this.formatTiles(s.hand),
+        `| 34维频次: ${this.formatCounts34Summary(s.hand)}`
       );
     }
-
-    if (typeof console.groupEnd === 'function') {
-      console.groupEnd();
-    }
+    console.groupEnd();
   }
 
   /**
-   * 2. 摸牌与回合听牌/向听分析日志
+   * 2. 摸牌与回合向听/听牌/AI攻防评分日志
    */
-  public static logTurnAnalysis(params: {
+  static logTurnAnalysis(params: {
     seat: number;
     playerName: string;
     mode: string;
-    drawnTile?: LegacyTileId | null;
-    hand: LegacyTileId[];
-    melds: Array<{ type: string; tiles: LegacyTileId[]; targetTile?: LegacyTileId }>;
-    visibleTiles?: LegacyTileId[];
+    drawnTile?: number | null;
+    hand: number[];
+    melds: MahjongMeld[];
+    visibleTiles: number[];
     lackSuit?: 'wan' | 'tiao' | 'tong' | null;
-    wallRemaining?: number;
+    wallRemaining: number;
     isBot?: boolean;
-    source?: 'CLIENT' | 'SERVER';
+    source?: 'SERVER' | 'CLIENT';
   }): void {
-    if (!this.enabled) return;
-    const sorted = sortTiles([...params.hand], params.mode);
-    const counts = createCountsVector(sorted);
+    if (!this.enabled || typeof console === 'undefined') return;
+    const tag = params.source || 'CLIENT';
+    const isWild = isHongZhongWildMode(params.mode);
+    const counts = createCountsVector(params.hand);
     const shanten = calculateShantenFromCounts(counts, params.melds.length, {
-      wildcardIndex: isHongZhongWildMode(params.mode) ? HONG_ZHONG_INDEX : undefined,
       allowQiDui: params.melds.length === 0,
+      allowShiSanYao: params.mode === 'guobiao' && params.melds.length === 0,
+      wildcardIndex: isWild ? HONG_ZHONG_INDEX : undefined,
     });
-    const drawnText = params.drawnTile
-      ? `摸入:${getTileNameById(params.drawnTile)}(${params.drawnTile})`
-      : '副露/切牌回合';
 
-    const tag = `[MJ-DEBUG][${params.source || 'ENGINE'}][回合分析] 座位${params.seat}(${params.playerName}) | ${drawnText} | 向听数:${shanten} | 余牌:${params.wallRemaining ?? '-'}`;
+    const suitMap: Record<string, MahjongSuit> = { wan: 0, tiao: 1, tong: 2 };
+    const dqSuit: MahjongSuit | null = params.lackSuit ? suitMap[params.lackSuit] : null;
 
-    if (typeof console.groupCollapsed === 'function') {
-      console.groupCollapsed(`%c${tag}`, 'color: #f59e0b; font-weight: bold;');
-    } else {
-      console.log(tag);
+    const topCandidates = evaluateAIDiscardCandidates({
+      handTiles: params.hand,
+      melds: params.melds,
+      dingQueSuit: dqSuit ?? -1,
+      riverTiles: params.visibleTiles,
+      opponentsMeldsCount: [params.melds.length],
+      wallRemaining: params.wallRemaining,
+      mode: params.mode,
+    }).slice(0, 5);
+
+    console.groupCollapsed(
+      `%c[MJ-DEBUG][${tag}][回合分析] Seat#${params.seat}(${params.playerName}) | 摸牌:${params.drawnTile ? this.formatTile(params.drawnTile) : '无'} | 当前向听:${shanten} | 余牌:${params.wallRemaining}`,
+      'color:#38bdf8;font-weight:bold;'
+    );
+    console.log('当前手牌:', this.formatTiles(params.hand));
+    console.log('34维频次向量:', this.formatCounts34Summary(params.hand));
+    if (topCandidates.length > 0) {
+      console.log(
+        'Top-5 候选舍牌攻防评估 (Ukeire & Danger):',
+        topCandidates.map(
+          (c, i) =>
+            `#${i + 1} 打[${getTileDisplayName(c.tileIndex)}(id:${c.tileId})] -> 打后向听:${c.shantenAfter} | 有效进张余:${c.ukeireTilesCount}张 | 危险度:${c.dangerScore} | 综合分:${c.totalScore}`
+        )
+      );
+    }
+    console.groupEnd();
+  }
+
+  /**
+   * 3. 出牌与读牌语音映射日志
+   */
+  static logDiscardAction(params: {
+    seat: number;
+    playerName: string;
+    tileId: number;
+    gender: 'female' | 'male';
+    mode: string;
+    handAfter?: number[];
+    melds?: MahjongMeld[];
+    lackSuit?: 'wan' | 'tiao' | 'tong' | null;
+    visibleTiles?: number[];
+    source?: 'SERVER' | 'CLIENT';
+  }): void {
+    if (!this.enabled || typeof console === 'undefined') return;
+    const tag = params.source || 'CLIENT';
+    const idx = legacyIdToTileIndex(params.tileId);
+    const tileName = getTileDisplayName(idx);
+    const voicePath = this.resolveTileVoiceAsset(params.tileId, params.gender);
+
+    let tingSummary = '未计算';
+    if (params.handAfter && params.handAfter.length > 0) {
+      const suitMap: Record<string, MahjongSuit> = { wan: 0, tiao: 1, tong: 2 };
+      const dqSuit: MahjongSuit | null = params.lackSuit ? suitMap[params.lackSuit] : null;
+      const discardsCount: Record<number, number> = {};
+      for (const vt of params.visibleTiles || []) {
+        discardsCount[vt] = (discardsCount[vt] || 0) + 1;
+      }
+      const waits = analyzeTing(
+        params.handAfter,
+        params.melds || [],
+        dqSuit,
+        discardsCount,
+        params.mode
+      );
+      if (waits.length > 0) {
+        tingSummary = waits
+          .map(
+            (w) =>
+              `${getTileDisplayName(legacyIdToTileIndex(w.tileId))}(${w.fanName}/${w.factor}倍/剩${w.remainCount}张)`
+          )
+          .join(' , ');
+      } else {
+        tingSummary = '未听牌';
+      }
     }
 
-    console.log(`  当前手牌(${sorted.length}张): ${formatTileList(sorted)}`);
+    console.groupCollapsed(
+      `%c[MJ-DEBUG][${tag}][出牌/读牌] Seat#${params.seat}(${params.playerName}) -> 打出【${tileName}】[id:${params.tileId}->idx:${idx}] | 语音:${voicePath}`,
+      'color:#34d399;font-weight:bold;'
+    );
+    console.log('读牌映射详情:', {
+      出牌方: `Seat#${params.seat} (${params.playerName})`,
+      十进制协议ID_tileId: params.tileId,
+      内部34维索引_tileIndex: idx,
+      标准牌名_tileName: tileName,
+      语音通道_gender: params.gender,
+      语音文件_voiceAsset: voicePath,
+      打后手牌: params.handAfter ? this.formatTiles(params.handAfter) : '对手暗牌',
+      打后听牌口_tingWaits: tingSummary,
+    });
+    console.groupEnd();
+  }
 
-    const dingQueSuit = lackSuitToMahjongSuit(params.lackSuit);
-    const discardsCount = buildDiscardsCountMap(params.visibleTiles);
+  /**
+   * 4. 吃/碰/杠/胡动作响应与全解最高番裁定日志
+   */
+  static logActionAndSettlement(params: {
+    action: 'peng' | 'gang' | 'hu' | 'zimo';
+    seat: number;
+    playerName: string;
+    gender: 'female' | 'male';
+    targetTile?: number;
+    mode: string;
+    hand?: number[];
+    melds?: MahjongMeld[];
+    scoreDelta?: number;
+    source?: 'SERVER' | 'CLIENT';
+  }): void {
+    if (!this.enabled || typeof console === 'undefined') return;
+    const tag = params.source || 'CLIENT';
+    const voicePath = this.resolveActionVoiceAsset(params.action, params.gender);
 
-    // 检查是否已自摸胡牌
-    if (sorted.length % 3 === 2) {
+    console.groupCollapsed(
+      `%c[MJ-DEBUG][${tag}][动作/胡牌] Seat#${params.seat}(${params.playerName}) -> 触发【${params.action.toUpperCase()}】| 语音:${voicePath}`,
+      'color:#f43f5e;font-weight:bold;'
+    );
+    console.log('动作播报详情:', {
+      动作类型: params.action,
+      触发玩家: `Seat#${params.seat} (${params.playerName})`,
+      目标牌: params.targetTile ? this.formatTile(params.targetTile) : '自摸/暗杠',
+      高优语音资源: voicePath,
+      分数变动_scoreDelta: params.scoreDelta ?? 0,
+    });
+
+    if ((params.action === 'hu' || params.action === 'zimo') && params.hand && params.hand.length > 0) {
       const huEval = evaluateHu(
-        sorted,
-        undefined,
-        params.melds as any,
-        dingQueSuit,
-        true,
+        params.hand,
+        params.targetTile,
+        params.melds || [],
+        null,
+        params.action === 'zimo',
         false,
         false,
         false,
@@ -170,186 +282,23 @@ export class MahjongDebugLogger {
         params.mode
       );
       if (huEval.canHu) {
-        console.log(
-          `  [已满足自摸胡牌] 最高番:${huEval.totalFactor}倍 | 番型:${huEval.fanName}`
-        );
-        if (huEval.winningDecomposition) {
-          const dec = huEval.winningDecomposition;
-          const pairName = dec.eye >= 0 ? getTileNameByIndex(dec.eye) : '百搭雀头';
-          console.log(
-            `  [最优胡牌拆解] 雀头:${pairName} | 刻子:[${dec.triplets.map(getTileNameByIndex).join(',')}] | 顺子起点:[${dec.sequences.map(getTileNameByIndex).join(',')}]`
-          );
-        }
+        console.log('全解最高番裁定结果:', {
+          最终番型: huEval.fanName,
+          结算倍数: huEval.totalFactor,
+          茶山根数: huEval.genCount,
+          最佳拆解_winningDecomposition: huEval.winningDecomposition
+            ? {
+                雀头: getTileDisplayName(huEval.winningDecomposition.eye),
+                刻子: huEval.winningDecomposition.triplets.map((t) => getTileDisplayName(t)),
+                顺子首张: huEval.winningDecomposition.sequences.map((s) =>
+                  getTileDisplayName(tileIndexToLegacyId(s))
+                ),
+              }
+            : '特殊牌型(七对/十三幺)',
+          全部候选拆解得分表_candidateBreakdowns: huEval.candidateBreakdowns,
+        });
       }
     }
-
-    // 听牌分析（当手牌为 3N+1 张时）
-    if (sorted.length % 3 === 1) {
-      const waits = analyzeTing(
-        sorted,
-        params.melds as any,
-        dingQueSuit,
-        discardsCount,
-        params.mode
-      );
-      if (waits.length > 0) {
-        console.log(
-          `  [听牌口列表] 共${waits.length}门: ${waits
-            .map((w) => `${getTileNameById(w.tileId)}(${w.tileId})[余${w.remainCount}张/${w.factor}倍:${w.fanName}]`)
-            .join(' | ')}`
-        );
-      }
-    }
-
-    // AI 候选出牌评分 Top 3
-    if (sorted.length % 3 === 2) {
-      const candidates = evaluateAIDiscardCandidates({
-        handTiles: sorted,
-        melds: params.melds as any,
-        dingQueSuit: dingQueSuit ?? -1,
-        riverTiles: params.visibleTiles || [],
-        opponentsMeldsCount: [0, 0, 0],
-        wallRemaining: params.wallRemaining ?? 60,
-        mode: params.mode,
-      }).slice(0, 3);
-
-      if (candidates.length > 0) {
-        console.log(
-          `  [AI候选出牌Top3] ${candidates
-            .map(
-              (c, idx) =>
-                `#${idx + 1} 打${getTileNameById(c.tileId)}(${c.tileId}) -> 向听:${c.shantenAfter} 进张:${c.ukeireTilesCount} 危险度:${c.dangerScore} 综合分:${c.totalScore.toFixed(1)}`
-            )
-            .join(' || ')}`
-        );
-      }
-    }
-
-    if (typeof console.groupEnd === 'function') {
-      console.groupEnd();
-    }
-  }
-
-  /**
-   * 3. 出牌与语音映射日志
-   */
-  public static logDiscardAction(params: {
-    seat: number;
-    playerName: string;
-    tileId: LegacyTileId;
-    gender: 'male' | 'female';
-    mode: string;
-    handAfter?: LegacyTileId[];
-    melds?: Array<{ type: string; tiles: LegacyTileId[]; targetTile?: LegacyTileId }>;
-    lackSuit?: 'wan' | 'tiao' | 'tong' | null;
-    visibleTiles?: LegacyTileId[];
-    source?: 'CLIENT' | 'SERVER';
-  }): void {
-    if (!this.enabled) return;
-    const tileIdx = legacyIdToTileIndex(params.tileId);
-    const tileName = getTileNameById(params.tileId);
-    const voiceUrl = resolveMahjongTileVoiceUrl(params.tileId, params.gender);
-
-    let tingSummary = '';
-    if (params.handAfter && params.handAfter.length % 3 === 1) {
-      const dingQueSuit = lackSuitToMahjongSuit(params.lackSuit);
-      const discardsCount = buildDiscardsCountMap(params.visibleTiles);
-      const waits = analyzeTing(
-        params.handAfter,
-        (params.melds || []) as any,
-        dingQueSuit,
-        discardsCount,
-        params.mode
-      );
-      if (waits.length > 0) {
-        tingSummary = ` | 听牌:[${waits.map((w) => `${getTileNameById(w.tileId)}(余${w.remainCount}/${w.factor}倍)`).join(', ')}]`;
-      }
-    }
-
-    console.log(
-      `%c[MJ-DEBUG][${params.source || 'ENGINE'}][出牌播报] 座位${params.seat}(${params.playerName}) 打出 ${tileName}(协议ID:${params.tileId} -> 内部索引:${tileIdx}) | 语音:${voiceUrl || 'N/A'}${tingSummary}`,
-      'color: #10b981; font-weight: bold;'
-    );
-  }
-
-  /**
-   * 4. 碰/杠/胡动作响应与多解番型结算日志
-   */
-  public static logActionAndSettlement(params: {
-    action: 'peng' | 'gang' | 'hu' | 'zimo';
-    seat: number;
-    playerName: string;
-    gender: 'male' | 'female';
-    targetTile?: LegacyTileId;
-    fromSeat?: number;
-    mode: string;
-    hand?: LegacyTileId[];
-    melds?: Array<{ type: string; tiles: LegacyTileId[]; targetTile?: LegacyTileId }>;
-    lackSuit?: 'wan' | 'tiao' | 'tong' | null;
-    scoreDelta?: number;
-    source?: 'CLIENT' | 'SERVER';
-  }): void {
-    if (!this.enabled) return;
-    const voiceUrl = resolveMahjongActionVoiceUrl(params.action, params.gender);
-    const targetText = params.targetTile
-      ? ` 目标牌:${getTileNameById(params.targetTile)}(${params.targetTile})`
-      : '';
-
-    const tag = `[MJ-DEBUG][${params.source || 'ENGINE'}][动作响应] 座位${params.seat}(${params.playerName}) 触发 [${params.action.toUpperCase()}]${targetText} | 语音:${voiceUrl}`;
-
-    if (params.action === 'hu' || params.action === 'zimo') {
-      if (typeof console.groupCollapsed === 'function') {
-        console.groupCollapsed(`%c${tag}`, 'color: #a855f7; font-weight: bold;');
-      } else {
-        console.log(tag);
-      }
-
-      if (params.hand && params.hand.length > 0) {
-        const dingQueSuit = lackSuitToMahjongSuit(params.lackSuit);
-        const evalRes = evaluateHu(
-          params.hand,
-          params.action === 'hu' ? params.targetTile : undefined,
-          (params.melds || []) as any,
-          dingQueSuit,
-          params.action === 'zimo',
-          false,
-          false,
-          false,
-          false,
-          256,
-          params.mode
-        );
-        console.log(
-          `  [最高番裁定结果] 总倍率:${evalRes.totalFactor}倍 | 分数变动:${params.scoreDelta ?? '-'} | 番型明细:${evalRes.fanName}`
-        );
-        if (evalRes.candidateBreakdowns && evalRes.candidateBreakdowns.length > 0) {
-          console.log(
-            `  [全解枚举对比(共${evalRes.candidateBreakdowns.length}种拆解)]`,
-            evalRes.candidateBreakdowns.map((b, i) => ({
-              rank: i + 1,
-              patternType: b.patternType,
-              totalFan: b.totalFan,
-              fans: b.fanNames.join('+'),
-              pair:
-                b.decomposition && b.decomposition.eye >= 0
-                  ? getTileNameByIndex(b.decomposition.eye)
-                  : '特殊/百搭',
-              triplets: b.decomposition
-                ? b.decomposition.triplets.map(getTileNameByIndex).join(',')
-                : '-',
-              sequences: b.decomposition
-                ? b.decomposition.sequences.map(getTileNameByIndex).join(',')
-                : '-',
-            }))
-          );
-        }
-      }
-
-      if (typeof console.groupEnd === 'function') {
-        console.groupEnd();
-      }
-    } else {
-      console.log(`%c${tag}`, 'color: #34d399; font-weight: bold;');
-    }
+    console.groupEnd();
   }
 }

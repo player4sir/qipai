@@ -1,4 +1,6 @@
 import React from 'react';
+import { soundEngine } from '../../shared/audio/SoundEngine';
+import { hapticEngine } from '../../shared/haptics/HapticEngine';
 
 export interface HallFooterProps {
   roomsCount: number;
@@ -21,84 +23,142 @@ export const HallFooter: React.FC<HallFooterProps> = ({
   onOpenRecords,
   onOpenSignIn,
 }) => {
-  const items = [
-    {
-      id: 'friend',
-      label: '好友',
-      icon: '/assets/ui/zjm_icon_haoyou.png',
-      onClick: onOpenFriendRoom,
-    },
-    {
-      id: 'rooms',
-      label: '背包',
-      icon: '/assets/ui/zjm_icon_beibao.png',
-      badgeCount: roomsCount > 0 ? roomsCount : undefined,
-      onClick: onOpenRooms,
-    },
-    {
-      id: 'rank',
-      label: '排行榜',
-      icon: '/assets/ui/nav_rank.png',
-      onClick: onOpenLeaderboard,
-    },
-    {
-      id: 'records',
-      label: '任务',
-      icon: '/assets/ui/zjm_icon_renwu.png',
-      onClick: onOpenRecords,
-    },
-    {
-      id: 'signin',
-      label: '领奖',
-      icon: '/assets/ui/zjm_icon_lingjiang.png',
-      showRedDot: !signedInToday,
-      onClick: onOpenSignIn,
-    },
-  ];
-
   return (
     <footer
-      className="relative z-20 flex w-full shrink-0 items-center justify-center border-t border-white/10 bg-[#161924]/95 px-2 py-1 sm:py-1.5 backdrop-blur-md"
+      className={`relative z-20 w-full shrink-0 border-t border-white/15 bg-gradient-to-t from-black/55 via-black/40 to-black/25 px-2 backdrop-blur-md transition-all shadow-[0_-4px_16px_rgba(0,0,0,0.22)] sm:px-4 ${
+        isMobileLandscape ? 'h-11 sm:h-12' : 'h-13.5 sm:h-15'
+      }`}
       style={{
         paddingBottom: 'max(0.25rem, env(safe-area-inset-bottom, 0px))',
+        paddingLeft: 'max(0.6rem, env(safe-area-inset-left, 0px))',
+        paddingRight: 'max(0.6rem, env(safe-area-inset-right, 0px))',
       }}
     >
-      <div className="mx-auto flex w-full max-w-xl items-center justify-between">
-        {items.map((item, idx) => (
-          <React.Fragment key={item.id}>
-            {idx > 0 && <div className="h-5 w-px shrink-0 bg-white/10" />}
-            <button
-              type="button"
-              onClick={item.onClick}
-              className={`group relative flex flex-1 items-center justify-center ${
-                isMobileLandscape ? 'flex-row gap-1.5 py-0.5' : 'flex-col gap-0.5 py-0.5'
-              } transition-transform duration-150 hover:brightness-110 active:scale-95 cursor-pointer`}
-            >
-              <div className="relative flex items-center justify-center">
-                <img
-                  src={item.icon}
-                  alt={item.label}
-                  draggable={false}
-                  className={`${
-                    isMobileLandscape ? 'h-4.5 w-4.5' : 'h-5 w-5 sm:h-6 sm:w-6'
-                  } object-contain drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)] transition-transform duration-150 group-hover:scale-105`}
-                />
-                {item.showRedDot && (
-                  <span className="absolute -top-0.5 -right-1 h-2.5 w-2.5 rounded-full border border-[#161924] bg-rose-500 shadow" />
-                )}
-                {item.badgeCount !== undefined && (
-                  <span className="absolute -top-1 -right-2.5 rounded-full bg-emerald-500 px-1 text-[9px] font-black leading-tight text-white shadow">
-                    {item.badgeCount}
-                  </span>
-                )}
-              </div>
-              <span className="text-[11px] sm:text-xs font-bold tracking-wide text-white/90 whitespace-nowrap">
-                {item.label}
+      {/* Top specular highlight */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-amber-200/45 to-transparent" />
+
+      <div className="mx-auto flex h-full max-w-3xl items-center justify-around gap-1 sm:gap-2">
+        {/* 1. 好友 */}
+        <button
+          type="button"
+          onClick={() => {
+            soundEngine.playTap(760);
+            hapticEngine.tap();
+            onOpenFriendRoom();
+          }}
+          className="group relative flex flex-1 items-center justify-center py-1 transition-transform duration-100 active:scale-95 cursor-pointer"
+          title="好友约局"
+        >
+          <img
+            src="/assets/ui/nav_friend.png"
+            alt="好友"
+            className={`${
+              isMobileLandscape ? 'h-7.5 sm:h-8.5' : 'h-9 sm:h-10 md:h-10.5'
+            } w-auto object-contain transition-transform duration-200 [@media(hover:hover)]:group-hover:scale-106 drop-shadow-[0_3px_6px_rgba(0,0,0,0.45)]`}
+          />
+        </button>
+
+        <div className="h-5 w-px bg-amber-200/20 shrink-0" />
+
+        {/* 2. 牌桌 */}
+        <button
+          type="button"
+          onClick={() => {
+            soundEngine.playTap(760);
+            hapticEngine.tap();
+            onOpenRooms();
+          }}
+          className="group relative flex flex-1 items-center justify-center py-1 transition-transform duration-100 active:scale-95 cursor-pointer"
+          title="公开牌桌"
+        >
+          <div className="relative inline-flex items-center justify-center">
+            <img
+              src="/assets/ui/nav_rooms.png"
+              alt="牌桌"
+              className={`${
+                isMobileLandscape ? 'h-7.5 sm:h-8.5' : 'h-9 sm:h-10 md:h-10.5'
+              } w-auto object-contain transition-transform duration-200 [@media(hover:hover)]:group-hover:scale-106 drop-shadow-[0_3px_6px_rgba(0,0,0,0.45)]`}
+            />
+            {roomsCount > 0 && (
+              <span className="absolute -top-1 -right-2 rounded-full border border-emerald-200 bg-emerald-500 px-1.5 py-0.2 font-mono text-[9px] font-black text-black shadow">
+                {roomsCount}
               </span>
-            </button>
-          </React.Fragment>
-        ))}
+            )}
+          </div>
+        </button>
+
+        <div className="h-5 w-px bg-amber-200/20 shrink-0" />
+
+        {/* 3. 排行 */}
+        <button
+          type="button"
+          onClick={() => {
+            soundEngine.playTap(760);
+            hapticEngine.tap();
+            onOpenLeaderboard();
+          }}
+          className="group relative flex flex-1 items-center justify-center py-1 transition-transform duration-100 active:scale-95 cursor-pointer"
+          title="富豪排行"
+        >
+          <img
+            src="/assets/ui/nav_rank.png"
+            alt="排行"
+            className={`${
+              isMobileLandscape ? 'h-7.5 sm:h-8.5' : 'h-9 sm:h-10 md:h-10.5'
+            } w-auto object-contain transition-transform duration-200 [@media(hover:hover)]:group-hover:scale-106 drop-shadow-[0_3px_6px_rgba(0,0,0,0.45)]`}
+          />
+        </button>
+
+        <div className="h-5 w-px bg-amber-200/20 shrink-0" />
+
+        {/* 4. 战绩 */}
+        <button
+          type="button"
+          onClick={() => {
+            soundEngine.playTap(760);
+            hapticEngine.tap();
+            onOpenRecords();
+          }}
+          className="group relative flex flex-1 items-center justify-center py-1 transition-transform duration-100 active:scale-95 cursor-pointer"
+          title="战绩复盘"
+        >
+          <img
+            src="/assets/ui/nav_records.png"
+            alt="战绩"
+            className={`${
+              isMobileLandscape ? 'h-7.5 sm:h-8.5' : 'h-9 sm:h-10 md:h-10.5'
+            } w-auto object-contain transition-transform duration-200 [@media(hover:hover)]:group-hover:scale-106 drop-shadow-[0_3px_6px_rgba(0,0,0,0.45)]`}
+          />
+        </button>
+
+        <div className="h-5 w-px bg-amber-200/20 shrink-0" />
+
+        {/* 5. 福利 */}
+        <button
+          type="button"
+          onClick={() => {
+            soundEngine.playTap(800);
+            hapticEngine.tap();
+            onOpenSignIn();
+          }}
+          className="group relative flex flex-1 items-center justify-center py-1 transition-transform duration-100 active:scale-95 cursor-pointer"
+          title="每日福利"
+        >
+          <div className="relative inline-flex items-center justify-center">
+            <img
+              src="/assets/ui/nav_fuli.png"
+              alt="福利"
+              className={`${
+                isMobileLandscape ? 'h-7.5 sm:h-8.5' : 'h-9 sm:h-10 md:h-10.5'
+              } w-auto object-contain transition-transform duration-200 [@media(hover:hover)]:group-hover:scale-106 drop-shadow-[0_3px_6px_rgba(0,0,0,0.45)]`}
+            />
+            {!signedInToday && (
+              <span className="absolute -top-0.5 -right-1 h-2.5 w-2.5 rounded-full bg-rose-500 ring-2 ring-amber-100 animate-pulse" />
+            )}
+          </div>
+        </button>
       </div>
     </footer>
   );
 };
+

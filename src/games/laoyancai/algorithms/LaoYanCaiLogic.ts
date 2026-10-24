@@ -5,7 +5,7 @@ import {
   LaoYanCaiHandResult,
   LaoYanCaiPlayMode,
   LaoYanCaiSuit,
-} from '../types.js';
+} from '../types';
 
 const SUITS: LaoYanCaiSuit[] = ['spade', 'heart', 'club', 'diamond'];
 
@@ -16,21 +16,44 @@ const SUIT_WEIGHT: Record<LaoYanCaiSuit, number> = {
   diamond: 1,
 };
 
-const CATEGORY_PRIORITY: Record<LaoYanCaiHandCategory, number> = {
-  BAOZI: 900,
-  STRAIGHT_FLUSH: 800,
-  SANGONG: 700,
-  ZHAKAI_9: 650,
-  ZHAKAI_8: 600,
-  SANYAN: 400,
-  SHUANGYAN: 350,
-  PAIR_2: 320,
-  NORMAL: 100,
+const POINT_CN_NAMES: Record<number, string> = {
+  0: '瘪十(0点)',
+  1: '一点',
+  2: '二点',
+  3: '三点',
+  4: '四点',
+  5: '五点',
+  6: '六点',
+  7: '七点',
+  8: '八点',
+  9: '九点',
 };
 
-export function getCardPoint(rank: number): number {
-  if (rank <= 0 || rank >= 10) return 0;
-  return rank;
+const RANK_LABELS: Record<number, string> = {
+  1: 'A',
+  2: '2',
+  3: '3',
+  4: '4',
+  5: '5',
+  6: '6',
+  7: '7',
+  8: '8',
+  9: '9',
+  10: '10',
+  11: 'J',
+  12: 'Q',
+  13: 'K',
+};
+
+export function formatCardLabel(card: LaoYanCaiCard): string {
+  if (!card || card.rank <= 0) return '🂠';
+  const suitSymbols: Record<LaoYanCaiSuit, string> = {
+    spade: '♠',
+    heart: '♥',
+    club: '♣',
+    diamond: '♦',
+  };
+  return `${suitSymbols[card.suit] || '♠'}${RANK_LABELS[card.rank] || card.rank}`;
 }
 
 export function createStandardLaoYanCaiDeck(): LaoYanCaiCard[] {
@@ -42,7 +65,7 @@ export function createStandardLaoYanCaiDeck(): LaoYanCaiCard[] {
         id: id++,
         suit,
         rank,
-        point: getCardPoint(rank),
+        point: rank >= 10 ? 0 : rank,
       });
     }
   }
@@ -73,399 +96,282 @@ function isThreeCardStraight(ranks: number[]): boolean {
   return false;
 }
 
-export function evaluateLaoYanCaiHand(
-  rawCards: LaoYanCaiCard[],
-  playMode: LaoYanCaiPlayMode = 'kunming',
-  declaredZhaKai: boolean = false
-): LaoYanCaiHandResult {
-  const validCards = (rawCards || []).filter((c) => c && c.rank >= 1 && c.rank <= 13);
-  const cardCount = validCards.length;
+function computeHighCardTieBreaker(cards: LaoYanCaiCard[]): number {
+  const valid = cards.filter((c) => c.rank > 0);
+  if (valid.length === 0) return 0;
+  // In Lao Yan Cai tie-breaking, K(13) > Q(12) > J(11) > 10 > 9 ... > A(1)
+  const sorted = [...valid].sort((a, b) => {
+    if (b.rank !== a.rank) return b.rank - a.rank;
+    return SUIT_WEIGHT[b.suit] - SUIT_WEIGHT[a.suit];
+  });
+  const top = sorted[0];
+  return top.rank * 10 + SUIT_WEIGHT[top.suit];
+}
 
-  if (cardCount === 0) {
+/**
+ * Evaluates a 2-card or 3-card Lao Yan Cai hand according to authentic Kunming/Yuxi rules.
+ */
+export function evaluateLaoYanCaiHand(
+  cards: LaoYanCaiCard[],
+  playMode: LaoYanCaiPlayMode = 'kunming',
+  isZhaKai: boolean = false
+): LaoYanCaiHandResult {
+  const validCards = cards.filter((c) => c && c.rank > 0);
+  const count = validCards.length;
+
+  if (count === 0) {
     return {
-      category: 'NORMAL',
-      name: '未发牌',
-      badgeText: '1倍',
-      points: 0,
-      multiplier: 1,
+      cards: [],
       cardCount: 0,
-      isBaozi: false,
-      isStraightFlush: false,
-      isSanGong: false,
+      points: 0,
+      category: 'NORMAL',
+      name: '等待发牌',
+      badgeText: '1倍',
+      multiplier: 1,
+      canZhaKai: false,
+      isZhaKai: false,
       isSuited: false,
       isPair: false,
-      isZhaKai: false,
-      canZhaKai: false,
-      highRank: 0,
-      highSuitWeight: 0,
-      cards: [],
+      isBaozi: false,
+      isSanGong: false,
+      isStraightFlush: false,
+      weight: 0,
     };
   }
 
-  const rawSum = validCards.reduce((acc, c) => acc + getCardPoint(c.rank), 0);
+  const rawSum = validCards.reduce((acc, c) => acc + c.point, 0);
   const points = rawSum % 10;
-
-  // High card sorting (K=13 > Q=12 > ... > A=1, then Spade > Heart > Club > Diamond)
-  const sortedByPower = [...validCards].sort((a, b) => {
-    if (b.rank !== a.rank) return b.rank - a.rank;
-    return (SUIT_WEIGHT[b.suit] || 0) - (SUIT_WEIGHT[a.suit] || 0);
-  });
-  const highCard = sortedByPower[0];
-  const highRank = highCard ? highCard.rank : 0;
-  const highSuitWeight = highCard ? SUIT_WEIGHT[highCard.suit] || 0 : 0;
-
-  const isSuited =
-    cardCount >= 2 && validCards.every((c) => c.suit === validCards[0].suit);
-  const isPair =
-    cardCount === 2 && validCards[0].rank === validCards[1].rank;
+  const firstSuit = validCards[0].suit;
+  const isSuited = count >= 2 && validCards.every((c) => c.suit === firstSuit);
+  const isPair = count === 2 && validCards[0].rank === validCards[1].rank;
   const isBaozi =
-    cardCount === 3 &&
+    count === 3 &&
     validCards[0].rank === validCards[1].rank &&
     validCards[1].rank === validCards[2].rank;
-  const isSanGong =
-    cardCount === 3 &&
-    validCards.every((c) => c.rank >= 11 && c.rank <= 13) &&
-    !isBaozi;
+  const isSanGong = count === 3 && validCards.every((c) => c.rank >= 11);
   const isStraightFlush =
-    cardCount === 3 &&
-    isSuited &&
-    isThreeCardStraight(validCards.map((c) => c.rank));
+    count === 3 && isSuited && isThreeCardStraight(validCards.map((c) => c.rank));
 
-  const canZhaKai = cardCount === 2 && (points === 8 || points === 9);
-  const isZhaKai = canZhaKai && declaredZhaKai;
+  const canZhaKai = count === 2 && (points === 8 || points === 9);
+  const effectiveZhaKai = canZhaKai && isZhaKai;
+  const tieBreaker = computeHighCardTieBreaker(validCards);
 
-  const isCrazy = playMode === 'crazy';
+  let category: LaoYanCaiHandCategory = 'NORMAL';
+  let multiplier = 1;
+  let name = POINT_CN_NAMES[points] || `${points}点`;
+  let badgeText = '1倍';
+  let majorTier = 100 + points * 10;
 
-  // 1. 豹子 (Three of a Kind)
-  if (isBaozi) {
-    const mult = isCrazy ? 8 : 5;
-    const rankLabels: Record<number, string> = {
-      1: 'A',
-      11: 'J',
-      12: 'Q',
-      13: 'K',
-    };
-    const rLabel = rankLabels[validCards[0].rank] || String(validCards[0].rank);
-    return {
-      category: 'BAOZI',
-      name: `${rLabel}豹子`,
-      badgeText: `豹子·${mult}倍`,
-      points,
-      multiplier: mult,
-      cardCount,
-      isBaozi: true,
-      isStraightFlush: false,
-      isSanGong: false,
-      isSuited: false,
-      isPair: false,
-      isZhaKai: false,
-      canZhaKai: false,
-      highRank,
-      highSuitWeight,
-      cards: validCards,
-    };
+  if (count === 3) {
+    if (isBaozi) {
+      category = 'BAOZI';
+      multiplier = playMode === 'crazy' ? 8 : 5;
+      const rLabel = RANK_LABELS[validCards[0].rank] || String(validCards[0].rank);
+      name = `豹子${rLabel}`;
+      badgeText = `豹子×${multiplier}`;
+      majorTier = 700 + validCards[0].rank;
+    } else if (isStraightFlush) {
+      category = 'STRAIGHT_FLUSH';
+      multiplier = playMode === 'crazy' ? 6 : 4;
+      name = `同花顺(${points}点)`;
+      badgeText = `顺金×${multiplier}`;
+      majorTier = 600 + points;
+    } else if (isSanGong) {
+      category = 'SANGONG';
+      multiplier = playMode === 'crazy' ? 4 : 3;
+      name = '三公';
+      badgeText = `三公×${multiplier}`;
+      majorTier = 500;
+    } else if (isSuited) {
+      category = 'SANYAN';
+      multiplier = playMode === 'crazy' && points >= 8 ? 4 : 3;
+      name = `${POINT_CN_NAMES[points]}·三腌`;
+      badgeText = `三腌×${multiplier}`;
+      majorTier = 100 + points * 10 + 3;
+    } else {
+      category = 'NORMAL';
+      multiplier = playMode === 'crazy' && points === 9 ? 2 : 1;
+      name = POINT_CN_NAMES[points];
+      badgeText = `${multiplier}倍`;
+      majorTier = 100 + points * 10;
+    }
+  } else {
+    // 2-card hand
+    const suitedOrPairMult = isSuited && isPair ? 3 : isSuited || isPair ? 2 : 1;
+
+    if (effectiveZhaKai) {
+      category = points === 9 ? 'NATURAL_9' : 'NATURAL_8';
+      multiplier =
+        playMode === 'crazy' && isSuited
+          ? 3
+          : Math.max(suitedOrPairMult, playMode === 'crazy' && points === 9 ? 2 : 1);
+      const suffix = isSuited ? '·双腌炸开' : isPair ? '·对子炸开' : '·天牌炸开';
+      name = `${POINT_CN_NAMES[points]}${suffix}`;
+      badgeText = multiplier > 1 ? `炸开×${multiplier}` : '天牌炸开';
+      majorTier = (points === 9 ? 490 : 480) + (isSuited ? 3 : isPair ? 2 : 0);
+    } else if (isSuited) {
+      category = 'SHUANGYAN';
+      multiplier = 2;
+      name = `${POINT_CN_NAMES[points]}·双腌`;
+      badgeText = '双腌×2';
+      majorTier = 100 + points * 10 + 2;
+    } else if (isPair) {
+      category = 'PAIR';
+      multiplier = 2;
+      name = `${POINT_CN_NAMES[points]}·对子`;
+      badgeText = '对子×2';
+      majorTier = 100 + points * 10 + 1;
+    } else {
+      category = 'NORMAL';
+      multiplier = 1;
+      name = POINT_CN_NAMES[points];
+      badgeText = '1倍';
+      majorTier = 100 + points * 10 + 0.5; // 2-card hand slightly outranks 3-card at equal points
+    }
   }
 
-  // 2. 同花顺 (Straight Flush)
-  if (isStraightFlush) {
-    const mult = isCrazy ? 6 : 4;
-    return {
-      category: 'STRAIGHT_FLUSH',
-      name: '同花顺',
-      badgeText: `顺金·${mult}倍`,
-      points,
-      multiplier: mult,
-      cardCount,
-      isBaozi: false,
-      isStraightFlush: true,
-      isSanGong: false,
-      isSuited: true,
-      isPair: false,
-      isZhaKai: false,
-      canZhaKai: false,
-      highRank,
-      highSuitWeight,
-      cards: validCards,
-    };
-  }
+  const weight = majorTier * 1000 + tieBreaker;
 
-  // 3. 三公 (Three Face Cards J/Q/K)
-  if (isSanGong) {
-    const mult = isCrazy ? 4 : 3;
-    return {
-      category: 'SANGONG',
-      name: '三公',
-      badgeText: `三公·${mult}倍`,
-      points: 9, // Treated as top tier above normal points
-      multiplier: mult,
-      cardCount,
-      isBaozi: false,
-      isStraightFlush: false,
-      isSanGong: true,
-      isSuited,
-      isPair: false,
-      isZhaKai: false,
-      canZhaKai: false,
-      highRank,
-      highSuitWeight,
-      cards: validCards,
-    };
-  }
-
-  // 4. 2-Card Natural ZhaKai (天牌炸开 8点 / 9点)
-  if (cardCount === 2 && isZhaKai) {
-    const mult = isSuited || isPair ? (isCrazy ? 3 : 2) : 1;
-    const suffix = isSuited ? '双腌' : isPair ? '对子' : '';
-    const cat: LaoYanCaiHandCategory = points === 9 ? 'ZHAKAI_9' : 'ZHAKAI_8';
-    return {
-      category: cat,
-      name: `天牌${points}点${suffix}炸开`,
-      badgeText: `炸开·${mult}倍`,
-      points,
-      multiplier: mult,
-      cardCount,
-      isBaozi: false,
-      isStraightFlush: false,
-      isSanGong: false,
-      isSuited,
-      isPair,
-      isZhaKai: true,
-      canZhaKai: true,
-      highRank,
-      highSuitWeight,
-      cards: validCards,
-    };
-  }
-
-  // 5. 3-Card Suited (三腌 / 同花三张)
-  if (cardCount === 3 && isSuited) {
-    const mult = 3;
-    const ptName = points === 0 ? '瘪十' : `${points}点`;
-    return {
-      category: 'SANYAN',
-      name: `三腌·${ptName}`,
-      badgeText: `三腌·${mult}倍`,
-      points,
-      multiplier: mult,
-      cardCount,
-      isBaozi: false,
-      isStraightFlush: false,
-      isSanGong: false,
-      isSuited: true,
-      isPair: false,
-      isZhaKai: false,
-      canZhaKai: false,
-      highRank,
-      highSuitWeight,
-      cards: validCards,
-    };
-  }
-
-  // 6. 2-Card Suited (双腌) or Pair (对子)
-  if (cardCount === 2 && (isSuited || isPair)) {
-    const mult = 2;
-    const ptName = points === 0 ? '瘪十' : `${points}点`;
-    const tag = isSuited ? '双腌' : '对子';
-    return {
-      category: isSuited ? 'SHUANGYAN' : 'PAIR_2',
-      name: `${tag}·${ptName}`,
-      badgeText: `${tag}·${mult}倍`,
-      points,
-      multiplier: mult,
-      cardCount,
-      isBaozi: false,
-      isStraightFlush: false,
-      isSanGong: false,
-      isSuited,
-      isPair,
-      isZhaKai: false,
-      canZhaKai,
-      highRank,
-      highSuitWeight,
-      cards: validCards,
-    };
-  }
-
-  // 7. Standard Point Hand (0 ~ 9 points)
-  const pointLabel = points === 0 ? '瘪十 (0点)' : `${points}点`;
   return {
-    category: 'NORMAL',
-    name: pointLabel,
-    badgeText: '1倍',
+    cards: validCards,
+    cardCount: count,
     points,
-    multiplier: 1,
-    cardCount,
-    isBaozi: false,
-    isStraightFlush: false,
-    isSanGong: false,
+    category,
+    name,
+    badgeText,
+    multiplier,
+    canZhaKai,
+    isZhaKai: effectiveZhaKai,
     isSuited,
     isPair,
-    isZhaKai: false,
-    canZhaKai,
-    highRank,
-    highSuitWeight,
-    cards: validCards,
+    isBaozi,
+    isSanGong,
+    isStraightFlush,
+    weight,
   };
 }
 
 /**
- * Compares two evaluated LaoYanCai hands.
- * Returns > 0 if handA beats handB, < 0 if handB beats handA.
+ * Returns > 0 if handA > handB, < 0 if handA < handB
  */
 export function compareLaoYanCaiHands(
   handA: LaoYanCaiHandResult,
   handB: LaoYanCaiHandResult
 ): number {
-  const isSpecialTier = (cat: LaoYanCaiHandCategory) =>
-    cat === 'BAOZI' ||
-    cat === 'STRAIGHT_FLUSH' ||
-    cat === 'SANGONG' ||
-    cat === 'ZHAKAI_9' ||
-    cat === 'ZHAKAI_8';
-
-  const specA = isSpecialTier(handA.category);
-  const specB = isSpecialTier(handB.category);
-
-  if (specA || specB) {
-    const prioA = CATEGORY_PRIORITY[handA.category];
-    const prioB = CATEGORY_PRIORITY[handB.category];
-    if (prioA !== prioB) return prioA - prioB;
-  }
-
-  // Compare modulo-10 points (0 ~ 9)
-  if (handA.points !== handB.points) {
-    return handA.points - handB.points;
-  }
-
-  // Same points: 2-card natural beats 3-card drawn hand of the same point value
-  if (handA.cardCount !== handB.cardCount) {
-    return handB.cardCount - handA.cardCount;
-  }
-
-  // Same points & card count: higher multiplier category wins (三腌 > 双腌 > 普通)
-  if (handA.multiplier !== handB.multiplier) {
-    return handA.multiplier - handB.multiplier;
-  }
-
-  // Tie-breaker 1: Highest single card rank (K=13 > ... > A=1)
-  if (handA.highRank !== handB.highRank) {
-    return handA.highRank - handB.highRank;
-  }
-
-  // Tie-breaker 2: Highest card suit (Spade > Heart > Club > Diamond)
-  return handA.highSuitWeight - handB.highSuitWeight;
+  return handA.weight - handB.weight;
 }
 
 /**
- * Exact 50-card Combinatorial Draw-3rd-Card Odds Engine for Yunnan LaoYanCai.
- * Evaluates all remaining cards in the shoe (or standard 50-card complement) to
- * compute exact probabilities of point improvement, 7/8/9 high points, 3x/5x special hands, and busting.
+ * Exact 50-card combinatorial analyzer for 捞牌 (drawing a 3rd card) vs 不捞 / 炸开.
  */
 export function analyzeLaoYanCaiDrawOdds(
   twoCards: LaoYanCaiCard[],
   playMode: LaoYanCaiPlayMode = 'kunming',
   remainingDeck?: LaoYanCaiCard[]
 ): LaoYanCaiDrawOdds {
-  const validTwo = (twoCards || []).filter((c) => c && c.rank >= 1 && c.rank <= 13);
+  const validTwo = twoCards.filter((c) => c && c.rank > 0).slice(0, 2);
   const currentEval = evaluateLaoYanCaiHand(validTwo, playMode, false);
 
-  let pool: LaoYanCaiCard[];
-  if (remainingDeck && remainingDeck.length > 0) {
-    pool = remainingDeck;
-  } else {
-    const full = createStandardLaoYanCaiDeck();
-    const usedIds = new Set(validTwo.map((c) => c.id));
-    pool = full.filter((c) => !usedIds.has(c.id));
+  if (validTwo.length < 2) {
+    return {
+      currentPoints: currentEval.points,
+      currentName: currentEval.name,
+      currentMultiplier: currentEval.multiplier,
+      canZhaKai: false,
+      remainingDeckCount: 50,
+      improveCardCount: 0,
+      improveProbability: 0,
+      highHandProbability: 0,
+      specialMultiplierProbability: 0,
+      expectedPointsAfterDraw: currentEval.points,
+      expectedMultiplierAfterDraw: 1,
+      recommendation: 'BULAO',
+      adviceText: '等待发齐2张底牌',
+    };
   }
+
+  // Construct unseen candidate pool if explicit deck is not provided
+  const knownIds = new Set(validTwo.map((c) => c.id));
+  const pool =
+    remainingDeck && remainingDeck.length > 0
+      ? remainingDeck
+      : createStandardLaoYanCaiDeck().filter(
+          (c) =>
+            !knownIds.has(c.id) &&
+            !validTwo.some((v) => v.suit === c.suit && v.rank === c.rank)
+        );
 
   const total = Math.max(1, pool.length);
   let improveCount = 0;
-  let highPointsCount = 0;
-  let specialHandCount = 0;
-  let dropCount = 0;
+  let highHandCount = 0;
+  let specialMultCount = 0;
   let sumPoints = 0;
-  let sumMultipliers = 0;
+  let sumMult = 0;
 
-  for (const cand of pool) {
-    const nextHand = [...validTwo, cand];
-    const res = evaluateLaoYanCaiHand(nextHand, playMode, false);
-    const effectivePts =
-      res.isBaozi || res.isStraightFlush || res.isSanGong ? 9.5 : res.points;
+  for (const nextCard of pool) {
+    const threeEval = evaluateLaoYanCaiHand([...validTwo, nextCard], playMode, false);
+    const isSpecialTop =
+      threeEval.isBaozi || threeEval.isStraightFlush || threeEval.isSanGong;
 
-    sumPoints += effectivePts;
-    sumMultipliers += res.multiplier;
-
-    if (
-      res.isBaozi ||
-      res.isStraightFlush ||
-      res.isSanGong ||
-      res.category === 'SANYAN'
-    ) {
-      specialHandCount++;
+    if (threeEval.points > currentEval.points || isSpecialTop) {
+      improveCount += 1;
     }
-
-    if (
-      res.isBaozi ||
-      res.isStraightFlush ||
-      res.isSanGong ||
-      res.points > currentEval.points
-    ) {
-      improveCount++;
-    } else if (res.points < currentEval.points) {
-      dropCount++;
+    if (threeEval.points >= 7 || isSpecialTop) {
+      highHandCount += 1;
     }
-
-    if (
-      res.isBaozi ||
-      res.isStraightFlush ||
-      res.isSanGong ||
-      res.points >= 7
-    ) {
-      highPointsCount++;
+    if (threeEval.multiplier >= 3) {
+      specialMultCount += 1;
     }
+    sumPoints += isSpecialTop ? 9.5 : threeEval.points;
+    sumMult += threeEval.multiplier;
   }
 
   const improveProbability = Number(((improveCount / total) * 100).toFixed(1));
-  const highPointsProbability = Number(((highPointsCount / total) * 100).toFixed(1));
-  const specialHandProbability = Number(((specialHandCount / total) * 100).toFixed(1));
-  const bustOrDropProbability = Number(((dropCount / total) * 100).toFixed(1));
+  const highHandProbability = Number(((highHandCount / total) * 100).toFixed(1));
+  const specialMultiplierProbability = Number(((specialMultCount / total) * 100).toFixed(1));
   const expectedPointsAfterDraw = Number((sumPoints / total).toFixed(2));
-  const expectedMultiplierAfterDraw = Number((sumMultipliers / total).toFixed(2));
+  const expectedMultiplierAfterDraw = Number((sumMult / total).toFixed(2));
 
-  let recommendedAction: 'ZHAKAI' | 'LAO' | 'BULAO' = 'BULAO';
-  let recommendationReason = '当前点数稳健，建议【不捞】守牌';
+  let recommendation: 'ZHAKAI' | 'LAO' | 'BULAO' = 'BULAO';
+  let adviceText = '';
 
   if (currentEval.canZhaKai) {
-    recommendedAction = 'ZHAKAI';
-    recommendationReason = `首轮天牌 ${currentEval.points} 点，强烈建议直接【炸开】锁定胜局`;
+    recommendation = 'ZHAKAI';
+    adviceText = `天牌${currentEval.points}点${currentEval.isSuited ? '(双腌×2)' : ''}，强烈建议直接【炸开】锁胜！`;
   } else if (currentEval.points <= 4) {
-    recommendedAction = 'LAO';
-    recommendationReason = `当前仅 ${currentEval.points} 点，捞牌提升率 ${improveProbability}% (期望 ${expectedPointsAfterDraw} 点)，建议果断【捞腌菜】`;
+    recommendation = 'LAO';
+    adviceText = `当前${currentEval.points}点偏小，捞牌提升率 ${improveProbability}%${
+      currentEval.isSuited ? '（且有23%概率博三腌×3）' : ''
+    }，建议【捞牌】`;
   } else if (currentEval.points === 5) {
-    if (currentEval.isSuited || expectedPointsAfterDraw >= 5.0) {
-      recommendedAction = 'LAO';
-      recommendationReason = currentEval.isSuited
-        ? `同花 5 点可搏【三腌 3倍】，改善率 ${improveProbability}%，建议【捞腌菜】`
-        : `5 点进退皆可，捞牌期望 ${expectedPointsAfterDraw} 点，可搏高点`;
+    if (currentEval.isSuited || expectedPointsAfterDraw >= 5.1) {
+      recommendation = 'LAO';
+      adviceText = `当前5点${currentEval.isSuited ? '双腌听三腌' : ''}，捞牌成大牌率 ${highHandProbability}%，可博【捞牌】`;
     } else {
-      recommendedAction = 'BULAO';
-      recommendationReason = `5 点中庸，捞牌有 ${bustOrDropProbability}% 概率变小，建议稳守【不捞】`;
+      recommendation = 'BULAO';
+      adviceText = `当前5点居中，捞牌提升率 ${improveProbability}%，稳健可【不捞】`;
     }
+  } else if (currentEval.points === 6) {
+    recommendation = 'BULAO';
+    adviceText = `当前6点${currentEval.isSuited ? '(双腌×2)' : ''}已具优势，捞牌仅 ${improveProbability}% 提升，建议【不捞】`;
   } else {
-    recommendedAction = 'BULAO';
-    recommendationReason = `当前已有 ${currentEval.points} 点高分，捞牌掉点率高达 ${bustOrDropProbability}%，切勿贪牌`;
+    recommendation = 'BULAO';
+    adviceText = `当前${currentEval.points}点高点${currentEval.isSuited ? '(双腌×2)' : ''}，切勿破坏牌型，建议【不捞】`;
   }
 
   return {
     currentPoints: currentEval.points,
-    remainingDeckSize: total,
+    currentName: currentEval.name,
+    currentMultiplier: currentEval.multiplier,
+    canZhaKai: currentEval.canZhaKai,
+    remainingDeckCount: total,
+    improveCardCount: improveCount,
     improveProbability,
-    highPointsProbability,
-    specialHandProbability,
-    bustOrDropProbability,
+    highHandProbability,
+    specialMultiplierProbability,
     expectedPointsAfterDraw,
     expectedMultiplierAfterDraw,
-    recommendedAction,
-    recommendationReason,
+    recommendation,
+    adviceText,
   };
 }

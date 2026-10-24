@@ -27,53 +27,27 @@ export type NiuniuHandType =
   | 'SILVER_NIU' // 银牛 / 四花牛 (14)
   | 'GOLD_NIU' // 金牛 / 五花牛 (15)
   | 'BOMB_NIU' // 炸弹牛 / 四炸 (16)
-  | 'FIVE_SMALL_NIU' // 五小牛 (17)
-  | 'STRAIGHT_FLUSH_NIU'; // 同花顺牛 / 一条龙 (18)
+  | 'FIVE_SMALL_NIU'; // 五小牛 (17)
 
 export interface NiuniuHandResult {
   handType: NiuniuHandType;
-  level: number; // 0..18
-  multiplier: number; // 1..12
+  level: number; // 0..17
+  multiplier: number; // 1..10
   name: string; // 牌型中文名
   tenGroup: NiuniuCard[]; // 凑十的 3 张牌
   bullGroup: NiuniuCard[]; // 算牛的 2 张牌
-  maxCard: NiuniuCard; // 牌面主比较单张（用于同等级比牌）
-  optimalReason?: string; // 3+2 组合择优说明
+  maxCard: NiuniuCard; // 牌面最大单张（用于同等级比牌）
 }
 
 export interface FourCardOddsAnalysis {
   niuProb: number; // 成牛概率 (0..100)
   highNiuProb: number; // 牛七及以上高倍概率 (0..100)
   niuNiuPlusProb: number; // 牛牛及特殊牌型概率 (0..100)
-  multiWinProb: number; // 5人局预估胜率 (0..100)
   expectedLevel: number; // 期望牌型等级
   expectedMultiplier: number; // 期望牌型倍数
   bestPossibleName: string; // 第5张可成最大牌型
   recommendedCall: number; // 推荐抢庄倍数 (0/1/2/3/4)
   recommendedBet: number; // 推荐闲家下注倍数 (5/10/15/20)
-  distribution: {
-    noNiu: number;
-    lowNiu: number; // 牛一~牛六
-    highNiu: number; // 牛七~牛九
-    niuNiuPlus: number; // 牛牛及特殊牛
-  };
-}
-
-export interface NiuniuDynamicPotOddsSnapshot {
-  phase: NiuniuPhase;
-  activeSeats: number;
-  dealerSeatId: number;
-  dealerCallMult: number;
-  totalBetMultiplierSum: number;
-  estimatedTotalPot: number; // 预估桌面总风险底池
-  selfCommittedRisk: number; // 自身当前投入风险筹码
-  baseWinProb: number; // 初始4张牌基准胜率 (0..100%)
-  dynamicWinProb: number; // 结合对手抢庄/下注范围修正后的动态胜率 (0..100%)
-  winProbDelta: number; // 相较上一阶段/轮次的胜率动态变化量 (百分点)
-  potOddsPct: number; // 多人底池赔率门槛 (0..100%)
-  equityEdgePct: number; // 胜率相对底池赔率优势 (dynamicWinProb - potOddsPct)
-  expectedEv: number; // 当前决策期望收益 (豆)
-  optimalMultiplier: number; // 动态推荐倍数
 }
 
 export type NiuniuPhase =

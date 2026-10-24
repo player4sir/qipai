@@ -19,14 +19,10 @@ import {
 } from 'lucide-react';
 import { type ViewportMetrics } from '../../App';
 import { soundEngine } from '../../shared/audio/SoundEngine';
-import {
-  gameControlHub,
-  useGameControlState,
-} from '../../shared/control/GameControlHub';
 import { hapticEngine } from '../../shared/haptics/HapticEngine';
 import { socketClient } from '../../shared/network/SocketClient';
+import { effectCoordinator, EffectPriority } from '../../shared/EffectCoordinator';
 import { AvatarSvg } from '../../shared/ui/AvatarSvg';
-import { CommercialModalShell } from '../../shared/ui/CommercialModalShell';
 import {
   AvailableAction,
   MahjongPhase,
@@ -49,6 +45,7 @@ import { DingQueOverlay } from './components/DingQueOverlay';
 import { DiceThrowAnimation } from './components/DiceThrowAnimation';
 import { ActionGlowEffect } from './components/ActionGlowEffect';
 import { FullscreenGuideModal } from '../../shared/ui/FullscreenGuideModal';
+import { RollingScoreCounter } from '../../shared/ui/RollingScoreCounter';
 import { detectFullscreenCapabilities } from '../../shared/utils/fullscreenHelper';
 import { generateSharePoster } from './utils/sharePosterGenerator';
 
@@ -74,14 +71,19 @@ export const MahjongTableView: React.FC<MahjongTableViewProps> = ({
   isFullscreen,
   onToggleFullscreen,
 }) => {
-  const controlState = useGameControlState();
   const [snapshot, setSnapshot] = useState<MahjongTableSnapshot | null>(null);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(() => soundEngine.isEnabled());
   const [showRuleModal, setShowRuleModal] = useState<boolean>(false);
   const [showLeaveConfirm, setShowLeaveConfirm] = useState<boolean>(false);
   const [showFullscreenGuide, setShowFullscreenGuide] = useState<boolean>(false);
   const [showDiceAnimation, setShowDiceAnimation] = useState<boolean>(false);
-  const [activeActionGlow, setActiveActionGlow] = useState<'peng' | 'gang' | 'hu' | 'zimo' | null>(null);
+  const [activeActionGlow, setActiveActionGlow] = useState<{
+    action: 'chi' | 'peng' | 'gang' | 'hu' | 'zimo';
+    relativeSeat?: number;
+    subType?: 'guafeng' | 'xiayu';
+    fanNames?: string[];
+  } | null>(null);
+  const [propTargetAbsSeat, setPropTargetAbsSeat] = useState<number | null>(null);
   const [floatingScores, setFloatingScores] = useState<Array<{ id: string; seatId: number; text: string; isWin: boolean }>>([]);
   const [sharePosterUrl, setSharePosterUrl] = useState<string | null>(null);
   const [isGeneratingPoster, setIsGeneratingPoster] = useState<boolean>(false);
@@ -166,7 +168,7 @@ export const MahjongTableView: React.FC<MahjongTableViewProps> = ({
       if (myPlayer.drawnTile === 31 && (snapshot.mode === 'hongzhong' || snapshot.mode === 'hongzhong_xueliu')) {
         soundEngine.playMahjongWild();
       } else {
-        soundEngine.playMahjongDraw(mySeatId, mySeatId);
+        soundEngine.playMahjongDraw();
       }
       prevDrawnRef.current = myPlayer.drawnTile;
 
@@ -190,7 +192,7 @@ export const MahjongTableView: React.FC<MahjongTableViewProps> = ({
       });
     }
 
-    // 3. Discard Voice Callout (Reference authentic female/male library + 4-seat 3D Stereo Panning)
+    // 3. Discard Voice Callout (Reference authentic female/male library)
     const latest = snapshot.latestDiscard;
     if (!latest) {
       prevDiscardRef.current = null;
@@ -210,15 +212,15 @@ export const MahjongTableView: React.FC<MahjongTableViewProps> = ({
         }
         prevDiscardRef.current = { seatId: latest.seatId, tileId };
 
-        // For opponent discard, play physical tile-drop acoustics with 3D stereo seat panning
+        // For opponent discard, play physical tile-drop acoustics (self already played on click)
         if (latest.seatId !== mySeatId) {
-          soundEngine.playMahjongGive(latest.seatId, mySeatId);
+          soundEngine.playMahjongGive();
         }
 
         const player = snapshot.players[latest.seatId];
         const isFemale = player?.avatarId === 'beier' || player?.avatarId === 'heroine';
         const gender = isFemale ? 'female' : 'male';
-        soundEngine.playTileVoice(tileId, gender, latest.seatId, mySeatId);
+        soundEngine.playTileVoice(tileId, gender);
 
         MahjongDebugLogger.logDiscardAction({
           seat: latest.seatId,
@@ -233,16 +235,54 @@ export const MahjongTableView: React.FC<MahjongTableViewProps> = ({
       }
     }
 
-    // 4. Meld Action Voice Callout (e.g. 碰)
+    const scheduleMahjongGlow = (glowPayload: {
+      action: 'chi' | 'peng' | 'gang' | 'hu' | 'zimo';
+      relativeSeat?: number;
+      subType?: 'guafeng' | 'xiayu';
+      fanNames?: string[];
+    }) => {
+      const priority =
+        glowPayload.action === 'zimo'
+          ? EffectPriority.ULTIMATE
+          : glowPayload.action === 'hu'
+            ? EffectPriority.CRITICAL
+            : glowPayload.action === 'gang'
+              ? EffectPriority.MAJOR
+              : EffectPriority.NORMAL;
+      const durationMs =
+        glowPayload.action === 'zimo' || glowPayload.action === 'hu' ? 1420 : 1080;
+
+      effectCoordinator.enqueue({
+        sceneId: 'mahjong',
+        type: `mj_${glowPayload.action}`,
+        priority,
+        useGlobalMask: false,
+        durationMs,
+        preemptLowerPriority: priority >= EffectPriority.CRITICAL,
+        onStart: () => {
+          setActiveActionGlow(glowPayload);
+          return () => {
+            setActiveActionGlow((prev) => (prev === glowPayload ? null : prev));
+          };
+        },
+      });
+    };
+
+    // 4. Meld Action Voice Callout (e.g. 碰 / 吃)
     snapshot.players.forEach((p, sId) => {
       const meldsCount = p.melds?.length || 0;
       if (meldsCount > (prevMeldsCountsRef.current[sId] || 0)) {
         const latestMeld = p.melds[meldsCount - 1];
-        if (latestMeld && latestMeld.type === 'peng') {
+        const relSeat = (sId - mySeatId + 4) % 4;
+        if (latestMeld && (latestMeld.type === 'peng' || latestMeld.type === 'chi')) {
           const isFemale = p.avatarId === 'beier' || p.avatarId === 'heroine';
           const gender = isFemale ? 'female' : 'male';
-          soundEngine.playActionVoice('peng', gender, sId, mySeatId);
-          setActiveActionGlow('peng');
+          const actType = latestMeld.type === 'chi' ? 'chi' : 'peng';
+          soundEngine.playActionVoice('peng', gender);
+          scheduleMahjongGlow({
+            action: actType,
+            relativeSeat: relSeat,
+          });
           MahjongDebugLogger.logActionAndSettlement({
             action: 'peng',
             seat: sId,
@@ -265,16 +305,23 @@ export const MahjongTableView: React.FC<MahjongTableViewProps> = ({
       const latestBill = newBills[newBills.length - 1];
 
       soundEngine.playMahjongBeanFly();
+      const winnerSeat = latestBill.winnerSeatId ?? 0;
+      const winnerRelSeat = (winnerSeat - mySeatId + 4) % 4;
       const winnerPlayer = latestBill.winnerSeatId !== undefined ? snapshot.players[latestBill.winnerSeatId] : undefined;
       const isFemale = winnerPlayer?.avatarId === 'beier' || winnerPlayer?.avatarId === 'heroine';
       const gender = isFemale ? 'female' : 'male';
+      const billFanNames = latestBill.fanName ? [latestBill.fanName] : undefined;
 
       if (latestBill.eventType === 'zimo') {
-        soundEngine.playActionVoice('zimo', gender, latestBill.winnerSeatId, mySeatId);
-        setActiveActionGlow('zimo');
+        soundEngine.playActionVoice('zimo', gender);
+        scheduleMahjongGlow({
+          action: 'zimo',
+          relativeSeat: winnerRelSeat,
+          fanNames: billFanNames,
+        });
         MahjongDebugLogger.logActionAndSettlement({
           action: 'zimo',
-          seat: latestBill.winnerSeatId ?? 0,
+          seat: winnerSeat,
           playerName: winnerPlayer?.nickname || '玩家',
           gender,
           mode: snapshot.mode || 'puer',
@@ -284,11 +331,15 @@ export const MahjongTableView: React.FC<MahjongTableViewProps> = ({
           source: 'CLIENT',
         });
       } else if (latestBill.eventType === 'dianpao' || latestBill.eventType === 'qianggang') {
-        soundEngine.playActionVoice('hu', gender, latestBill.winnerSeatId, mySeatId);
-        setActiveActionGlow('hu');
+        soundEngine.playActionVoice('hu', gender);
+        scheduleMahjongGlow({
+          action: 'hu',
+          relativeSeat: winnerRelSeat,
+          fanNames: billFanNames,
+        });
         MahjongDebugLogger.logActionAndSettlement({
           action: 'hu',
-          seat: latestBill.winnerSeatId ?? 0,
+          seat: winnerSeat,
           playerName: winnerPlayer?.nickname || '玩家',
           gender,
           mode: snapshot.mode || 'puer',
@@ -298,11 +349,15 @@ export const MahjongTableView: React.FC<MahjongTableViewProps> = ({
           source: 'CLIENT',
         });
       } else if (latestBill.eventType === 'guafeng' || latestBill.eventType === 'xiayu') {
-        soundEngine.playActionVoice('gang', gender, latestBill.winnerSeatId, mySeatId);
-        setActiveActionGlow('gang');
+        soundEngine.playActionVoice('gang', gender);
+        scheduleMahjongGlow({
+          action: 'gang',
+          relativeSeat: winnerRelSeat,
+          subType: latestBill.eventType,
+        });
         MahjongDebugLogger.logActionAndSettlement({
           action: 'gang',
-          seat: latestBill.winnerSeatId ?? 0,
+          seat: winnerSeat,
           playerName: winnerPlayer?.nickname || '玩家',
           gender,
           mode: snapshot.mode || 'puer',
@@ -456,86 +511,6 @@ export const MahjongTableView: React.FC<MahjongTableViewProps> = ({
   const showDingQueOverlay =
     snapshot?.phase === 'DING_QUE' && myPlayer?.dingQueSuit === null;
 
-  // Smart Trusteeship & Auto-Next-Round Engine for Mahjong
-  useEffect(() => {
-    if (!snapshot || !myPlayer) return;
-
-    if (
-      snapshot.phase === 'SETTLEMENT' &&
-      (controlState.autoNextRound || controlState.isTrusteeship)
-    ) {
-      const nextTimer = window.setTimeout(() => {
-        handlePlayAgain();
-      }, gameControlHub.scaleDelay(2600));
-      return () => window.clearTimeout(nextTimer);
-    }
-
-    if (!controlState.isTrusteeship) return;
-
-    const delayMs = gameControlHub.scaleDelay(650);
-    const timer = window.setTimeout(() => {
-      if (snapshot.phase === 'DING_QUE' && myPlayer.dingQueSuit === null) {
-        handleSelectDingQue(recommendedDingQue);
-        return;
-      }
-
-      if (snapshot.phase !== 'PLAYING') return;
-
-      const actions = snapshot.availableActions || [];
-      if (actions.length > 0) {
-        const winAct = actions.find((a) => a.actionType === 'hu');
-        if (winAct) {
-          handleAction(winAct);
-          return;
-        }
-        const gangOrPeng = actions.find(
-          (a) => a.actionType === 'gang' || a.actionType === 'peng'
-        );
-        if (gangOrPeng) {
-          handleAction(gangOrPeng);
-          return;
-        }
-      }
-
-      if (isMyTurn) {
-        const hand = myPlayer.handTiles || [];
-        const dqSuit = myPlayer.dingQueSuit;
-        const allCandidateTiles =
-          myPlayer.drawnTile !== null && myPlayer.drawnTile !== undefined
-            ? [...hand, myPlayer.drawnTile]
-            : hand;
-        if (allCandidateTiles.length === 0) return;
-
-        // Prioritize discarding DingQue suit tiles first, then drawnTile or rightmost tile
-        const dqTile =
-          dqSuit !== null && dqSuit !== undefined
-            ? allCandidateTiles.find((t) => getSuit(t) === dqSuit)
-            : undefined;
-        const targetTile =
-          dqTile ??
-          myPlayer.drawnTile ??
-          allCandidateTiles[allCandidateTiles.length - 1];
-        if (targetTile !== undefined) {
-          handleDiscard(targetTile);
-        }
-      }
-    }, delayMs);
-
-    return () => window.clearTimeout(timer);
-  }, [
-    snapshot,
-    myPlayer,
-    isMyTurn,
-    recommendedDingQue,
-    controlState.isTrusteeship,
-    controlState.autoNextRound,
-    controlState.paceSpeed,
-    handleSelectDingQue,
-    handleAction,
-    handleDiscard,
-    handlePlayAgain,
-  ]);
-
   return (
     <AutoLandscapeContainer>
       {({
@@ -572,83 +547,87 @@ export const MahjongTableView: React.FC<MahjongTableViewProps> = ({
               }}
             >
               {/* ===================================================================
-                  1. TOP NAVIGATION & HEADER CONTROLS (Authentic Cocos Buttons)
+                  1. TOP NAVIGATION & HEADER CONTROLS (Auto-hidden during settlement)
                  =================================================================== */}
-              {/* Top-Left: Cocos Buttons (bt_set.png, bt_exit.png) */}
-              <div className="absolute top-3 left-4 z-30 flex items-center gap-2 pointer-events-auto">
-                <button
-                  type="button"
-                  onClick={() => setShowLeaveConfirm(true)}
-                  title="退出大厅"
-                  className="h-10 w-10 transition-transform hover:scale-105 active:scale-95 drop-shadow-lg"
-                >
-                  <img
-                    src="/assets/mahjong/ui/bt_exit.png"
-                    alt="离开"
-                    className="h-full w-full object-contain pointer-events-none"
-                    draggable={false}
-                  />
-                </button>
+              {!(snapshot?.phase === 'SETTLEMENT' || snapshot?.phase === 'CHA_DA_JIAO') && (
+                <>
+                  {/* Top-Left: Cocos Buttons (bt_set.png, bt_exit.png) */}
+                  <div className="absolute top-3 left-4 z-30 flex items-center gap-2 pointer-events-auto">
+                    <button
+                      type="button"
+                      onClick={() => setShowLeaveConfirm(true)}
+                      title="退出大厅"
+                      className="h-10 w-10 transition-transform hover:scale-105 active:scale-95 drop-shadow-lg"
+                    >
+                      <img
+                        src="/assets/mahjong/ui/bt_exit.png"
+                        alt="离开"
+                        className="h-full w-full object-contain pointer-events-none"
+                        draggable={false}
+                      />
+                    </button>
 
-                <button
-                  type="button"
-                  onClick={() => setShowRuleModal(true)}
-                  title="设置与规则"
-                  className="h-10 w-10 transition-transform hover:scale-105 active:scale-95 drop-shadow-lg"
-                >
-                  <img
-                    src="/assets/mahjong/ui/bt_set.png"
-                    alt="设置"
-                    className="h-full w-full object-contain pointer-events-none"
-                    draggable={false}
-                  />
-                </button>
-              </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowRuleModal(true)}
+                      title="设置与规则"
+                      className="h-10 w-10 transition-transform hover:scale-105 active:scale-95 drop-shadow-lg"
+                    >
+                      <img
+                        src="/assets/mahjong/ui/bt_set.png"
+                        alt="设置"
+                        className="h-full w-full object-contain pointer-events-none"
+                        draggable={false}
+                      />
+                    </button>
+                  </div>
 
-              {/* Top-Center: Clean Mode & Base Score Capsule */}
-              <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 rounded-full border border-amber-400/35 bg-black/60 px-4 py-1.5 backdrop-blur-md shadow-xl text-xs font-bold text-amber-200">
-                <span>{getModeLabel(snapshot?.mode)}</span>
-                <span className="text-white/30">·</span>
-                <span className="font-mono text-amber-300">底分 {snapshot?.baseScore ?? 100}</span>
-              </div>
+                  {/* Top-Center: Clean Mode & Base Score Capsule */}
+                  <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 rounded-full border border-amber-400/35 bg-black/60 px-4 py-1.5 backdrop-blur-md shadow-xl text-xs font-bold text-amber-200">
+                    <span>{getModeLabel(snapshot?.mode)}</span>
+                    <span className="text-white/30">·</span>
+                    <span className="font-mono text-amber-300">底分 {snapshot?.baseScore ?? 100}</span>
+                  </div>
 
-              {/* Top-Right: Sound & Fullscreen Controls */}
-              <div className="absolute top-3 right-4 z-30 flex items-center gap-2 pointer-events-auto">
-                <button
-                  type="button"
-                  onClick={toggleSound}
-                  title={soundEnabled ? '静音' : '开启声音'}
-                  className="flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-black/55 text-white/85 hover:bg-black/75 shadow-md backdrop-blur-xs cursor-pointer"
-                >
-                  {soundEnabled ? (
-                    <Volume2 className="h-4 w-4 text-amber-300" />
-                  ) : (
-                    <VolumeX className="h-4 w-4 text-rose-400" />
-                  )}
-                </button>
+                  {/* Top-Right: Sound & Fullscreen Controls */}
+                  <div className="absolute top-3 right-4 z-30 flex items-center gap-2 pointer-events-auto">
+                    <button
+                      type="button"
+                      onClick={toggleSound}
+                      title={soundEnabled ? '静音' : '开启声音'}
+                      className="flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-black/55 text-white/85 hover:bg-black/75 shadow-md backdrop-blur-xs cursor-pointer"
+                    >
+                      {soundEnabled ? (
+                        <Volume2 className="h-4 w-4 text-amber-300" />
+                      ) : (
+                        <VolumeX className="h-4 w-4 text-rose-400" />
+                      )}
+                    </button>
 
-                {onToggleFullscreen && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const caps = detectFullscreenCapabilities();
-                      if (!caps.canNativeFullscreen && caps.isIOSSafari) {
-                        setShowFullscreenGuide(true);
-                      } else {
-                        onToggleFullscreen();
-                      }
-                    }}
-                    title={isFullscreen ? '退出全屏' : '全屏'}
-                    className="flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-black/55 text-white/85 hover:bg-black/75 shadow-md backdrop-blur-xs transition-all cursor-pointer"
-                  >
-                    {isFullscreen ? (
-                      <Minimize2 className="h-4 w-4 text-amber-300" />
-                    ) : (
-                      <Maximize2 className="h-4 w-4 text-white" />
+                    {onToggleFullscreen && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const caps = detectFullscreenCapabilities();
+                          if (!caps.canNativeFullscreen && caps.isIOSSafari) {
+                            setShowFullscreenGuide(true);
+                          } else {
+                            onToggleFullscreen();
+                          }
+                        }}
+                        title={isFullscreen ? '退出全屏' : '全屏'}
+                        className="flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-black/55 text-white/85 hover:bg-black/75 shadow-md backdrop-blur-xs transition-all cursor-pointer"
+                      >
+                        {isFullscreen ? (
+                          <Minimize2 className="h-4 w-4 text-amber-300" />
+                        ) : (
+                          <Maximize2 className="h-4 w-4 text-white" />
+                        )}
+                      </button>
                     )}
-                  </button>
-                )}
-              </div>
+                  </div>
+                </>
+              )}
 
               {/* ===================================================================
                   2. TABLE MAIN PLAY AREA (720p VIRTUAL COORDINATE SPACE)
@@ -715,49 +694,151 @@ export const MahjongTableView: React.FC<MahjongTableViewProps> = ({
 
               {/* SEAT 3: LEFT PLAYER - Upper-Left Rail */}
               {relativePlayers[3] && (
-                <div className="absolute top-[200px] left-5 z-20">
-                  <MahjongPlayerAvatar
-                    nickname={relativePlayers[3].nickname}
-                    avatarId={relativePlayers[3].avatarId}
-                    beans={relativePlayers[3].beans}
-                    isBanker={snapshot?.dealerSeatId === (mySeatId + 3) % 4}
-                    dingQueSuit={relativePlayers[3].dingQueSuit}
-                    huCount={relativePlayers[3].huCount}
-                    isCurrentTurn={relativeCurrentTurn === 3}
-                    showMelds={false}
-                  />
+                <div className="absolute top-[200px] left-5 z-20 flex flex-col items-start">
+                  <div
+                    onClick={() => {
+                      const absSeat = (mySeatId + 3) % 4;
+                      setPropTargetAbsSeat((prev) => (prev === absSeat ? null : absSeat));
+                    }}
+                    className="cursor-pointer transition-transform active:scale-95"
+                    title="点击向该牌友赠送互动礼仪"
+                  >
+                    <MahjongPlayerAvatar
+                      nickname={relativePlayers[3].nickname}
+                      avatarId={relativePlayers[3].avatarId}
+                      beans={relativePlayers[3].beans}
+                      isBanker={snapshot?.dealerSeatId === (mySeatId + 3) % 4}
+                      dingQueSuit={relativePlayers[3].dingQueSuit}
+                      huCount={relativePlayers[3].huCount}
+                      isCurrentTurn={relativeCurrentTurn === 3}
+                      showMelds={false}
+                    />
+                  </div>
+                  {propTargetAbsSeat === (mySeatId + 3) % 4 && (
+                    <div className="mt-1 flex items-center gap-1 rounded-xl border border-amber-300/60 bg-black/85 p-1 shadow-xl backdrop-blur-md">
+                      {[
+                        { type: 'flower', label: '鲜花' },
+                        { type: 'tea', label: '敬茶' },
+                        { type: 'like', label: '点赞' },
+                        { type: 'ingot', label: '元宝' },
+                      ].map((item) => (
+                        <button
+                          key={item.type}
+                          type="button"
+                          onClick={() => {
+                            socketClient.emit('c2s_throw_prop', {
+                              targetSeat: (mySeatId + 3) % 4,
+                              propType: item.type,
+                            });
+                            setPropTargetAbsSeat(null);
+                          }}
+                          className="rounded-lg px-2 py-1 text-[10px] font-bold text-amber-200 hover:bg-amber-500/25 active:scale-95 cursor-pointer"
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
               {/* SEAT 2: TOP PLAYER - Top Center-Right */}
               {relativePlayers[2] && (
-                <div className="absolute top-[50px] right-[260px] z-20">
-                  <MahjongPlayerAvatar
-                    nickname={relativePlayers[2].nickname}
-                    avatarId={relativePlayers[2].avatarId}
-                    beans={relativePlayers[2].beans}
-                    isBanker={snapshot?.dealerSeatId === (mySeatId + 2) % 4}
-                    dingQueSuit={relativePlayers[2].dingQueSuit}
-                    huCount={relativePlayers[2].huCount}
-                    isCurrentTurn={relativeCurrentTurn === 2}
-                    showMelds={false}
-                  />
+                <div className="absolute top-[50px] right-[260px] z-20 flex flex-col items-end">
+                  <div
+                    onClick={() => {
+                      const absSeat = (mySeatId + 2) % 4;
+                      setPropTargetAbsSeat((prev) => (prev === absSeat ? null : absSeat));
+                    }}
+                    className="cursor-pointer transition-transform active:scale-95"
+                    title="点击向该牌友赠送互动礼仪"
+                  >
+                    <MahjongPlayerAvatar
+                      nickname={relativePlayers[2].nickname}
+                      avatarId={relativePlayers[2].avatarId}
+                      beans={relativePlayers[2].beans}
+                      isBanker={snapshot?.dealerSeatId === (mySeatId + 2) % 4}
+                      dingQueSuit={relativePlayers[2].dingQueSuit}
+                      huCount={relativePlayers[2].huCount}
+                      isCurrentTurn={relativeCurrentTurn === 2}
+                      showMelds={false}
+                    />
+                  </div>
+                  {propTargetAbsSeat === (mySeatId + 2) % 4 && (
+                    <div className="mt-1 flex items-center gap-1 rounded-xl border border-amber-300/60 bg-black/85 p-1 shadow-xl backdrop-blur-md">
+                      {[
+                        { type: 'flower', label: '鲜花' },
+                        { type: 'tea', label: '敬茶' },
+                        { type: 'like', label: '点赞' },
+                        { type: 'ingot', label: '元宝' },
+                      ].map((item) => (
+                        <button
+                          key={item.type}
+                          type="button"
+                          onClick={() => {
+                            socketClient.emit('c2s_throw_prop', {
+                              targetSeat: (mySeatId + 2) % 4,
+                              propType: item.type,
+                            });
+                            setPropTargetAbsSeat(null);
+                          }}
+                          className="rounded-lg px-2 py-1 text-[10px] font-bold text-amber-200 hover:bg-amber-500/25 active:scale-95 cursor-pointer"
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
               {/* SEAT 1: RIGHT PLAYER - Upper-Right Rail */}
               {relativePlayers[1] && (
-                <div className="absolute top-[200px] right-5 z-20">
-                  <MahjongPlayerAvatar
-                    nickname={relativePlayers[1].nickname}
-                    avatarId={relativePlayers[1].avatarId}
-                    beans={relativePlayers[1].beans}
-                    isBanker={snapshot?.dealerSeatId === (mySeatId + 1) % 4}
-                    dingQueSuit={relativePlayers[1].dingQueSuit}
-                    huCount={relativePlayers[1].huCount}
-                    isCurrentTurn={relativeCurrentTurn === 1}
-                    showMelds={false}
-                  />
+                <div className="absolute top-[200px] right-5 z-20 flex flex-col items-end">
+                  <div
+                    onClick={() => {
+                      const absSeat = (mySeatId + 1) % 4;
+                      setPropTargetAbsSeat((prev) => (prev === absSeat ? null : absSeat));
+                    }}
+                    className="cursor-pointer transition-transform active:scale-95"
+                    title="点击向该牌友赠送互动礼仪"
+                  >
+                    <MahjongPlayerAvatar
+                      nickname={relativePlayers[1].nickname}
+                      avatarId={relativePlayers[1].avatarId}
+                      beans={relativePlayers[1].beans}
+                      isBanker={snapshot?.dealerSeatId === (mySeatId + 1) % 4}
+                      dingQueSuit={relativePlayers[1].dingQueSuit}
+                      huCount={relativePlayers[1].huCount}
+                      isCurrentTurn={relativeCurrentTurn === 1}
+                      showMelds={false}
+                    />
+                  </div>
+                  {propTargetAbsSeat === (mySeatId + 1) % 4 && (
+                    <div className="mt-1 flex items-center gap-1 rounded-xl border border-amber-300/60 bg-black/85 p-1 shadow-xl backdrop-blur-md">
+                      {[
+                        { type: 'flower', label: '鲜花' },
+                        { type: 'tea', label: '敬茶' },
+                        { type: 'like', label: '点赞' },
+                        { type: 'ingot', label: '元宝' },
+                      ].map((item) => (
+                        <button
+                          key={item.type}
+                          type="button"
+                          onClick={() => {
+                            socketClient.emit('c2s_throw_prop', {
+                              targetSeat: (mySeatId + 1) % 4,
+                              propType: item.type,
+                            });
+                            setPropTargetAbsSeat(null);
+                          }}
+                          className="rounded-lg px-2 py-1 text-[10px] font-bold text-amber-200 hover:bg-amber-500/25 active:scale-95 cursor-pointer"
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -868,26 +949,215 @@ export const MahjongTableView: React.FC<MahjongTableViewProps> = ({
                 5. SETTLEMENT / CHA DA JIAO MODAL (Phase: SETTLEMENT / CHA_DA_JIAO)
                =================================================================== */}
             {(snapshot?.phase === 'SETTLEMENT' || snapshot?.phase === 'CHA_DA_JIAO') && (
-              <CommercialModalShell
-                title={
-                  snapshot.settlement?.endedReason === 'draw'
-                    ? '本局流局 · 查大叫结算'
-                    : (snapshot.settlement?.scoreDeltas?.[mySeatId] ??
-                        snapshot.players[mySeatId]?.scoreDelta ??
-                        0) >= 0
-                      ? '本局结算 · 雀神大捷'
-                      : '本局结算 · 再接再厉'
-                }
-                subtitle={`${getModeLabel(snapshot.mode)} · 底分 ${snapshot.baseScore ?? 100} 积分`}
-                size="lg"
-                portalMode="stage"
-                onClose={handleLeaveRoom}
-                footer={
-                  <div className="flex items-center justify-center gap-3">
+              <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/80 p-2 sm:p-4 backdrop-blur-sm animate-in fade-in duration-300 select-none">
+                <div className="relative w-full max-w-[980px] lg:max-w-[1060px] flex flex-col items-center">
+                  {/* Authentic Parchment Game Board (1158x544) */}
+                  <div
+                    className="relative w-full aspect-[1158/544] rounded-2xl shadow-[0_25px_60px_rgba(0,0,0,0.95)] overflow-visible"
+                    style={{
+                      backgroundImage: "url('/assets/mahjong/settlement/im_over_bg.png')",
+                      backgroundSize: '100% 100%',
+                      backgroundRepeat: 'no-repeat',
+                    }}
+                  >
+                    {/* Top Banner Ribbon */}
+                    {(() => {
+                      const myPlayerView = snapshot.players[mySeatId];
+                      const myHuCount = myPlayerView?.huCount ?? 0;
+                      const myDelta =
+                        snapshot.settlement?.scoreDeltas?.[mySeatId] ??
+                        myPlayerView?.scoreDelta ??
+                        0;
+                      const isDraw =
+                        snapshot.settlement?.endedReason === 'draw' ||
+                        (!snapshot.settlement?.winners?.length &&
+                          !snapshot.players.some((p) => (p.huCount ?? 0) > 0));
+
+                      const bannerSrc = isDraw
+                        ? '/assets/mahjong/settlement/result_draw.png'
+                        : myDelta > 0 || myHuCount > 0
+                        ? '/assets/mahjong/settlement/result_win.png'
+                        : '/assets/mahjong/settlement/result_lose.png';
+
+                      return (
+                        <div className="absolute -top-7 sm:-top-11 md:-top-14 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center pointer-events-none">
+                          <img
+                            src={bannerSrc}
+                            alt="结算结果"
+                            className="h-16 sm:h-22 md:h-28 w-auto object-contain drop-shadow-[0_10px_20px_rgba(0,0,0,0.85)] animate-in zoom-in-95 duration-200"
+                          />
+                        </div>
+                      );
+                    })()}
+
+                    {/* Top Right Close Button */}
                     <button
                       type="button"
                       onClick={handleLeaveRoom}
-                      className="flex h-9 min-w-[110px] items-center justify-center rounded-xl border border-[#D8CEB8] bg-white px-4 text-xs font-extrabold text-[#5A6572] hover:bg-[#FAF8F3] hover:text-[#1E242B] active:scale-95 cursor-pointer whitespace-nowrap shrink-0"
+                      title="关闭"
+                      className="absolute -top-2 -right-2 sm:-top-3 sm:-right-3 z-30 transition-transform hover:scale-110 active:scale-95 cursor-pointer drop-shadow-md"
+                    >
+                      <img
+                        src="/assets/mahjong/settlement/im_close_btn.png"
+                        alt="关闭"
+                        className="h-8 w-8 sm:h-11 sm:w-11 object-contain"
+                      />
+                    </button>
+
+                    {/* 4 Player Rows - Aligned with im_over_bg.png's 4 pre-drawn rows */}
+                    <div className="grid grid-rows-4 h-full w-full py-[1.8%]">
+                      {snapshot.players.map((p, idx) => {
+                        const isWinner =
+                          snapshot.settlement?.winners?.some((w) => w.seatId === idx) ||
+                          ((p.huCount ?? 0) > 0 &&
+                            (p.huCount ?? 0) ===
+                              Math.max(...snapshot.players.map((x) => x.huCount ?? 0)));
+                        const delta =
+                          snapshot.settlement?.scoreDeltas?.[idx] ?? p.scoreDelta ?? 0;
+                        const isDealer = snapshot.dealerSeatId === idx;
+                        const isMe = p.playerId === myPlayerId;
+
+                        // Hand tiles
+                        const rawHand =
+                          snapshot.settlement?.revealHands?.[idx] || p.handTiles || [];
+                        const playerMelds =
+                          snapshot.settlement?.melds?.[idx] || p.melds || [];
+                        const winCard =
+                          snapshot.settlement?.winners?.find((w) => w.seatId === idx)
+                            ?.winCard ?? p.drawnTile;
+
+                        const displayHand = isWinner && winCard
+                          ? (() => {
+                              const copy = [...rawHand];
+                              const foundIdx = copy.lastIndexOf(winCard);
+                              if (foundIdx !== -1) copy.splice(foundIdx, 1);
+                              return copy;
+                            })()
+                          : rawHand;
+
+                        return (
+                          <div key={idx} className="flex items-center h-full w-full">
+                            {/* Left Tan Section (approx 23.7% width) */}
+                            <div className="w-[23.7%] h-full flex items-center justify-center px-1 sm:px-3">
+                              <div className="flex items-center gap-1.5 sm:gap-2.5">
+                                {/* Golden Avatar Box */}
+                                <div className="relative h-9 w-9 sm:h-12 sm:w-12 md:h-14 md:w-14 shrink-0 flex items-center justify-center">
+                                  <img
+                                    src="/assets/mahjong/settlement/avatar_bg.png"
+                                    alt="头像框"
+                                    className="absolute inset-0 h-full w-full object-contain pointer-events-none drop-shadow-sm"
+                                  />
+                                  <div className="h-[76%] w-[76%] rounded-sm overflow-hidden">
+                                    <AvatarSvg avatarId={p.avatarId} />
+                                  </div>
+                                  {/* Dealer Round Badge on Avatar Bottom-Left (Aligned with Reference) */}
+                                  {isDealer && (
+                                    <img
+                                      src="/assets/mahjong/settlement/over_banker.png"
+                                      alt="庄"
+                                      className="absolute -bottom-0.5 -left-0.5 sm:-bottom-1 sm:-left-1 h-3.5 w-3.5 sm:h-5 sm:w-5 md:h-6 md:w-6 object-contain z-10 drop-shadow"
+                                    />
+                                  )}
+                                </div>
+
+                                {/* Player Name & Me Badge */}
+                                <div className="flex flex-col min-w-0">
+                                  <div className="flex items-center gap-1">
+                                    <span className="font-bold text-[11px] sm:text-xs md:text-sm text-[#4a2608] truncate max-w-[55px] sm:max-w-[80px]">
+                                      {p.nickname}
+                                    </span>
+                                    {isMe && (
+                                      <span className="shrink-0 rounded bg-amber-600 px-1 py-0.2 text-[8px] sm:text-[9px] font-black text-white">
+                                        我
+                                      </span>
+                                    )}
+                                  </div>
+                                  <span className="text-[9px] sm:text-[11px] text-[#7a481c] font-mono truncate">
+                                    {p.beans.toLocaleString()} 豆
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Right Cream Section (approx 76.3% width) */}
+                            <div className="w-[76.3%] h-full flex items-center justify-between pl-2 sm:pl-4 md:pl-6 pr-3 sm:pr-6 md:pr-8">
+                              {/* Exposed Hand & Melds Display */}
+                              <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto py-0.5">
+                                {/* Melds */}
+                                {playerMelds.map((m, mIdx) => (
+                                  <div
+                                    key={mIdx}
+                                    className="flex items-center gap-0.5 bg-black/10 px-1 py-0.5 rounded border border-amber-800/15"
+                                  >
+                                    {m.tiles.map((t, tIdx) => (
+                                      <MahjongTileView
+                                        key={tIdx}
+                                        tileId={t}
+                                        isSmall
+                                        perspective={2}
+                                        kind="ming"
+                                      />
+                                    ))}
+                                  </div>
+                                ))}
+
+                                {/* Hand Tiles */}
+                                <div className="flex items-center gap-0.5 sm:gap-1">
+                                  {displayHand.map((t, tIdx) => (
+                                    <MahjongTileView
+                                      key={tIdx}
+                                      tileId={t}
+                                      isSmall
+                                      perspective={2}
+                                      kind="ming"
+                                    />
+                                  ))}
+                                </div>
+
+                                {/* Winning Tile (Isolated on Right with Space) */}
+                                {isWinner && winCard && (
+                                  <div className="ml-2 sm:ml-4 md:ml-6 flex items-center pl-1 sm:pl-2 border-l border-amber-800/30">
+                                    <MahjongTileView
+                                      tileId={winCard}
+                                      isSmall
+                                      perspective={2}
+                                      kind="ming"
+                                    />
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Rolling Score (Winner Gold #FFD700 / Loser Amber #D97706) & 3D "胡" Winner Emblem */}
+                              <div className="flex items-center gap-2 sm:gap-3 shrink-0 pl-1.5 sm:pl-3">
+                                <div className="rounded-xl border border-amber-400/35 bg-[#1b1008]/92 px-2.5 sm:px-3.5 py-0.5 sm:py-1 text-right shadow-md">
+                                  <RollingScoreCounter
+                                    value={delta}
+                                    size="md"
+                                    durationMs={950}
+                                    playTickSound={isMe}
+                                  />
+                                </div>
+                                {isWinner && (
+                                  <img
+                                    src="/assets/mahjong/settlement/winner.png"
+                                    alt="胡"
+                                    className="h-5 sm:h-7 md:h-9 w-auto object-contain drop-shadow"
+                                  />
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Clean Action Buttons (Floating Elegantly Below the Parchment Board) */}
+                  <div className="mt-3 sm:mt-5 flex items-center justify-center gap-3 sm:gap-6">
+                    <button
+                      type="button"
+                      onClick={handleLeaveRoom}
+                      className="rounded-xl border border-amber-600/50 bg-gradient-to-b from-[#3a1a0c] to-[#1e0d05] px-5 sm:px-7 py-2 sm:py-2.5 text-xs sm:text-sm font-bold text-amber-200 hover:brightness-110 active:scale-95 shadow-lg cursor-pointer"
                     >
                       返回大厅
                     </button>
@@ -895,230 +1165,109 @@ export const MahjongTableView: React.FC<MahjongTableViewProps> = ({
                       type="button"
                       onClick={handleGenerateSharePoster}
                       disabled={isGeneratingPoster}
-                      className="flex h-9 min-w-[110px] items-center justify-center gap-1.5 rounded-xl border border-[#0D9488]/40 bg-[#F0FDFA] px-4 text-xs font-black text-[#0F766E] hover:bg-[#CCFBF1] active:scale-95 cursor-pointer disabled:opacity-60 whitespace-nowrap shrink-0"
+                      className="flex items-center gap-1.5 rounded-xl border border-amber-500/70 bg-gradient-to-b from-amber-600 via-amber-700 to-amber-900 px-5 sm:px-7 py-2 sm:py-2.5 font-display text-xs sm:text-sm font-bold text-amber-100 hover:brightness-110 active:scale-95 shadow-lg cursor-pointer disabled:opacity-60"
                     >
                       {isGeneratingPoster ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        <Loader2 className="h-4 w-4 animate-spin" />
                       ) : (
-                        <Share2 className="h-3.5 w-3.5" />
+                        <Share2 className="h-4 w-4" />
                       )}
                       <span>分享战绩</span>
                     </button>
                     <button
                       type="button"
                       onClick={handlePlayAgain}
-                      className="flex h-9 min-w-[130px] items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-[#F59E0B] to-[#D97706] px-6 text-xs font-black text-white shadow-xs hover:brightness-105 active:scale-95 cursor-pointer whitespace-nowrap shrink-0"
+                      className="flex items-center gap-1.5 rounded-xl border-2 border-amber-300 bg-gradient-to-b from-amber-300 via-amber-400 to-amber-500 px-6 sm:px-8 py-2 sm:py-2.5 font-display text-xs sm:text-sm font-black text-[#261300] shadow-[0_4px_16px_rgba(245,158,11,0.5)] hover:brightness-110 active:scale-95 cursor-pointer"
                     >
-                      <RotateCcw className="h-3.5 w-3.5" />
+                      <RotateCcw className="h-4 w-4 stroke-[3]" />
                       <span>再来一局</span>
                     </button>
                   </div>
-                }
-              >
-                <div className="space-y-2">
-                  {snapshot.players.map((p, idx) => {
-                    const isWinner =
-                      snapshot.settlement?.winners?.some((w) => w.seatId === idx) ||
-                      ((p.huCount ?? 0) > 0 &&
-                        (p.huCount ?? 0) ===
-                          Math.max(...snapshot.players.map((x) => x.huCount ?? 0)));
-                    const delta =
-                      snapshot.settlement?.scoreDeltas?.[idx] ?? p.scoreDelta ?? 0;
-                    const isDealer = snapshot.dealerSeatId === idx;
-                    const isMe = p.playerId === myPlayerId;
-
-                    const rawHand =
-                      snapshot.settlement?.revealHands?.[idx] || p.handTiles || [];
-                    const playerMelds =
-                      snapshot.settlement?.melds?.[idx] || p.melds || [];
-                    const winCard =
-                      snapshot.settlement?.winners?.find((w) => w.seatId === idx)
-                        ?.winCard ?? p.drawnTile;
-
-                    const displayHand =
-                      isWinner && winCard
-                        ? (() => {
-                            const copy = [...rawHand];
-                            const foundIdx = copy.lastIndexOf(winCard);
-                            if (foundIdx !== -1) copy.splice(foundIdx, 1);
-                            return copy;
-                          })()
-                        : rawHand;
-
-                    return (
-                      <div
-                        key={idx}
-                        className={`flex items-center justify-between gap-2.5 rounded-xl border px-3 py-2 ${
-                          isMe
-                            ? 'border-[#F59E0B] bg-[#FFFBEB] shadow-2xs'
-                            : 'border-[#E8E1D0] bg-white'
-                        }`}
-                      >
-                        {/* Left: Player Info */}
-                        <div className="flex w-[140px] shrink-0 items-center gap-2">
-                          <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-full border border-[#DEC99A] bg-[#F5F1E7]">
-                            <AvatarSvg avatarId={p.avatarId} size={36} />
-                          </div>
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-1 text-xs">
-                              <span className="truncate font-black text-[#1E242B]">
-                                {p.nickname}
-                              </span>
-                              {isDealer && (
-                                <span className="shrink-0 font-extrabold text-[#B45309]">
-                                  ·庄
-                                </span>
-                              )}
-                              {isMe && (
-                                <span className="shrink-0 font-extrabold text-[#0D9488]">
-                                  ·我
-                                </span>
-                              )}
-                            </div>
-                            <div className="font-mono text-[10px] font-medium text-[#5A6572] tabular-nums">
-                              累计 {p.beans.toLocaleString()} 积分
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Center: Exposed Hand & Melds */}
-                        <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto py-0.5">
-                          {playerMelds.map((m, mIdx) => (
-                            <div
-                              key={mIdx}
-                              className="flex shrink-0 items-center gap-0.5 rounded border border-[#E2D8C5] bg-[#FAF8F3] px-1 py-0.5"
-                            >
-                              {m.tiles.map((t, tIdx) => (
-                                <MahjongTileView
-                                  key={tIdx}
-                                  tileId={t}
-                                  isSmall
-                                  perspective={2}
-                                  kind="ming"
-                                />
-                              ))}
-                            </div>
-                          ))}
-                          <div className="flex shrink-0 items-center gap-0.5">
-                            {displayHand.map((t, tIdx) => (
-                              <MahjongTileView
-                                key={tIdx}
-                                tileId={t}
-                                isSmall
-                                perspective={2}
-                                kind="ming"
-                              />
-                            ))}
-                          </div>
-                          {isWinner && winCard && (
-                            <div className="ml-1.5 flex shrink-0 items-center border-l border-[#DEC99A] pl-1.5">
-                              <MahjongTileView
-                                tileId={winCard}
-                                isSmall
-                                perspective={2}
-                                kind="ming"
-                              />
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Right: Score Delta */}
-                        <div className="flex w-[84px] shrink-0 items-center justify-end gap-1.5 text-right">
-                          {isWinner && (
-                            <span className="rounded bg-[#FFFBEB] border border-[#F59E0B] px-1.5 py-0.5 text-[10px] font-black text-[#B45309]">
-                              胡
-                            </span>
-                          )}
-                          <span
-                            className={`font-mono text-sm font-black tabular-nums ${
-                              delta > 0
-                                ? 'text-[#D97706]'
-                                : delta < 0
-                                  ? 'text-rose-600'
-                                  : 'text-[#5A6572]'
-                            }`}
-                          >
-                            {delta > 0 ? `+${delta}` : delta === 0 ? '0' : delta}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
                 </div>
-              </CommercialModalShell>
+              </div>
             )}
 
             {/* ===================================================================
                 6. LEAVE CONFIRMATION MODAL
                =================================================================== */}
             {showLeaveConfirm && (
-              <CommercialModalShell
-                title="确认退出当前房间？"
-                subtitle="中途离桌提示"
-                icon={<LogOut className="h-4.5 w-4.5" />}
-                size="sm"
-                portalMode="stage"
-                onClose={() => setShowLeaveConfirm(false)}
-                footer={
-                  <div className="flex items-center justify-center gap-3">
+              <div
+                className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-xs"
+                onClick={() => setShowLeaveConfirm(false)}
+              >
+                <div
+                  className="w-full max-w-sm rounded-3xl border border-amber-400/40 bg-[#1e0e07] p-5 text-center text-white shadow-2xl"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <h3 className="font-display text-lg font-black text-amber-200">
+                    确认退出当前房间？
+                  </h3>
+                  <p className="mt-2 text-xs leading-relaxed text-white/70">
+                    对局中途退出将由智能托管接管，直至本局结束结算。
+                  </p>
+                  <div className="mt-5 flex gap-3">
                     <button
                       type="button"
                       onClick={() => setShowLeaveConfirm(false)}
-                      className="flex h-9 min-w-[110px] items-center justify-center rounded-xl border border-[#D8CEB8] bg-white px-5 text-xs font-extrabold text-[#334155] hover:bg-[#FAF8F3] whitespace-nowrap shrink-0 cursor-pointer"
+                      className="flex-1 rounded-2xl border border-white/20 bg-white/10 py-2.5 text-xs font-bold text-white hover:bg-white/15"
                     >
                       继续游戏
                     </button>
                     <button
                       type="button"
                       onClick={handleLeaveRoom}
-                      className="flex h-9 min-w-[110px] items-center justify-center rounded-xl bg-rose-600 px-5 text-xs font-black text-white shadow-xs hover:bg-rose-500 whitespace-nowrap shrink-0 cursor-pointer"
+                      className="flex-1 rounded-2xl border border-rose-500/50 bg-rose-600/90 py-2.5 text-xs font-bold text-white hover:bg-rose-500"
                     >
                       确认离开
                     </button>
                   </div>
-                }
-              >
-                <div className="rounded-xl border border-[#E8E1D0] bg-white p-3.5 text-xs sm:text-sm leading-relaxed text-[#334155] shadow-2xs">
-                  对局中途退出将由系统接管代打，直至本局结束正常结算。
                 </div>
-              </CommercialModalShell>
+              </div>
             )}
 
             {/* ===================================================================
                 7. RULES GUIDE MODAL
                =================================================================== */}
             {showRuleModal && (
-              <CommercialModalShell
-                title="四川红中血流成河 · 核心规则"
-                subtitle="红中百搭 · 定缺门 · 血战到底 · 刮风下雨"
-                icon={<HelpCircle className="h-5 w-5" />}
-                size="md"
-                portalMode="stage"
-                onClose={() => setShowRuleModal(false)}
+              <div
+                className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-xs"
+                onClick={() => setShowRuleModal(false)}
               >
-                <div className="space-y-2.5 text-xs sm:text-sm leading-relaxed text-[#334155]">
-                  <div className="rounded-xl border border-[#F59E0B] bg-[#FFFBEB] p-3 text-[#B45309] shadow-2xs">
-                    <strong>红中百搭：</strong>
-                    红中牌可作为万能牌替代任意花色组成顺子或刻子；亦可摸齐4张红中直接胡牌！
+                <div
+                  className="w-full max-w-md rounded-3xl border border-amber-400/40 bg-[#1c0f08] p-5 text-white shadow-2xl"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                    <h3 className="font-display text-lg font-black text-amber-200">
+                      四川红中血流成河 · 核心规则
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => setShowRuleModal(false)}
+                      className="rounded-full bg-white/10 p-1 text-white/80 hover:bg-white/20"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
                   </div>
-                  <div className="rounded-xl border border-[#E8E1D0] bg-white p-3 shadow-2xs">
-                    <strong className="text-[#B45309]">1. 定缺门：</strong>
-                    开局必须在万、条、筒中选定一门缺色。必须打光该门手牌方可胡牌，手存缺牌不可胡。
-                  </div>
-                  <div className="rounded-xl border border-[#E8E1D0] bg-white p-3 shadow-2xs">
-                    <strong className="text-[#B45309]">2. 血流不倒牌：</strong>
-                    一人胡牌后，游戏不结束，不亮倒手牌；继续摸牌、打牌、继续胡，直至牌墙摸尽！
-                  </div>
-                  <div className="rounded-xl border border-[#E8E1D0] bg-white p-3 shadow-2xs">
-                    <strong className="text-[#B45309]">3. 刮风下雨：</strong>
-                    明杠为刮风收取1家底分，暗杠为下雨收取3家底分，即时转账到账。
-                  </div>
-                  <div className="rounded-xl border border-[#E8E1D0] bg-white p-3 shadow-2xs">
-                    <strong className="text-[#B45309]">4. 查大叫与查花猪：</strong>
-                    牌墙耗尽后，未听牌玩家赔偿听牌玩家最大可能番数；手中仍残留定缺牌的（花猪）赔偿全场16番封顶。
+                  <div className="mt-3 space-y-2.5 text-xs text-white/80 leading-relaxed max-h-[60vh] overflow-y-auto pr-1">
+                    <div className="rounded-xl bg-amber-500/10 p-2.5 border border-amber-400/20 text-amber-200">
+                      <strong>红中百搭</strong>：红中牌可作为万能牌替代任意花色组成顺子或刻子；亦可摸齐4张红中直接胡牌！
+                    </div>
+                    <div>
+                      1. <strong>定缺门</strong>：开局必须在万、条、筒中选定一门缺色。必须打光该门手牌方可胡牌，手存缺牌不可胡。
+                    </div>
+                    <div>
+                      2. <strong>血流不倒牌</strong>：一人胡牌后，游戏不结束，不亮倒手牌；继续摸牌、打牌、继续胡，直至牌墙摸尽！
+                    </div>
+                    <div>
+                      3. <strong>刮风下雨</strong>：明杠为刮风收取1家底分，暗杠为下雨收取3家底分，即时转账到账。
+                    </div>
+                    <div>
+                      4. <strong>查大叫与查花猪</strong>：牌墙耗尽后，未听牌玩家赔偿听牌玩家最大可能番数；手中仍残留定缺牌的（花猪）赔偿全场16番封顶。
+                    </div>
                   </div>
                 </div>
-              </CommercialModalShell>
+              </div>
             )}
 
             {/* ===================================================================
@@ -1135,7 +1284,10 @@ export const MahjongTableView: React.FC<MahjongTableViewProps> = ({
 
             {activeActionGlow && (
               <ActionGlowEffect
-                action={activeActionGlow}
+                action={activeActionGlow.action}
+                relativeSeat={activeActionGlow.relativeSeat}
+                subType={activeActionGlow.subType}
+                fanNames={activeActionGlow.fanNames}
                 onComplete={() => setActiveActionGlow(null)}
               />
             )}
@@ -1152,19 +1304,43 @@ export const MahjongTableView: React.FC<MahjongTableViewProps> = ({
                 10. SHARE POSTER MODAL (P3)
                =================================================================== */}
             {sharePosterUrl && (
-              <CommercialModalShell
-                title="对局战绩海报"
-                subtitle="支持一键保存高清对局结算海报"
-                icon={<Share2 className="h-5 w-5" />}
-                size="lg"
-                portalMode="stage"
-                onClose={() => setSharePosterUrl(null)}
-                footer={
-                  <div className="flex items-center justify-end gap-3">
+              <div
+                className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-3 sm:p-5 backdrop-blur-xs"
+                onClick={() => setSharePosterUrl(null)}
+              >
+                <div
+                  className="relative flex flex-col items-center max-w-2xl w-full bg-[#1e0e07] border border-amber-500/40 rounded-2xl p-4 shadow-2xl"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="w-full flex items-center justify-between pb-2 border-b border-amber-900/40">
+                    <div className="flex items-center gap-2">
+                      <Share2 className="h-4 w-4 text-amber-300" />
+                      <span className="font-display text-sm font-bold text-amber-200">对局战绩海报</span>
+                    </div>
                     <button
                       type="button"
                       onClick={() => setSharePosterUrl(null)}
-                      className="rounded-xl border border-[#D8CEB8] bg-white px-5 py-2 text-xs font-extrabold text-[#334155] hover:bg-[#FAF8F3] whitespace-nowrap shrink-0 cursor-pointer"
+                      className="rounded-full bg-white/10 p-1 text-white/80 hover:bg-white/20 cursor-pointer"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+
+                  {/* Poster Image Preview */}
+                  <div className="my-3 overflow-hidden rounded-xl border border-amber-500/30 shadow-lg max-h-[60vh] flex items-center justify-center bg-black/40">
+                    <img
+                      src={sharePosterUrl}
+                      alt="战绩海报"
+                      className="max-h-[60vh] w-auto object-contain select-none"
+                    />
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex items-center gap-3 w-full justify-end pt-2 border-t border-amber-900/40">
+                    <button
+                      type="button"
+                      onClick={() => setSharePosterUrl(null)}
+                      className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-xs font-bold text-white hover:bg-white/15 cursor-pointer"
                     >
                       关闭
                     </button>
@@ -1172,22 +1348,14 @@ export const MahjongTableView: React.FC<MahjongTableViewProps> = ({
                       href={sharePosterUrl}
                       download={`mahjong_record_${Date.now()}.png`}
                       onClick={() => soundEngine.playTap()}
-                      className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-[#F59E0B] to-[#D97706] px-6 py-2 font-display text-xs font-black text-white shadow-sm hover:brightness-105 active:scale-95 whitespace-nowrap shrink-0 cursor-pointer"
+                      className="flex items-center gap-1.5 rounded-xl border border-amber-300 bg-gradient-to-b from-amber-400 via-amber-500 to-orange-500 px-5 py-2 font-display text-xs font-black text-[#18181B] shadow-lg hover:brightness-110 active:scale-95 cursor-pointer"
                     >
                       <Download className="h-4 w-4" />
                       <span>保存图片</span>
                     </a>
                   </div>
-                }
-              >
-                <div className="flex items-center justify-center overflow-hidden rounded-2xl border border-[#E8E1D0] bg-white p-2 shadow-2xs">
-                  <img
-                    src={sharePosterUrl}
-                    alt="战绩海报"
-                    className="max-h-[58vh] w-auto object-contain select-none rounded-xl"
-                  />
                 </div>
-              </CommercialModalShell>
+              </div>
             )}
           </div>
         );

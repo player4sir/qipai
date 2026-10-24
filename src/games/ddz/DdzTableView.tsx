@@ -37,6 +37,10 @@ import { socketClient } from '../../shared/network/SocketClient';
 import { AvatarSvg } from '../../shared/ui/AvatarSvg';
 import { AutoLandscapeContainer } from '../../shared/components/AutoLandscapeContainer';
 import { CommercialModalShell } from '../../shared/ui/CommercialModalShell';
+import {
+  RollingScoreCounter,
+  SettlementHeroHeader,
+} from '../../shared/ui/RollingScoreCounter';
 import { ReplayViewerModal } from './components/ReplayViewerModal';
 import {
   DdzViewState,
@@ -62,6 +66,8 @@ export interface DdzTableViewProps {
   viewport?: ViewportMetrics;
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
+  initialBaseScore?: number;
+  initialTableScore?: number;
 }
 
 const RECORDER_ORDER: Array<{ rank: Rank; label: string }> = [
@@ -167,6 +173,7 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
   viewport,
   isFullscreen = false,
   onToggleFullscreen,
+  initialBaseScore = 100,
   rotationDeg,
 }) => {
   // Latest CSS rotation of the stage container; read by the Pixi pointer mapper below.
@@ -187,7 +194,10 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
   metricsRef.current = measuredMetrics;
 
   const controlState = useGameControlState();
-  const [viewState, setViewState] = useState<DdzViewState>(INITIAL_VIEW_STATE);
+  const [viewState, setViewState] = useState<DdzViewState>(() => ({
+    ...INITIAL_VIEW_STATE,
+    baseScore: initialBaseScore || 100,
+  }));
   const [showRecorder, setShowRecorder] = useState(false);
   const [showChatPanel, setShowChatPanel] = useState(false);
   const [activePropTargetSeat, setActivePropTargetSeat] = useState<number | null>(null);
@@ -751,132 +761,142 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
         className="pointer-events-none absolute top-1/2 left-1/2 z-20"
       >
         <div className="pointer-events-none relative h-full w-full">
-          {/* BAND 1A: Top-Left Wing (`topBarTopPct%`, `sideMarginPct%`) */}
-          <div
-            style={{
-              top: `${zones.topBarTopPct}%`,
-              left: `${zones.sideMarginPct}%`,
-              transform: 'scale(var(--ui-element-scale, 1))',
-              transformOrigin: 'top left',
-            }}
-            className="ui-scale-smooth ui-scaled-font pointer-events-auto absolute flex items-center gap-2.5"
-          >
-            <button
-              type="button"
-              onClick={() => {
-                managerRef.current?.leaveRoom();
-                onLeaveRoom();
+          {/* BAND 1A: Top-Left Wing (`topBarTopPct%`, `sideMarginPct%`) - Auto-hidden during settlement */}
+          {!(viewState.phase === 'SETTLEMENT' && viewState.settlement) && (
+            <div
+              style={{
+                top: `${zones.topBarTopPct}%`,
+                left: `${zones.sideMarginPct}%`,
+                transform: 'scale(var(--ui-element-scale, 1))',
+                transformOrigin: 'top left',
               }}
-              className="flex h-9 w-9 items-center justify-center rounded-full border border-amber-300/30 bg-[#062016]/90 text-emerald-100 shadow-md hover:border-amber-300 hover:text-white active:scale-95 transition-all cursor-pointer"
-              title="返回大厅"
+              className="ui-scale-smooth ui-scaled-font pointer-events-auto absolute flex items-center gap-2.5"
             >
-              <LogOut className="h-4 w-4" />
-            </button>
-
-            <div className="flex items-center gap-2 rounded-full border border-amber-400/25 bg-[#062016]/90 px-3.5 py-1.5 text-xs font-bold text-emerald-100 shadow-md backdrop-blur-sm">
-              <span className="text-amber-300 whitespace-nowrap shrink-0">
-                {viewState.dealMode === 'tiandi_laizi'
-                  ? '天地癞子'
-                  : viewState.dealMode === 'laizi'
-                    ? '经典癞子'
-                    : viewState.dealMode === 'no_shuffle'
-                      ? '不洗牌'
-                      : viewState.dealMode === 'swap_three'
-                        ? '换三张'
-                        : '经典斗地主'}
-              </span>
-              <span aria-hidden="true" className="text-emerald-600">
-                ·
-              </span>
-              <span className="font-mono text-emerald-200 whitespace-nowrap shrink-0">
-                {currentRoomTier.name}
-              </span>
-              {viewState.wildRanks.length > 0 && (
-                <>
-                  <span aria-hidden="true" className="text-emerald-600">
-                    ·
-                  </span>
-                  <span className="rounded bg-amber-500/20 px-1.5 py-0.5 font-mono text-[11px] font-bold text-amber-300 whitespace-nowrap shrink-0">
-                    {viewState.wildRanks
-                      .map((r, idx) => `${idx === 0 ? '天癞' : '地癞'}[${r}]`)
-                      .join(' ')}
-                  </span>
-                </>
-              )}
-            </div>
-          </div>
-
-          {/* BAND 1B: Top-Right Wing (`topBarTopPct%`, `sideMarginPct%`) */}
-          <div
-            style={{
-              top: `${zones.topBarTopPct}%`,
-              right: `${zones.sideMarginPct}%`,
-              transform: 'scale(var(--ui-element-scale, 1))',
-              transformOrigin: 'top right',
-            }}
-            className="ui-scale-smooth ui-scaled-font pointer-events-auto absolute flex items-center gap-2"
-          >
-            <button
-              type="button"
-              onClick={() => setShowRecorder((v) => !v)}
-              className={`flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs font-bold shadow-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                showRecorder
-                  ? 'border-amber-400/70 bg-amber-500/25 text-amber-200'
-                  : 'border-emerald-400/25 bg-[#062016]/90 text-emerald-100 hover:text-white'
-              }`}
-            >
-              <Eye className="h-3.5 w-3.5" />
-              <span>记牌器</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => managerRef.current?.toggleTrusteeship()}
-              className={`flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs font-bold shadow-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                myPlayer?.trusteeship
-                  ? 'border-amber-400 bg-amber-500 text-[#18181B]'
-                  : 'border-emerald-400/25 bg-[#062016]/90 text-emerald-100 hover:text-white'
-              }`}
-            >
-              <Bot className="h-3.5 w-3.5" />
-              <span>{myPlayer?.trusteeship ? '取消托管' : '托管'}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                const next = soundEngine.toggle();
-                setSfxEnabled(next);
-                setBgmEnabled(soundEngine.isBgmEnabled());
-              }}
-              className="flex h-9 w-9 items-center justify-center rounded-full border border-emerald-400/25 bg-[#062016]/90 text-emerald-200 shadow-md hover:text-white cursor-pointer"
-              title={sfxEnabled ? '关闭声音' : '开启声音'}
-            >
-              {sfxEnabled ? (
-                <Volume2 className="h-4 w-4 text-amber-300" />
-              ) : (
-                <VolumeX className="h-4 w-4 text-rose-400" />
-              )}
-            </button>
-
-            {onToggleFullscreen && (
               <button
                 type="button"
-                onClick={onToggleFullscreen}
-                className="flex h-9 w-9 items-center justify-center rounded-full border border-emerald-400/25 bg-[#062016]/90 text-emerald-200 shadow-md hover:text-white cursor-pointer"
-                title={isFullscreen ? '退出全屏' : '全屏'}
+                onClick={() => {
+                  managerRef.current?.leaveRoom();
+                  onLeaveRoom();
+                }}
+                className="flex h-9 w-9 items-center justify-center rounded-full border border-amber-300/30 bg-[#062016]/90 text-emerald-100 shadow-md hover:border-amber-300 hover:text-white active:scale-95 transition-all cursor-pointer"
+                title="返回大厅"
               >
-                {isFullscreen ? (
-                  <Minimize2 className="h-4 w-4 text-amber-300" />
+                <LogOut className="h-4 w-4" />
+              </button>
+
+              <div className="flex items-center gap-2 rounded-full border border-amber-400/25 bg-[#062016]/90 px-3.5 py-1.5 text-xs font-bold text-emerald-100 shadow-md backdrop-blur-sm">
+                <span className="text-amber-300 whitespace-nowrap shrink-0">
+                  {viewState.dealMode === 'tiandi_laizi'
+                    ? '天地癞子'
+                    : viewState.dealMode === 'laizi'
+                      ? '经典癞子'
+                      : viewState.dealMode === 'no_shuffle'
+                        ? '不洗牌'
+                        : viewState.dealMode === 'swap_three'
+                          ? '换三张'
+                          : '经典斗地主'}
+                </span>
+                <span aria-hidden="true" className="text-emerald-600">
+                  ·
+                </span>
+                <span className="font-mono text-emerald-200 tabular-nums whitespace-nowrap shrink-0">
+                  底分 {viewState.baseScore.toLocaleString()}
+                </span>
+                <span aria-hidden="true" className="text-emerald-600">
+                  ·
+                </span>
+                <span className="font-mono text-amber-300 tabular-nums whitespace-nowrap shrink-0">
+                  {viewState.multiplier}倍
+                </span>
+                {viewState.wildRanks.length > 0 && (
+                  <>
+                    <span aria-hidden="true" className="text-emerald-600">
+                      ·
+                    </span>
+                    <span className="rounded bg-amber-500/20 px-1.5 py-0.5 font-mono text-[11px] font-bold text-amber-300 whitespace-nowrap shrink-0">
+                      {viewState.wildRanks
+                        .map((r, idx) => `${idx === 0 ? '天癞' : '地癞'}[${r}]`)
+                        .join(' ')}
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* BAND 1B: Top-Right Wing (`topBarTopPct%`, `sideMarginPct%`) - Auto-hidden during settlement */}
+          {!(viewState.phase === 'SETTLEMENT' && viewState.settlement) && (
+            <div
+              style={{
+                top: `${zones.topBarTopPct}%`,
+                right: `${zones.sideMarginPct}%`,
+                transform: 'scale(var(--ui-element-scale, 1))',
+                transformOrigin: 'top right',
+              }}
+              className="ui-scale-smooth ui-scaled-font pointer-events-auto absolute flex items-center gap-2"
+            >
+              <button
+                type="button"
+                onClick={() => setShowRecorder((v) => !v)}
+                className={`flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs font-bold shadow-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                  showRecorder
+                    ? 'border-amber-400/70 bg-amber-500/25 text-amber-200'
+                    : 'border-emerald-400/25 bg-[#062016]/90 text-emerald-100 hover:text-white'
+                }`}
+              >
+                <Eye className="h-3.5 w-3.5" />
+                <span>记牌器</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => managerRef.current?.toggleTrusteeship()}
+                className={`flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs font-bold shadow-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                  myPlayer?.trusteeship
+                    ? 'border-amber-400 bg-amber-500 text-[#18181B]'
+                    : 'border-emerald-400/25 bg-[#062016]/90 text-emerald-100 hover:text-white'
+                }`}
+              >
+                <Bot className="h-3.5 w-3.5" />
+                <span>{myPlayer?.trusteeship ? '取消托管' : '托管'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const next = soundEngine.toggle();
+                  setSfxEnabled(next);
+                  setBgmEnabled(soundEngine.isBgmEnabled());
+                }}
+                className="flex h-9 w-9 items-center justify-center rounded-full border border-emerald-400/25 bg-[#062016]/90 text-emerald-200 shadow-md hover:text-white cursor-pointer"
+                title={sfxEnabled ? '关闭声音' : '开启声音'}
+              >
+                {sfxEnabled ? (
+                  <Volume2 className="h-4 w-4 text-amber-300" />
                 ) : (
-                  <Maximize2 className="h-4 w-4 text-emerald-200" />
+                  <VolumeX className="h-4 w-4 text-rose-400" />
                 )}
               </button>
-            )}
-          </div>
 
-          {/* BAND 1C: Floating Card Recorder (`recorderTopPct%`, centered at 50%) */}
-          {showRecorder && viewState.phase !== 'WAITING' && (
+              {onToggleFullscreen && (
+                <button
+                  type="button"
+                  onClick={onToggleFullscreen}
+                  className="flex h-9 w-9 items-center justify-center rounded-full border border-emerald-400/25 bg-[#062016]/90 text-emerald-200 shadow-md hover:text-white cursor-pointer"
+                  title={isFullscreen ? '退出全屏' : '全屏'}
+                >
+                  {isFullscreen ? (
+                    <Minimize2 className="h-4 w-4 text-amber-300" />
+                  ) : (
+                    <Maximize2 className="h-4 w-4 text-emerald-200" />
+                  )}
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* BAND 1C: Floating Card Recorder (`recorderTopPct%`, centered at 50%) - Auto-hidden during settlement */}
+          {showRecorder && viewState.phase !== 'WAITING' && !(viewState.phase === 'SETTLEMENT' && viewState.settlement) && (
             <div
               style={{
                 top: `${zones.recorderTopPct}%`,
@@ -1098,149 +1118,151 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
             </div>
           )}
 
-          {/* BAND 6: Dedicated Bottom Status Dock (`bottomDockBottomPct%`, strictly below Hand Zone `handBandBottomPct%`) */}
-          <div
-            style={{
-              bottom: `${zones.bottomDockBottomPct}%`,
-              left: `${zones.sideMarginPct}%`,
-              right: `${zones.sideMarginPct}%`,
-            }}
-            className="pointer-events-none absolute flex items-end justify-between"
-          >
-            {/* Bottom-Left: My Player Slim Status Pill (smoothly scaled via `--ui-element-scale`) */}
+          {/* BAND 6: Dedicated Bottom Status Dock (`bottomDockBottomPct%`, auto-hidden during settlement) */}
+          {!(viewState.phase === 'SETTLEMENT' && viewState.settlement) && (
             <div
               style={{
-                transform: 'scale(var(--ui-element-scale, 1))',
-                transformOrigin: 'bottom left',
+                bottom: `${zones.bottomDockBottomPct}%`,
+                left: `${zones.sideMarginPct}%`,
+                right: `${zones.sideMarginPct}%`,
               }}
-              className="ui-scale-smooth ui-scaled-font pointer-events-auto flex flex-col items-start"
+              className="pointer-events-none absolute flex items-end justify-between"
             >
-              {myBubble && (
-                <div className="mb-1.5 flex items-center gap-1.5 rounded-2xl border border-amber-300/60 bg-[#1B120C]/95 px-3 py-1 text-xs font-medium text-amber-100 shadow-xl backdrop-blur-md">
-                  <span className="max-w-[200px] truncate">{myBubble.text}</span>
-                </div>
-              )}
-
-              {myPlayer && (
-                <div
-                  className={`flex items-center gap-2.5 rounded-full border ${
-                    isMyTurn && viewState.phase !== 'WAITING' && viewState.phase !== 'SETTLEMENT'
-                      ? 'border-amber-300 bg-[#1B120C]/95 shadow-[0_0_16px_rgba(251,191,36,0.28)]'
-                      : isMyLandlord
-                        ? 'border-amber-400/75 bg-[#1B120C]/92'
-                        : 'border-emerald-400/30 bg-[#062016]/92'
-                  } py-1 pr-3.5 pl-1.5 shadow-lg backdrop-blur-sm transition-all`}
-                >
-                  <AvatarSvg
-                    avatarId={myPlayer.avatarId}
-                    size={30}
-                    isLandlord={isMyLandlord}
-                    animState={
-                      viewState.phase === 'SETTLEMENT'
-                        ? (viewState.settlement?.scoreChanges[myPlayer.playerId] ?? 0) >= 0
-                          ? 'win'
-                          : 'lose'
-                        : isMyTurn && viewState.phase !== 'WAITING'
-                          ? 'play'
-                          : 'idle'
-                    }
-                  />
-                  <div className="flex items-center gap-2 text-xs">
-                    <span className="max-w-[110px] truncate font-extrabold text-[#FAF8F5]">
-                      {myPlayer.nickname}
-                    </span>
-                    {viewState.landlordSeat !== null && (
-                      <span
-                        className={`rounded px-1 py-0.2 text-[10px] font-black whitespace-nowrap shrink-0 ${
-                          isMyLandlord
-                            ? 'bg-amber-400 text-[#240e03]'
-                            : 'bg-emerald-500/25 text-emerald-200 border border-emerald-400/35'
-                        }`}
-                      >
-                        {isMyLandlord ? '地主' : '农民'}
-                      </span>
-                    )}
-                    <span className="font-mono font-bold text-amber-300 tabular-nums whitespace-nowrap shrink-0">
-                      {myPlayer.beans.toLocaleString()}
-                    </span>
-                    {myPlayer.trusteeship && (
-                      <span className="text-amber-300 whitespace-nowrap shrink-0">· 托管</span>
-                    )}
+              {/* Bottom-Left: My Player Slim Status Pill (smoothly scaled via `--ui-element-scale`) */}
+              <div
+                style={{
+                  transform: 'scale(var(--ui-element-scale, 1))',
+                  transformOrigin: 'bottom left',
+                }}
+                className="ui-scale-smooth ui-scaled-font pointer-events-auto flex flex-col items-start"
+              >
+                {myBubble && (
+                  <div className="mb-1.5 flex items-center gap-1.5 rounded-2xl border border-amber-300/60 bg-[#1B120C]/95 px-3 py-1 text-xs font-medium text-amber-100 shadow-xl backdrop-blur-md">
+                    <span className="max-w-[200px] truncate">{myBubble.text}</span>
                   </div>
-                </div>
-              )}
-            </div>
-
-            {/* Bottom-Right: Sort + Quick Chat Controls */}
-            <div
-              style={{
-                transform: 'scale(var(--ui-element-scale, 1))',
-                transformOrigin: 'bottom right',
-              }}
-              className="ui-scale-smooth ui-scaled-font pointer-events-auto flex flex-col items-end"
-            >
-              {showChatPanel && (
-                <div className="mb-2 w-60 rounded-2xl border border-[#DFD2B8] bg-[#FAF8F3]/98 p-3 text-[#1E242B] shadow-2xl backdrop-blur-md">
-                  <div className="mb-2 flex items-center justify-between border-b border-[#E6DEC8] pb-1.5">
-                    <span className="text-xs font-black text-[#2C1E10]">牌桌快捷语</span>
-                    <button
-                      type="button"
-                      onClick={() => setShowChatPanel(false)}
-                      className="rounded-full p-0.5 text-[#5A6572] hover:bg-black/5 hover:text-[#1E242B]"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-
-                  <div className="space-y-1">
-                    {QUICK_PHRASES.map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => {
-                          managerRef.current?.sendChat(item.text);
-                          setShowChatPanel(false);
-                        }}
-                        className="flex w-full items-center gap-2 rounded-xl border border-transparent bg-white px-2.5 py-1.5 text-left text-xs font-bold text-[#334155] hover:border-[#F59E0B] hover:bg-[#FFFBEB] hover:text-[#B45309] transition-colors cursor-pointer"
-                      >
-                        <span className="truncate">{item.text}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="flex items-center gap-2">
-                {viewState.phase !== 'WAITING' && viewState.phase !== 'SETTLEMENT' && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const nextMode = managerRef.current?.toggleHandSortMode() ?? 'rank';
-                      setHandSortMode(nextMode);
-                    }}
-                    className={`flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs font-bold shadow-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                      handSortMode === 'count'
-                        ? 'border-amber-400 bg-amber-500/25 text-amber-200'
-                        : 'border-emerald-400/35 bg-[#062016]/92 text-emerald-100 hover:border-amber-400/60'
-                    }`}
-                    title="切换理牌顺序"
-                  >
-                    <ArrowUpDown className="h-3.5 w-3.5 text-amber-400" />
-                    <span>{handSortMode === 'count' ? '按张数' : '按大小'}</span>
-                  </button>
                 )}
 
-                <button
-                  type="button"
-                  onClick={() => setShowChatPanel((v) => !v)}
-                  className="flex items-center gap-1.5 rounded-full border border-amber-400/40 bg-[#062016]/92 px-3.5 py-1.5 text-xs font-bold text-amber-200 shadow-lg hover:bg-emerald-900/80 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-                >
-                  <MessageSquare className="h-3.5 w-3.5 text-amber-400" />
-                  <span>快捷语</span>
-                </button>
+                {myPlayer && (
+                  <div
+                    className={`flex items-center gap-2.5 rounded-full border ${
+                      isMyTurn && viewState.phase !== 'WAITING' && viewState.phase !== 'SETTLEMENT'
+                        ? 'border-amber-300 bg-[#1B120C]/95 shadow-[0_0_16px_rgba(251,191,36,0.28)]'
+                        : isMyLandlord
+                          ? 'border-amber-400/75 bg-[#1B120C]/92'
+                          : 'border-emerald-400/30 bg-[#062016]/92'
+                    } py-1 pr-3.5 pl-1.5 shadow-lg backdrop-blur-sm transition-all`}
+                  >
+                    <AvatarSvg
+                      avatarId={myPlayer.avatarId}
+                      size={30}
+                      isLandlord={isMyLandlord}
+                      animState={
+                        viewState.phase === 'SETTLEMENT'
+                          ? (viewState.settlement?.scoreChanges[myPlayer.playerId] ?? 0) >= 0
+                            ? 'win'
+                            : 'lose'
+                          : isMyTurn && viewState.phase !== 'WAITING'
+                            ? 'play'
+                            : 'idle'
+                      }
+                    />
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className="max-w-[110px] truncate font-extrabold text-[#FAF8F5]">
+                        {myPlayer.nickname}
+                      </span>
+                      {viewState.landlordSeat !== null && (
+                        <span
+                          className={`rounded px-1 py-0.2 text-[10px] font-black whitespace-nowrap shrink-0 ${
+                            isMyLandlord
+                              ? 'bg-amber-400 text-[#240e03]'
+                              : 'bg-emerald-500/25 text-emerald-200 border border-emerald-400/35'
+                          }`}
+                        >
+                          {isMyLandlord ? '地主' : '农民'}
+                        </span>
+                      )}
+                      <span className="font-mono font-bold text-amber-300 tabular-nums whitespace-nowrap shrink-0">
+                        {myPlayer.beans.toLocaleString()}
+                      </span>
+                      {myPlayer.trusteeship && (
+                        <span className="text-amber-300 whitespace-nowrap shrink-0">· 托管</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Bottom-Right: Sort + Quick Chat Controls */}
+              <div
+                style={{
+                  transform: 'scale(var(--ui-element-scale, 1))',
+                  transformOrigin: 'bottom right',
+                }}
+                className="ui-scale-smooth ui-scaled-font pointer-events-auto flex flex-col items-end"
+              >
+                {showChatPanel && (
+                  <div className="mb-2 w-60 rounded-2xl border border-[#DFD2B8] bg-[#FAF8F3]/98 p-3 text-[#1E242B] shadow-2xl backdrop-blur-md">
+                    <div className="mb-2 flex items-center justify-between border-b border-[#E6DEC8] pb-1.5">
+                      <span className="text-xs font-black text-[#2C1E10]">牌桌快捷语</span>
+                      <button
+                        type="button"
+                        onClick={() => setShowChatPanel(false)}
+                        className="rounded-full p-0.5 text-[#5A6572] hover:bg-black/5 hover:text-[#1E242B]"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+
+                    <div className="space-y-1">
+                      {QUICK_PHRASES.map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => {
+                            managerRef.current?.sendChat(item.text);
+                            setShowChatPanel(false);
+                          }}
+                          className="flex w-full items-center gap-2 rounded-xl border border-transparent bg-white px-2.5 py-1.5 text-left text-xs font-bold text-[#334155] hover:border-[#F59E0B] hover:bg-[#FFFBEB] hover:text-[#B45309] transition-colors cursor-pointer"
+                        >
+                          <span className="truncate">{item.text}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-2">
+                  {viewState.phase !== 'WAITING' && viewState.phase !== 'SETTLEMENT' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextMode = managerRef.current?.toggleHandSortMode() ?? 'rank';
+                        setHandSortMode(nextMode);
+                      }}
+                      className={`flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs font-bold shadow-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                        handSortMode === 'count'
+                          ? 'border-amber-400 bg-amber-500/25 text-amber-200'
+                          : 'border-emerald-400/35 bg-[#062016]/92 text-emerald-100 hover:border-amber-400/60'
+                      }`}
+                      title="切换理牌顺序"
+                    >
+                      <ArrowUpDown className="h-3.5 w-3.5 text-amber-400" />
+                      <span>{handSortMode === 'count' ? '按张数' : '按大小'}</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => setShowChatPanel((v) => !v)}
+                    className="flex items-center gap-1.5 rounded-full border border-amber-400/40 bg-[#062016]/92 px-3.5 py-1.5 text-xs font-bold text-amber-200 shadow-lg hover:bg-emerald-900/80 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                  >
+                    <MessageSquare className="h-3.5 w-3.5 text-amber-400" />
+                    <span>快捷语</span>
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           {/* Waiting For Players Overlay when in WAITING phase */}
           {viewState.phase === 'WAITING' && (
@@ -1356,7 +1378,28 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
                 </div>
               }
             >
-              <div className="space-y-2.5">
+              <div className="space-y-3">
+                {/* Commercial Hero Rolling Score Banner */}
+                <div className="overflow-hidden rounded-2xl border border-amber-400/40 shadow-md">
+                  <SettlementHeroHeader
+                    selfScoreDelta={
+                      viewState.settlement.scoreChanges[myPlayer?.playerId || ''] ?? 0
+                    }
+                    titleWin={
+                      viewState.settlement.isLandlordWin
+                        ? '地主获胜 · 凯旋得胜'
+                        : '农民合力 · 凯旋得胜'
+                    }
+                    titleLose={
+                      viewState.settlement.isLandlordWin
+                        ? '地主获胜 · 本局惜败'
+                        : '农民获胜 · 本局惜败'
+                    }
+                    subtitle={`底分 ${viewState.settlement.baseScore.toLocaleString()} · 有效倍数 ×${viewState.settlement.effectiveMultiplier ?? viewState.settlement.totalMultiplier}`}
+                    suffix=" 积分"
+                  />
+                </div>
+
                 {viewState.players.map((p, idx) => {
                   if (!p) return null;
                   const delta = viewState.settlement!.scoreChanges[p.playerId] ?? 0;
@@ -1402,12 +1445,14 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
                           </div>
                         </div>
                       </div>
-                      <div
-                        className={`font-mono text-base font-black tabular-nums ${
-                          delta >= 0 ? 'text-[#D97706]' : 'text-rose-600'
-                        }`}
-                      >
-                        {delta >= 0 ? `+${delta.toLocaleString()}` : delta.toLocaleString()} 积分
+                      <div className="rounded-xl border border-amber-400/35 bg-[#1b1209] px-3 py-1 shadow-inner">
+                        <RollingScoreCounter
+                          value={delta}
+                          suffix=" 积分"
+                          size="md"
+                          durationMs={950}
+                          playTickSound={isMe}
+                        />
                       </div>
                     </div>
                   );

@@ -9,6 +9,7 @@ export interface RegionalGamePortalProps {
   onEnterMahjongHall: () => void;
   onEnterNiuniuHall?: () => void;
   onEnterZjhHall?: () => void;
+  onEnterLaoYanCaiHall?: () => void;
   onQuickStartDdz: () => void;
   onQuickStartMahjong?: () => void;
   onQuickStartGame?: (gameKey: GameKey, baseScore: number) => void;
@@ -104,6 +105,7 @@ export const RegionalGamePortal: React.FC<RegionalGamePortalProps> = ({
   onEnterMahjongHall,
   onEnterNiuniuHall,
   onEnterZjhHall,
+  onEnterLaoYanCaiHall,
   onQuickStartDdz,
   onQuickStartGame,
   myBeans = 12000,
@@ -173,7 +175,11 @@ export const RegionalGamePortal: React.FC<RegionalGamePortalProps> = ({
         }
         break;
       case 'laoyancai':
-        handleOpenPreview('laoyancai');
+        if (onEnterLaoYanCaiHall) {
+          onEnterLaoYanCaiHall();
+        } else {
+          handleOpenPreview('laoyancai');
+        }
         break;
       case 'shuangko':
         handleOpenPreview('shuangko');
@@ -192,22 +198,20 @@ export const RegionalGamePortal: React.FC<RegionalGamePortalProps> = ({
   };
 
   return (
-    <div className="relative flex h-full w-full flex-1 flex-col items-center justify-center overflow-hidden select-none px-2">
+    <div className="relative flex h-full w-full flex-1 flex-col items-center justify-center overflow-hidden select-none px-1">
       {/* =====================================================================
-          PROPORTION-LOCKED COMMERCIAL GAME PORTAL GRID
-          - Portrait: 2 cols x 3 rows, width bounded by both vw and dvh
-          - Landscape: 3 cols x 2 rows, width bounded by both vw and dvh
-          - Each card has a strict aspect-[4/3.15] / landscape:aspect-[4/2.9] lock
-            so cards NEVER stretch or squash on any screen aspect ratio.
+          CLEAN COMMERCIAL GAME PORTAL GRID (2 COLUMNS x 3 ROWS)
+          - Harmonious single-subject illustrations + 3D title + online pill
+          - Zero meaningless text descriptions or cluttered multi-element stacks
          ===================================================================== */}
       <div
         className="
-          mx-auto my-auto grid
-          w-[min(88vw,430px,calc((100dvh-146px)*0.80))]
-          grid-cols-2
+          mx-auto my-auto grid min-h-0 w-full place-items-center
+          max-w-[min(440px,calc((100dvh-148px)*0.82))] sm:max-w-[500px]
+          max-h-[min(100%,620px)]
+          grid-cols-2 grid-rows-3
           gap-2.5 sm:gap-3.5
-          landscape:w-[min(90vw,740px,calc((100dvh-132px)*1.92))]
-          landscape:grid-cols-3
+          landscape:max-w-[min(620px,calc((100dvh-124px)*2.15))] landscape:max-h-[min(100%,360px)] landscape:grid-cols-3 landscape:grid-rows-2 landscape:gap-3
         "
       >
         {PORTAL_GAMES_CONFIG.map((cfg) => (
@@ -216,10 +220,12 @@ export const RegionalGamePortal: React.FC<RegionalGamePortalProps> = ({
             type="button"
             onClick={() => handleCardSelect(cfg.id)}
             className={`
-              group relative flex aspect-[4/3.15] landscape:aspect-[4/2.9] w-full flex-col items-center justify-between
+              group relative flex h-full max-h-[200px] min-h-0 w-full max-w-[210px] aspect-[4/3.6]
+              landscape:max-h-[168px] landscape:max-w-[192px] landscape:aspect-[4/3.35]
+              flex-col items-center justify-between
               overflow-hidden rounded-[20px] sm:rounded-[24px] border-2 ${cfg.borderClass}
               bg-gradient-to-b ${cfg.cardGradient}
-              px-2.5 pt-2 pb-2.5 sm:px-3.5 sm:pt-2.5 sm:pb-3
+              px-2.5 pt-2 pb-2.5 sm:px-3 sm:pt-2.5 sm:pb-3
               shadow-[0_10px_22px_rgba(25,12,4,0.32),inset_0_1.5px_1px_rgba(255,255,255,0.45)]
               transition-all duration-150 active:scale-[0.98] [@media(hover:hover)]:hover:brightness-105 cursor-pointer
             `}
@@ -250,14 +256,14 @@ export const RegionalGamePortal: React.FC<RegionalGamePortalProps> = ({
                 src={cfg.heroImg}
                 alt={cfg.title}
                 draggable={false}
-                className="max-h-full w-auto max-w-[80%] object-contain drop-shadow-[0_6px_12px_rgba(0,0,0,0.22)] transition-transform duration-300 [@media(hover:hover)]:group-hover:scale-105"
+                className="max-h-full w-auto max-w-[84%] object-contain drop-shadow-[0_6px_12px_rgba(0,0,0,0.22)] transition-transform duration-300 [@media(hover:hover)]:group-hover:scale-105"
               />
             </div>
 
-            {/* Bottom Clean 3D Game Title */}
+            {/* Bottom Clean 3D Game Title (No meaningless extra text) */}
             <div className="relative z-20 flex w-full shrink-0 items-center justify-center pt-0.5">
               <span
-                className="font-display text-base sm:text-lg leading-none font-black tracking-wider text-white whitespace-nowrap"
+                className="font-display text-[clamp(1.15rem,4vw,1.6rem)] leading-none font-black tracking-wider text-white whitespace-nowrap landscape:text-[clamp(1.05rem,2.5vw,1.4rem)]"
                 style={{
                   textShadow: `0 1.5px 0 ${cfg.titleShadowColor}, 0 -1px 0 ${cfg.titleShadowColor}, 1.5px 0 0 ${cfg.titleShadowColor}, -1.5px 0 0 ${cfg.titleShadowColor}, 0 3px 0 ${cfg.titleDeepShadow}, 0 4px 8px rgba(0,0,0,0.38)`,
                 }}

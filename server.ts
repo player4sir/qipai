@@ -10,6 +10,7 @@ import {
   ServerRoomCardGameType,
   ServerRoomCardPayMode,
   ServerRoomCardRoundCap,
+  validateAndNormalizeServerStakes,
 } from './server/core/RoomCardEngine.js';
 import { securityGateway } from './server/core/SecurityGateway.js';
 import { DdzRoom } from './server/games/ddz/DdzRoom.js';
@@ -129,6 +130,73 @@ async function startServer() {
       return;
     }
     res.json({ session });
+  });
+
+  // Commercial Room Card REST APIs (Two-Phase Escrow & Bankruptcy Rebuy)
+  app.post('/api/room-cards/pre-freeze', (req, res) => {
+    const body = (req.body || {}) as Record<string, unknown>;
+    const playerId = String(body.playerId || '');
+    const profile = storageService.getUser(playerId);
+    if (!profile) {
+      res.status(404).json({ ok: false, message: '未找到玩家账户' });
+      return;
+    }
+    const roomId = String(body.roomId || roomManager.generateRoomId());
+    const result = roomCardEngine.createSession({
+      roomId,
+      gameType: (body.gameType as ServerRoomCardGameType) || 'ddz',
+      subMode: String(body.subMode || 'classic'),
+      subModeLabel: String(body.subModeLabel || '标准场'),
+      baseScore: Number(body.baseScore) || 100,
+      initialScore: Number(body.initialScore) || 2000,
+      totalRounds: body.totalRounds === 16 ? 16 : body.totalRounds === 8 ? 8 : 4,
+      payMode: (body.payMode as ServerRoomCardPayMode) || 'host',
+      fillBots: Boolean(body.fillBots ?? true),
+      hostProfile: profile,
+    });
+    res.json({
+      ...result,
+      profile: storageService.getUser(playerId),
+    });
+  });
+
+  app.post('/api/room-cards/commit', (req, res) => {
+    const body = (req.body || {}) as Record<string, unknown>;
+    const roomId = String(body.roomId || '').trim();
+    const { capturedTotal, session } = roomCardEngine.captureEscrowOnFirstRound(roomId);
+    if (!session) {
+      res.status(404).json({ ok: false, message: '未找到对应房卡包间' });
+      return;
+    }
+    res.json({ ok: true, capturedTotal, session });
+  });
+
+  app.post('/api/room-cards/refund', (req, res) => {
+    const body = (req.body || {}) as Record<string, unknown>;
+    const roomId = String(body.roomId || '').trim();
+    const playerId = String(body.playerId || '').trim();
+    const result = roomCardEngine.disbandOrSettleSession(roomId, playerId);
+    res.json({
+      ok: result.action !== 'none',
+      ...result,
+      profile: playerId ? storageService.getUser(playerId) : undefined,
+    });
+  });
+
+  app.post('/api/room-cards/rebuy', (req, res) => {
+    const body = (req.body || {}) as Record<string, unknown>;
+    const roomId = String(body.roomId || '').trim();
+    const playerId = String(body.playerId || '').trim();
+    const multiplier: 1 | 2 = Number(body.multiplier) === 2 ? 2 : 1;
+    const rebuyRes = roomCardEngine.rebuyPlayerScore({ roomId, playerId, multiplier });
+    if (rebuyRes.ok) {
+      const room = roomManager.getRoomByPlayer(playerId);
+      room?.rebuySeatScore?.(playerId, rebuyRes.addedScore);
+    }
+    res.json({
+      ...rebuyRes,
+      profile: storageService.getUser(playerId),
+    });
   });
 
   // WebSocket (Socket.io) protocol handlers
@@ -322,6 +390,7 @@ async function startServer() {
         roomId?: string;
         gameType?: string;
         baseScore?: number;
+        initialScore?: number;
         isPrivate?: boolean;
         autoFillBots?: boolean;
         mode?: string;
@@ -338,23 +407,25 @@ async function startServer() {
           payload?.totalRounds === 16 ? 16 : payload?.totalRounds === 8 ? 8 : 4;
         const payMode: ServerRoomCardPayMode = payload?.payMode || 'host';
 
-        const allowedScores = [100, 200, 300, 500, 800, 2000, 10000];
-        const baseScore = allowedScores.includes(Number(payload?.baseScore))
-          ? Number(payload.baseScore)
-          : 100;
+        const rawBaseScore = Number(payload?.baseScore) || 100;
+        const rawInitialScore =
+          Number(payload?.initialScore) > 0
+            ? Number(payload?.initialScore)
+            : Math.max(2000, rawBaseScore * 20);
 
         const candidateRoomId =
           payload?.roomId && /^\d{6}$/.test(payload.roomId)
             ? payload.roomId
             : roomManager.generateRoomId();
 
-        // Phase-1 Two-Phase Escrow Freeze / Winner-Pay Eligibility Verification
+        // Phase-1 Two-Phase Escrow Freeze / Winner-Pay Eligibility Verification + Custom Stakes Validation
         const rcCreate = roomCardEngine.createSession({
           roomId: candidateRoomId,
           gameType: rawGameType,
           subMode: payload?.mode || 'classic',
-          subModeLabel: payload?.subModeLabel || '好友约局场',
-          baseScore,
+          subModeLabel: payload?.subModeLabel || '商业房卡局',
+          baseScore: rawBaseScore,
+          initialScore: rawInitialScore,
           totalRounds,
           payMode,
           fillBots: Boolean(payload?.autoFillBots ?? true),
@@ -366,6 +437,9 @@ async function startServer() {
           return;
         }
 
+        const validatedBaseScore = rcCreate.session.config.baseScore;
+        const validatedInitialScore = rcCreate.session.config.initialScore;
+
         const room = roomManager.createRoom({
           preferredRoomId: rcCreate.session.config.roomId,
           gameType: rawGameType,
@@ -373,9 +447,10 @@ async function startServer() {
             playerId: profile.playerId,
             nickname: profile.nickname,
             avatarId: profile.avatarId,
-            beans: profile.beans,
+            beans: validatedInitialScore,
           },
-          baseScore,
+          baseScore: validatedBaseScore,
+          initialScore: validatedInitialScore,
           isPrivate: Boolean(payload?.isPrivate),
           mode: payload?.mode || 'classic',
         });
@@ -415,6 +490,7 @@ async function startServer() {
         // Check if this is a 6-digit Room Card session or if we need to bootstrap it on the server
         let targetRoom = roomManager.getPublicRooms().find((r) => r.roomId === cleanRoomId);
         const existingRcSession = roomCardEngine.getSession(cleanRoomId);
+        let sessionInitialScore = existingRcSession?.config.initialScore || 2000;
 
         if (existingRcSession || /^\d{6}$/.test(cleanRoomId)) {
           const rcJoin = roomCardEngine.joinSession({
@@ -428,6 +504,8 @@ async function startServer() {
             return;
           }
 
+          sessionInitialScore = rcJoin.session.config.initialScore;
+
           // If the underlying game room isn't created yet (e.g. joining a preset code), create it now
           if (!targetRoom) {
             const created = roomManager.createRoom({
@@ -437,7 +515,7 @@ async function startServer() {
                 playerId: profile.playerId,
                 nickname: profile.nickname,
                 avatarId: profile.avatarId,
-                beans: profile.beans,
+                beans: sessionInitialScore,
               },
               baseScore: rcJoin.session.config.baseScore,
               isPrivate: true,
@@ -467,7 +545,7 @@ async function startServer() {
           playerId: profile.playerId,
           nickname: profile.nickname,
           avatarId: profile.avatarId,
-          beans: profile.beans,
+          beans: sessionInitialScore,
         });
 
         if (!res.ok || !res.room) {
@@ -582,19 +660,162 @@ async function startServer() {
     );
 
     socket.on(
+      'c2s_rc_commit_deal',
+      async (payload?: { roomId?: string }) => {
+        if (!securityGateway.consumeRateLimit(socket.id, 1)) return;
+        const profile = await ensurePlayerProfile(socket);
+        const room = roomManager.getRoomByPlayer(profile.playerId);
+        const targetRoomId = String(payload?.roomId || room?.roomId || '').trim();
+        if (!targetRoomId) return;
+
+        room?.triggerImmediateDeal?.();
+        const { capturedTotal, session } = roomCardEngine.captureEscrowOnFirstRound(targetRoomId);
+        const refreshedProfile = storageService.getUser(profile.playerId);
+        if (session) {
+          io.to(targetRoomId).emit('s2c_rc_session_sync', {
+            session,
+            action: 'escrow_captured',
+            capturedTotal,
+          });
+          socket.emit('s2c_rc_session_sync', {
+            session,
+            profile: refreshedProfile,
+            action: 'escrow_captured',
+            capturedTotal,
+          });
+        }
+        if (refreshedProfile) {
+          socket.emit('s2c_profile_updated', {
+            profile: refreshedProfile,
+            notice:
+              capturedTotal > 0
+                ? `首局正式发牌，已核销 ${capturedTotal} 张预冻房卡`
+                : '牌局已发牌开局',
+          });
+        }
+      }
+    );
+
+    socket.on(
+      'c2s_rc_rebuy',
+      async (payload: { roomId?: string; multiplier?: 1 | 2 }) => {
+        if (!securityGateway.consumeRateLimit(socket.id, 2)) return;
+        const profile = await ensurePlayerProfile(socket);
+        const room = roomManager.getRoomByPlayer(profile.playerId);
+        const targetRoomId = String(payload?.roomId || room?.roomId || '').trim();
+        if (!targetRoomId) {
+          socket.emit('s2c_action_error', { message: '当前不在有效牌桌内，无法补分' });
+          return;
+        }
+
+        const multiplier: 1 | 2 = Number(payload?.multiplier) === 2 ? 2 : 1;
+        const rebuyRes = roomCardEngine.rebuyPlayerScore({
+          roomId: targetRoomId,
+          playerId: profile.playerId,
+          multiplier,
+        });
+
+        if (!rebuyRes.ok) {
+          socket.emit('s2c_action_error', { message: rebuyRes.message });
+          return;
+        }
+
+        const newSeatScore =
+          room?.rebuySeatScore?.(profile.playerId, rebuyRes.addedScore) ??
+          rebuyRes.newTableScore;
+        const refreshedProfile = storageService.getUser(profile.playerId);
+
+        socket.emit('s2c_profile_updated', {
+          profile: refreshedProfile,
+          notice: rebuyRes.message,
+        });
+        socket.emit('s2c_rc_rebuy_success', {
+          roomId: targetRoomId,
+          cardCost: rebuyRes.cardCost,
+          addedScore: rebuyRes.addedScore,
+          newTableScore: newSeatScore,
+          newScore: newSeatScore,
+          message: rebuyRes.message,
+          session: rebuyRes.session,
+          profile: refreshedProfile,
+        });
+
+        if (rebuyRes.session) {
+          io.to(targetRoomId).emit('s2c_rc_session_sync', {
+            session: rebuyRes.session,
+            action: 'rebuy',
+            message: rebuyRes.message,
+          });
+        }
+        if (room) {
+          sendRoomSnapshot(room, profile.playerId);
+        }
+      }
+    );
+
+    socket.on(
       'c2s_quick_match',
-      async (payload: { gameType?: string; baseScore?: number; fillBots?: boolean; mode?: string }) => {
+      async (payload: {
+        gameType?: string;
+        baseScore?: number;
+        initialScore?: number;
+        fillBots?: boolean;
+        mode?: string;
+        totalRounds?: number;
+        payMode?: 'host' | 'aa' | 'winner';
+      }) => {
         if (!securityGateway.consumeRateLimit(socket.id, 2)) return;
         if (!securityGateway.checkActionIdempotency(socket.id, 'c2s_quick_match', payload)) return;
 
         const profile = await ensurePlayerProfile(socket);
-
-        const allowedScores = [100, 200, 300, 500, 800, 2000, 10000];
-        const baseScore = allowedScores.includes(Number(payload?.baseScore))
-          ? Number(payload.baseScore)
-          : 100;
+        const gameType = (payload?.gameType || 'ddz') as ServerRoomCardGameType;
         const fillBots = payload?.fillBots !== undefined ? Boolean(payload.fillBots) : true;
-        const gameType = payload?.gameType || 'ddz';
+        const totalRounds: ServerRoomCardRoundCap =
+          payload?.totalRounds === 16 ? 16 : payload?.totalRounds === 8 ? 8 : 4;
+        const payMode: ServerRoomCardPayMode = payload?.payMode || 'host';
+
+        const rawBase = Number(payload?.baseScore) || 100;
+        const defaultTierInitial =
+          Number(payload?.initialScore) > 0
+            ? Number(payload?.initialScore)
+            : rawBase >= 10000
+            ? 200000
+            : rawBase >= 2000
+            ? 50000
+            : rawBase >= 500
+            ? 10000
+            : rawBase >= 200
+            ? 5000
+            : 2000;
+
+        const stakeCheck = validateAndNormalizeServerStakes(rawBase, defaultTierInitial);
+        if (!stakeCheck.valid) {
+          socket.emit('s2c_action_error', {
+            message: stakeCheck.errorMessage || '场次底分与初始积分配置不合规',
+          });
+          return;
+        }
+
+        const baseScore = stakeCheck.baseScore;
+        const tierInitialScore = stakeCheck.initialScore;
+        const roomCardCost = stakeCheck.roomCardCost;
+
+        if (profile.roomCards < roomCardCost) {
+          socket.emit('s2c_action_error', {
+            message: `可用房卡不足（本场次准入需预冻 ${roomCardCost} 张房卡，当前可用 ${profile.roomCards} 张）`,
+          });
+          return;
+        }
+
+        const resolvedMode =
+          payload?.mode ||
+          (gameType === 'mahjong'
+            ? 'puer'
+            : gameType === 'niuniu'
+            ? 'qiangzhuang'
+            : gameType === 'laoyancai'
+            ? 'kunming'
+            : 'classic');
 
         const room = roomManager.quickMatch(
           gameType,
@@ -602,20 +823,58 @@ async function startServer() {
             playerId: profile.playerId,
             nickname: profile.nickname,
             avatarId: profile.avatarId,
-            beans: profile.beans,
+            beans: tierInitialScore,
           },
           baseScore,
           fillBots,
-          payload?.mode ||
-            (gameType === 'mahjong'
-              ? 'puer'
-              : gameType === 'niuniu'
-              ? 'qiangzhuang'
-              : gameType === 'laoyancai'
-              ? 'kunming'
-              : 'classic')
+          resolvedMode,
+          tierInitialScore
         );
 
+        // Two-Phase Escrow: Pre-freeze room cards on room entry; formally capture when Round 1 deals!
+        let rcSession = roomCardEngine.getSession(room.roomId);
+        if (!rcSession) {
+          const rcCreate = roomCardEngine.createSession({
+            roomId: room.roomId,
+            gameType,
+            subMode: resolvedMode,
+            subModeLabel: `底分${baseScore}场`,
+            baseScore,
+            initialScore: tierInitialScore,
+            totalRounds,
+            payMode,
+            fillBots,
+            hostProfile: profile,
+          });
+          if (!rcCreate.ok || !rcCreate.session) {
+            roomManager.leaveRoom(profile.playerId);
+            socket.emit('s2c_action_error', {
+              message: rcCreate.message || '房卡准入预冻结失败，请先补充房卡',
+            });
+            return;
+          }
+          rcSession = rcCreate.session;
+        } else {
+          const rcJoin = roomCardEngine.joinSession({
+            roomId: room.roomId,
+            playerProfile: profile,
+            fallbackGameType: gameType,
+          });
+          if (rcJoin.session) {
+            rcSession = rcJoin.session;
+          }
+        }
+
+        const updatedProfile = storageService.getUser(profile.playerId) ?? profile;
+        socket.emit('s2c_profile_updated', {
+          profile: updatedProfile,
+        });
+        if (rcSession) {
+          socket.emit('s2c_rc_session_sync', {
+            session: rcSession,
+            profile: updatedProfile,
+          });
+        }
         socket.emit('s2c_room_joined', { roomId: room.roomId, gameType: room.gameType });
         sendRoomSnapshot(room, profile.playerId);
         io.emit('s2c_rooms_updated', { rooms: roomManager.getPublicRooms() });
@@ -654,11 +913,18 @@ async function startServer() {
     socket.on('c2s_leave_room', async () => {
       if (!securityGateway.consumeRateLimit(socket.id, 1)) return;
       const profile = await ensurePlayerProfile(socket);
-      roomManager.leaveRoom(profile.playerId);
+      const { refundedNotice } = roomManager.leaveRoom(profile.playerId);
       const updatedProfile = storageService.getUser(profile.playerId);
+      if (refundedNotice && updatedProfile) {
+        socket.emit('s2c_profile_updated', {
+          profile: updatedProfile,
+          notice: refundedNotice,
+        });
+      }
       socket.emit('s2c_left_room', {
         profile: updatedProfile,
         rooms: roomManager.getPublicRooms(),
+        notice: refundedNotice,
       });
       io.emit('s2c_rooms_updated', { rooms: roomManager.getPublicRooms() });
     });

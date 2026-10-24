@@ -1,7 +1,5 @@
 import React, { useMemo } from 'react';
 import {
-  FourCardOddsAnalysis,
-  NiuniuDynamicPotOddsSnapshot,
   NiuniuHandResult,
   NiuniuPhase,
   NiuniuPlayerInfo,
@@ -20,8 +18,6 @@ export interface NiuniuActionBarProps {
   countdown: number;
   selfPlayer: NiuniuPlayerInfo | null;
   selectedCardIds?: number[];
-  fourCardOdds?: FourCardOddsAnalysis;
-  dynamicPotOdds?: NiuniuDynamicPotOddsSnapshot;
   onCallBanker: (multiplier: number) => void;
   onBet: (multiplier: number) => void;
   onAutoPartition: () => void;
@@ -33,6 +29,7 @@ export interface NiuniuActionBarProps {
 
 export const NiuniuActionBar: React.FC<NiuniuActionBarProps> = ({
   phase,
+  countdown,
   selfPlayer,
   selectedCardIds = [],
   onCallBanker,
@@ -40,7 +37,6 @@ export const NiuniuActionBar: React.FC<NiuniuActionBarProps> = ({
   onAutoPartition,
   onShowHand,
   onReady,
-  handResult,
 }) => {
   if (!selfPlayer) return null;
 
@@ -59,8 +55,8 @@ export const NiuniuActionBar: React.FC<NiuniuActionBarProps> = ({
     <div className="relative z-40 flex flex-col items-center justify-center gap-2">
       {/* Compact 3-Card Sum Bar (During Showdown only) */}
       {phase === 'SHOWDOWN' && !hasShown && (
-        <div className="flex items-center gap-2 rounded-lg border border-amber-300/35 bg-[#1a1009]/90 px-3.5 py-1 text-xs font-bold text-white shadow-lg backdrop-blur-xs">
-          <div className="flex items-center gap-1 font-mono tabular-nums">
+        <div className="flex items-center gap-1.5 rounded-full border border-amber-300/35 bg-[#1a1009]/90 px-3 py-1 text-xs font-bold text-white shadow-lg backdrop-blur-xs">
+          <div className="flex items-center gap-1 font-mono">
             {[0, 1, 2].map((slotIdx) => {
               const c = manualCalc.selectedCards[slotIdx];
               return (
@@ -89,14 +85,6 @@ export const NiuniuActionBar: React.FC<NiuniuActionBarProps> = ({
               {manualCalc.sum3}
             </div>
           </div>
-          {handResult && (
-            <>
-              <span aria-hidden="true" className="text-white/25">·</span>
-              <span className="text-[11px] font-black text-amber-300 whitespace-nowrap">
-                {handResult.name} (×{handResult.multiplier}倍)
-              </span>
-            </>
-          )}
         </div>
       )}
 
@@ -108,10 +96,11 @@ export const NiuniuActionBar: React.FC<NiuniuActionBarProps> = ({
             <button
               type="button"
               onClick={() => {
+                soundEngine.playTap(680);
                 hapticEngine.tap();
                 onCallBanker(0);
               }}
-              className="rounded-xl border border-white/30 bg-gradient-to-b from-neutral-700 to-neutral-900 px-5 py-2 text-xs sm:text-sm font-black text-white shadow-lg active:scale-95 cursor-pointer hover:brightness-110 whitespace-nowrap shrink-0"
+              className="rounded-full border border-white/30 bg-gradient-to-b from-neutral-700 to-neutral-900 px-5 py-2 text-xs sm:text-sm font-black text-white shadow-lg active:scale-95 cursor-pointer hover:brightness-110"
             >
               不抢
             </button>
@@ -121,10 +110,11 @@ export const NiuniuActionBar: React.FC<NiuniuActionBarProps> = ({
                 key={mult}
                 type="button"
                 onClick={() => {
+                  soundEngine.playTap(760 + mult * 40);
                   hapticEngine.tap();
                   onCallBanker(mult);
                 }}
-                className="rounded-xl border border-amber-200/80 bg-gradient-to-b from-[#ffe58f] via-[#f59e0b] to-[#d97706] px-5 py-2 text-xs sm:text-sm font-black text-[#240e03] shadow-lg active:scale-95 cursor-pointer hover:brightness-110 whitespace-nowrap shrink-0"
+                className="rounded-full border border-amber-200/80 bg-gradient-to-b from-[#ffe58f] via-[#f59e0b] to-[#d97706] px-5 py-2 text-xs sm:text-sm font-black text-[#240e03] shadow-lg active:scale-95 cursor-pointer hover:brightness-110"
               >
                 抢{mult}倍
               </button>
@@ -140,12 +130,13 @@ export const NiuniuActionBar: React.FC<NiuniuActionBarProps> = ({
                 key={mult}
                 type="button"
                 onClick={() => {
+                  soundEngine.playTap(750 + mult * 10);
                   hapticEngine.tap();
                   onBet(mult);
                 }}
-                className="rounded-xl border border-cyan-300/75 bg-gradient-to-b from-cyan-500 to-blue-800 px-5 py-2 font-mono text-xs sm:text-sm font-black text-white shadow-lg active:scale-95 cursor-pointer hover:brightness-110 whitespace-nowrap shrink-0 tabular-nums"
+                className="rounded-full border border-cyan-300/75 bg-gradient-to-b from-cyan-500 to-blue-800 px-5 py-2 font-mono text-xs sm:text-sm font-black text-white shadow-lg active:scale-95 cursor-pointer hover:brightness-110"
               >
-                下{mult}倍
+                {mult}倍
               </button>
             ))}
           </div>
@@ -153,8 +144,8 @@ export const NiuniuActionBar: React.FC<NiuniuActionBarProps> = ({
 
         {/* Phase 2: Betting (Dealer Waiting Prompt) */}
         {phase === 'BETTING' && isDealer && (
-          <div className="rounded-lg border border-amber-300/35 bg-black/60 px-5 py-1.5 text-xs font-bold text-amber-200 shadow-lg backdrop-blur-xs">
-            本局您为庄家 · 等待闲家选注
+          <div className="rounded-full border border-amber-300/35 bg-black/60 px-5 py-1.5 text-xs font-bold text-amber-200 shadow-lg backdrop-blur-xs">
+            等待闲家下注...
           </div>
         )}
 
@@ -168,7 +159,7 @@ export const NiuniuActionBar: React.FC<NiuniuActionBarProps> = ({
                 hapticEngine.selectCard();
                 onAutoPartition();
               }}
-              className="rounded-xl border border-emerald-300/80 bg-gradient-to-b from-emerald-500 to-teal-700 px-5 py-2 text-xs sm:text-sm font-black text-white shadow-lg active:scale-95 cursor-pointer hover:brightness-110 whitespace-nowrap shrink-0"
+              className="rounded-full border border-emerald-300/80 bg-gradient-to-b from-emerald-500 to-teal-700 px-5 py-2 text-xs sm:text-sm font-black text-white shadow-lg active:scale-95 cursor-pointer hover:brightness-110"
             >
               提示算牛
             </button>
@@ -176,12 +167,13 @@ export const NiuniuActionBar: React.FC<NiuniuActionBarProps> = ({
             <button
               type="button"
               onClick={() => {
+                soundEngine.playPowerChime(4);
                 hapticEngine.playCard();
                 onShowHand();
               }}
-              className="rounded-xl border-2 border-yellow-100 bg-gradient-to-b from-[#ffe58f] via-[#f59e0b] to-[#c2410c] px-6 py-2 text-xs sm:text-sm font-black text-[#240e03] shadow-xl active:scale-95 cursor-pointer hover:brightness-110 whitespace-nowrap shrink-0"
+              className="rounded-full border-2 border-yellow-100 bg-gradient-to-b from-[#ffe58f] via-[#f59e0b] to-[#c2410c] px-6 py-2 text-xs sm:text-sm font-black text-[#240e03] shadow-xl active:scale-95 cursor-pointer hover:brightness-110"
             >
-              亮牌摊开
+              亮牌
             </button>
           </div>
         )}
@@ -195,7 +187,7 @@ export const NiuniuActionBar: React.FC<NiuniuActionBarProps> = ({
               hapticEngine.tap();
               onReady();
             }}
-            className="rounded-xl border-2 border-amber-200 bg-gradient-to-b from-[#ffe58f] via-[#f59e0b] to-[#c2410c] px-7 py-2 text-sm font-black text-[#240e03] shadow-xl active:scale-95 cursor-pointer hover:brightness-110 whitespace-nowrap shrink-0"
+            className="rounded-full border-2 border-amber-200 bg-gradient-to-b from-[#ffe58f] via-[#f59e0b] to-[#c2410c] px-7 py-2 text-sm font-black text-[#240e03] shadow-xl active:scale-95 cursor-pointer hover:brightness-110"
           >
             准备开局
           </button>

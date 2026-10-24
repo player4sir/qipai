@@ -12,6 +12,7 @@ export interface ServerRoomCardConfig {
   subMode: string;
   subModeLabel: string;
   baseScore: number;
+  initialScore: number;
   totalRounds: ServerRoomCardRoundCap;
   payMode: ServerRoomCardPayMode;
   fillBots: boolean;
@@ -37,6 +38,8 @@ export interface ServerRoomCardPlayerStat {
   isHost: boolean;
   isBot: boolean;
   disconnected?: boolean;
+  initialScore: number;
+  currentScore: number;
   totalDelta: number;
   winCount: number;
   loseCount: number;
@@ -83,10 +86,10 @@ const SCORECARD_HMAC_SECRET =
 
 export const SERVER_GAME_LABELS: Record<ServerRoomCardGameType, string> = {
   ddz: '竞技斗地主',
-  mahjong: '普洱麻将',
+  mahjong: '国粹麻将',
   niuniu: '抢庄牛牛',
-  zhajinhua: '经典金花',
-  laoyancai: '云南捞腌菜',
+  zhajinhua: '经典三张牌',
+  laoyancai: '晋商捞腌菜',
 };
 
 export const SERVER_PAY_LABELS: Record<ServerRoomCardPayMode, string> = {
@@ -95,16 +98,90 @@ export const SERVER_PAY_LABELS: Record<ServerRoomCardPayMode, string> = {
   winner: '大赢家扣卡',
 };
 
+export function computeStakeTierCardCost(baseScore = 100, initialScore = 2000): number {
+  const cleanBase = Math.max(10, Math.round(Number(baseScore) || 100));
+  const cleanInit = Math.max(500, Math.round(Number(initialScore) || cleanBase * 20));
+  if (cleanBase >= 10000 || cleanInit >= 200000) return 8;
+  if (cleanBase >= 5000 || cleanInit >= 100000) return 6;
+  if (cleanBase >= 2000 || cleanInit >= 40000) return 4;
+  if (cleanBase >= 500 || cleanInit >= 10000) return 2;
+  return 1;
+}
+
+export function validateAndNormalizeServerStakes(
+  rawBaseScore?: unknown,
+  rawInitialScore?: unknown
+): {
+  valid: boolean;
+  baseScore: number;
+  initialScore: number;
+  roomCardCost: number;
+  errorMessage?: string;
+} {
+  const parsedBase = Math.round(Number(rawBaseScore) || 100);
+  const baseScore = Math.max(10, Math.min(50000, parsedBase));
+  const defaultInit =
+    baseScore >= 10000
+      ? 200000
+      : baseScore >= 2000
+      ? 50000
+      : baseScore >= 500
+      ? 10000
+      : Math.max(500, baseScore * 20);
+  const parsedInit =
+    Number(rawInitialScore) > 0 ? Math.round(Number(rawInitialScore)) : defaultInit;
+  const minRequiredInit = Math.max(500, baseScore * 10);
+
+  if (parsedBase < 10 || parsedBase > 50000) {
+    return {
+      valid: false,
+      baseScore,
+      initialScore: Math.max(minRequiredInit, parsedInit),
+      roomCardCost: computeStakeTierCardCost(baseScore, parsedInit),
+      errorMessage: '底分设置超出商业合规范围（10 ~ 50,000）',
+    };
+  }
+
+  if (parsedInit < minRequiredInit || parsedInit > 1000000) {
+    return {
+      valid: false,
+      baseScore,
+      initialScore: Math.min(1000000, Math.max(minRequiredInit, parsedInit)),
+      roomCardCost: computeStakeTierCardCost(baseScore, parsedInit),
+      errorMessage: `初始积分须不少于底分的 10 倍（≥ ${minRequiredInit.toLocaleString()}）且不超过 1,000,000`,
+    };
+  }
+
+  return {
+    valid: true,
+    baseScore,
+    initialScore: parsedInit,
+    roomCardCost: computeStakeTierCardCost(baseScore, parsedInit),
+  };
+}
+
 export function computeCommercialRoomCardCost(
   totalRounds: ServerRoomCardRoundCap,
-  payMode: ServerRoomCardPayMode
+  payMode: ServerRoomCardPayMode,
+  baseScore = 100,
+  initialScore = 2000,
+  isQuickMatch = false
 ): number {
-  if (payMode === 'aa') {
-    return totalRounds === 16 ? 2 : 1;
+  if (isQuickMatch) {
+    return computeStakeTierCardCost(baseScore, initialScore);
   }
-  if (totalRounds === 4) return 1;
-  if (totalRounds === 8) return 2;
-  return 4;
+  const stakeScale =
+    baseScore >= 10000 || initialScore >= 200000
+      ? 3
+      : baseScore >= 2000 || initialScore >= 50000
+      ? 2
+      : 1;
+  if (payMode === 'aa') {
+    const baseAa = totalRounds === 16 ? 2 : 1;
+    return baseAa * stakeScale;
+  }
+  const baseRoundCost = totalRounds === 4 ? 1 : totalRounds === 8 ? 2 : 4;
+  return baseRoundCost * stakeScale;
 }
 
 /**
@@ -209,10 +286,10 @@ export class RoomCardEngine {
       mahjong: 4,
       niuniu: 4,
       zhajinhua: 4,
-      laoyancai: 4,
+      laoyancai: 5,
     };
     const count = seatCountByGame[config.gameType] || 3;
-    const botNames = ['茶马雀神', '彩云金仙', '洱海钓客', '苍山剑客'];
+    const botNames = ['太原票号掌柜', '平遥镖局总镖头', '祁县茶庄东家', '榆次绸缎庄主'];
 
     const players: Record<string, ServerRoomCardPlayerStat> = {
       [hostSeatPlayerId]: {
@@ -222,6 +299,8 @@ export class RoomCardEngine {
         isHost: true,
         isBot: false,
         disconnected: false,
+        initialScore: config.initialScore,
+        currentScore: config.initialScore,
         totalDelta: 0,
         winCount: 0,
         loseCount: 0,
@@ -239,6 +318,8 @@ export class RoomCardEngine {
         isHost: false,
         isBot: true,
         disconnected: false,
+        initialScore: config.initialScore,
+        currentScore: config.initialScore,
         totalDelta: 0,
         winCount: 0,
         loseCount: 0,
@@ -260,10 +341,12 @@ export class RoomCardEngine {
     subMode: string;
     subModeLabel: string;
     baseScore: number;
+    initialScore?: number;
     totalRounds: ServerRoomCardRoundCap;
     payMode: ServerRoomCardPayMode;
     fillBots: boolean;
     hostProfile: UserProfile;
+    isQuickMatch?: boolean;
   }): {
     ok: boolean;
     message: string;
@@ -273,18 +356,43 @@ export class RoomCardEngine {
     const { hostProfile } = params;
     // Release any previous waiting session created by this host that hasn't started Round 1
     const prevSession = this.getSessionByPlayer(hostProfile.playerId);
-    if (prevSession && prevSession.config.roomId !== params.roomId && prevSession.roundHistory.length === 0) {
+    if (
+      prevSession &&
+      prevSession.config.roomId !== params.roomId &&
+      prevSession.roundHistory.length === 0 &&
+      prevSession.status === 'waiting_first_round'
+    ) {
       this.disbandOrSettleSession(prevSession.config.roomId, hostProfile.playerId);
     }
 
-    const cost = computeCommercialRoomCardCost(params.totalRounds, params.payMode);
+    const stakeValidation = validateAndNormalizeServerStakes(
+      params.baseScore,
+      params.initialScore
+    );
+    if (!stakeValidation.valid) {
+      return {
+        ok: false,
+        message: stakeValidation.errorMessage || '初始积分与底分配比不符合商业风控规范',
+      };
+    }
+
+    const resolvedBaseScore = stakeValidation.baseScore;
+    const resolvedInitialScore = stakeValidation.initialScore;
+
+    const cost = computeCommercialRoomCardCost(
+      params.totalRounds,
+      params.payMode,
+      resolvedBaseScore,
+      resolvedInitialScore,
+      Boolean(params.isQuickMatch)
+    );
     if (hostProfile.roomCards < cost) {
       return {
         ok: false,
         message:
           params.payMode === 'winner'
             ? `大赢家扣卡模式要求至少持有 ${cost} 张可用房卡方可建房`
-            : `可用房卡不足（本次需预冻结 ${cost} 张，当前可用 ${hostProfile.roomCards} 张）`,
+            : `可用房卡不足（本场准入需预冻结 ${cost} 张房卡，当前可用 ${hostProfile.roomCards} 张）`,
       };
     }
 
@@ -298,7 +406,7 @@ export class RoomCardEngine {
         cost,
         params.roomId,
         params.gameType,
-        `包间 #${params.roomId} 预冻结托管 (${SERVER_PAY_LABELS[params.payMode]})`
+        `包间 #${params.roomId} 入场预冻结 ${cost} 张房卡 (${SERVER_PAY_LABELS[params.payMode]} · 初始分 ${resolvedInitialScore.toLocaleString()})`
       );
       if (!freezeRes.ok) {
         return {
@@ -316,7 +424,8 @@ export class RoomCardEngine {
       gameType: params.gameType,
       subMode: params.subMode,
       subModeLabel: params.subModeLabel,
-      baseScore: params.baseScore,
+      baseScore: resolvedBaseScore,
+      initialScore: resolvedInitialScore,
       totalRounds: params.totalRounds,
       payMode: params.payMode,
       fillBots: params.fillBots,
@@ -361,8 +470,8 @@ export class RoomCardEngine {
       ok: true,
       message:
         escrowStatus === 'FROZEN'
-          ? `已预冻结 ${frozenCards} 张房卡（未开局解散将全额解冻退回）`
-          : `已通过大赢家房卡准入核验（终局由最高分大赢家扣减 ${cost} 张）`,
+          ? `已预冻结 ${frozenCards} 张房卡 · 初始积分 ${resolvedInitialScore.toLocaleString()}（首局发牌后正式扣除，未开牌退房全额退还）`
+          : `已通过大赢家房卡准入 · 初始积分 ${resolvedInitialScore.toLocaleString()}（终局由最高分大赢家扣减 ${cost} 张）`,
       session,
       updatedProfile,
     };
@@ -394,6 +503,7 @@ export class RoomCardEngine {
         subMode: 'classic',
         subModeLabel: '标准约局场',
         baseScore: 100,
+        initialScore: 2000,
         totalRounds: 8,
         payMode: 'aa',
         fillBots: true,
@@ -425,10 +535,22 @@ export class RoomCardEngine {
 
     const { config } = session;
     const neededCost =
-      config.payMode === 'aa' ? computeCommercialRoomCardCost(config.totalRounds, 'aa') : 0;
+      config.payMode === 'aa'
+        ? computeCommercialRoomCardCost(
+            config.totalRounds,
+            'aa',
+            config.baseScore,
+            config.initialScore
+          )
+        : 0;
     const minRequired =
       config.payMode === 'winner'
-        ? computeCommercialRoomCardCost(config.totalRounds, 'winner')
+        ? computeCommercialRoomCardCost(
+            config.totalRounds,
+            'winner',
+            config.baseScore,
+            config.initialScore
+          )
         : neededCost;
 
     if (playerProfile.roomCards < minRequired) {
@@ -476,6 +598,8 @@ export class RoomCardEngine {
       isHost: false,
       isBot: false,
       disconnected: false,
+      initialScore: config.initialScore,
+      currentScore: config.initialScore,
       totalDelta: 0,
       winCount: 0,
       loseCount: 0,
@@ -500,21 +624,25 @@ export class RoomCardEngine {
       ok: true,
       message:
         frozenCards > 0
-          ? `加入 #${roomId} 成功，已预冻结 ${frozenCards} 张AA房卡`
-          : `加入 #${roomId} 成功`,
+          ? `加入 #${roomId} 成功，已预冻结 ${frozenCards} 张AA房卡 · 初始积分 ${config.initialScore.toLocaleString()}`
+          : `加入 #${roomId} 成功 · 初始积分 ${config.initialScore.toLocaleString()}`,
       session,
       updatedProfile,
     };
   }
 
   /**
-   * Phase 2b (Capture): Triggered automatically when Round 1 starts/settles.
+   * Phase 2b (Capture / COMMIT_DEDUCT): Triggered automatically when Round 1 starts dealing or settles.
    * Converts all `FROZEN` escrow records into permanent `CAPTURED` deductions.
    */
-  public captureEscrowOnFirstRound(roomId: string): void {
+  public captureEscrowOnFirstRound(roomId: string): {
+    capturedTotal: number;
+    session: ServerRoomCardSessionState | null;
+  } {
     const session = this.sessions.get(roomId);
-    if (!session) return;
+    if (!session) return { capturedTotal: 0, session: null };
 
+    let capturedTotal = 0;
     for (const record of Object.values(session.escrowMap)) {
       if (record.status === 'FROZEN' && record.frozenCards > 0) {
         storageService.captureFrozenRoomCard(
@@ -522,8 +650,9 @@ export class RoomCardEngine {
           record.frozenCards,
           roomId,
           session.config.gameType,
-          `包间 #${roomId} 首局开牌正式划扣 ${record.frozenCards} 张房卡`
+          `包间 #${roomId} 首局发牌正式扣除 ${record.frozenCards} 张预冻结房卡`
         );
+        capturedTotal += record.frozenCards;
         record.capturedCards = record.frozenCards;
         record.frozenCards = 0;
         record.status = 'CAPTURED';
@@ -531,9 +660,106 @@ export class RoomCardEngine {
       }
     }
 
-    if (session.config.payMode !== 'winner') {
+    if (session.status === 'waiting_first_round') {
+      session.status = 'in_progress';
+    }
+    if (session.config.payMode !== 'winner' && capturedTotal > 0) {
       session.escrowState = 'CAPTURED';
     }
+    session.verification = this.signScorecardDigest(session);
+    return { capturedTotal, session };
+  }
+
+  /**
+   * Commercial Bankruptcy Protection Rebuy:
+   * Consumes room cards to replenish a player's table score (`1x` or `2x` initialScore).
+   */
+  public rebuyPlayerScore(params: {
+    roomId: string;
+    playerId: string;
+    multiplier?: 1 | 2;
+  }): {
+    ok: boolean;
+    message: string;
+    cardCost: number;
+    addedScore: number;
+    newTableScore: number;
+    session?: ServerRoomCardSessionState;
+    updatedProfile?: UserProfile | null;
+  } {
+    const cleanMult: 1 | 2 = params.multiplier === 2 ? 2 : 1;
+    const session =
+      this.sessions.get(params.roomId) ?? this.getSessionByPlayer(params.playerId);
+
+    const baseScore = session?.config.baseScore ?? 100;
+    const initialScore = session?.config.initialScore ?? Math.max(2000, baseScore * 20);
+    const gameType = session?.config.gameType ?? 'ddz';
+    const unitCardCost = computeStakeTierCardCost(baseScore, initialScore);
+    const cardCost = unitCardCost * cleanMult;
+    const addedScore = initialScore * cleanMult;
+
+    const user = storageService.getUser(params.playerId);
+    if (!user) {
+      return {
+        ok: false,
+        message: '未找到玩家账户信息',
+        cardCost,
+        addedScore,
+        newTableScore: 0,
+      };
+    }
+
+    if (user.roomCards < cardCost) {
+      return {
+        ok: false,
+        message: `可用房卡不足（本次补分需消耗 ${cardCost} 张房卡，当前可用 ${user.roomCards} 张）`,
+        cardCost,
+        addedScore,
+        newTableScore: 0,
+        updatedProfile: user,
+      };
+    }
+
+    const rebuyRes = storageService.rebuyTableScoreWithRoomCard(
+      params.playerId,
+      cardCost,
+      addedScore,
+      params.roomId,
+      gameType,
+      `包间 #${params.roomId} 消耗 ${cardCost} 张房卡补分 +${addedScore.toLocaleString()} 台面积分`
+    );
+
+    if (!rebuyRes.ok) {
+      return {
+        ok: false,
+        message: '房卡扣除失败，请先补充房卡',
+        cardCost,
+        addedScore,
+        newTableScore: 0,
+        updatedProfile: rebuyRes.profile,
+      };
+    }
+
+    let newTableScore = addedScore;
+    if (session) {
+      const stat = session.players[params.playerId];
+      if (stat) {
+        stat.initialScore += addedScore;
+        stat.currentScore = Math.max(0, stat.currentScore) + addedScore;
+        newTableScore = stat.currentScore;
+      }
+      session.verification = this.signScorecardDigest(session);
+    }
+
+    return {
+      ok: true,
+      message: `已消耗 ${cardCost} 张房卡补充 +${addedScore.toLocaleString()} 台面积分，祝您好运！`,
+      cardCost,
+      addedScore,
+      newTableScore,
+      session: session ?? undefined,
+      updatedProfile: rebuyRes.profile,
+    };
   }
 
   /**
@@ -608,6 +834,7 @@ export class RoomCardEngine {
       const stat = session.players[pid];
       if (!stat) continue;
       stat.totalDelta += delta;
+      stat.currentScore = stat.initialScore + stat.totalDelta;
       stat.roundsPlayed += 1;
       if (delta > 0) stat.winCount += 1;
       if (delta < 0) stat.loseCount += 1;

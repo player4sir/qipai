@@ -14,6 +14,12 @@ import { socketClient } from './shared/network/SocketClient';
 import { GameErrorBoundary } from './shared/ui/GameErrorBoundary';
 import { SharedTableHudOverlay } from './shared/ui/SharedTableHudOverlay';
 import {
+  RoomEntryManager,
+  RoomEntryRequest,
+  ConfirmedRoomEntryPayload,
+  EntryGameType,
+} from './shared/roomcard/RoomEntryManager';
+import {
   requestUniversalFullscreen,
   exitUniversalFullscreen,
   detectFullscreenCapabilities,
@@ -737,20 +743,22 @@ export const ResponsiveLayoutContainer: React.FC<{
 };
 
 export default function App() {
-  // Initialize login profile and active room state from localStorage so page refresh seamlessly restores session
+  // Initialize login profile from localStorage; always start in the Hall so pre-entry room card & score confirmation modal is never bypassed
   const [profile, setProfile] = useState<UserProfile | null>(() => loadPersistedProfile());
   const [rooms, setRooms] = useState<RoomSummary[]>([]);
   const [leaderboard, setLeaderboard] = useState<UserProfile[]>([]);
   const [matches, setMatches] = useState<MatchRecord[]>([]);
-  const [activeRoomId, setActiveRoomId] = useState<string | null>(
-    () => loadPersistedRoomState().roomId
-  );
-  const [activeRoomGameType, setActiveRoomGameType] = useState<string | null>(
-    () => loadPersistedRoomState().gameType
-  );
+  const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
+  const [activeRoomGameType, setActiveRoomGameType] = useState<string | null>(null);
+  const hasConfirmedEntryRef = useRef<boolean>(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [viewport, setViewport] = useState<ViewportMetrics>(() => computeViewportMetrics());
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  const [pendingRoomEntry, setPendingRoomEntry] = useState<RoomEntryRequest | null>(null);
+  const [activeEntryConfig, setActiveEntryConfig] = useState<{
+    baseScore: number;
+    initialScore: number;
+  }>({ baseScore: 100, initialScore: 2000 });
 
   // Sync profile changes to localStorage
   useEffect(() => {
@@ -765,6 +773,7 @@ export default function App() {
   }, [activeRoomId, activeRoomGameType]);
 
   const leaveCurrentRoom = useCallback(() => {
+    hasConfirmedEntryRef.current = false;
     setActiveRoomId((prevRoom) => {
       if (prevRoom) {
         socketClient.emit('c2s_leave_room');
@@ -870,36 +879,23 @@ export default function App() {
           setProfile(data.profile);
           savePersistedProfile(data.profile);
         }
-        const serverRooms: RoomSummary[] = Array.isArray(data.rooms) ? data.rooms : [];
         if (Array.isArray(data.rooms)) {
           setRooms(data.rooms);
         }
 
-        if (data.activeRoomId) {
-          // Server still holds player in their active room: restore & request latest table snapshot
+        if (data.activeRoomId && hasConfirmedEntryRef.current) {
+          // User already confirmed entry in this session and socket reconnected: restore snapshot
           setActiveRoomId(data.activeRoomId);
           if (data.activeGameType) {
             setActiveRoomGameType(data.activeGameType);
           }
           socketClient.emit('c2s_request_snapshot');
         } else {
-          // Check if localStorage had an active room before refresh that we can rejoin/recover
-          const persisted = loadPersistedRoomState();
-          if (persisted.roomId) {
-            const roomStillExists = serverRooms.some((r) => r.roomId === persisted.roomId);
-            if (roomStillExists) {
-              socketClient.emit('c2s_join_room', { roomId: persisted.roomId });
-            } else if (persisted.gameType) {
-              // Automatically recover session into the same game type so refresh never strands user
-              socketClient.emit('c2s_quick_match', {
-                gameType: persisted.gameType,
-                baseScore: 100,
-                fillBots: true,
-              });
-            } else {
-              leaveCurrentRoom();
-            }
+          // Never bypass the Hall pre-entry room card & score confirmation modal on initial load
+          if (data.activeRoomId) {
+            socketClient.emit('c2s_leave_room');
           }
+          savePersistedRoomState(null, null);
         }
         socketClient.emit('c2s_get_lobby_data');
       })
@@ -940,6 +936,7 @@ export default function App() {
     unsubs.push(
       socketClient.on('s2c_room_joined', (data) => {
         soundEngine.playTap(760);
+        hasConfirmedEntryRef.current = true;
         setActiveRoomId(data.roomId);
         if (data.gameType) {
           setActiveRoomGameType(data.gameType);
@@ -980,57 +977,81 @@ export default function App() {
   const handleQuickMatch = (
     baseScore: number,
     fillBots: boolean,
-    mode: DealMode = 'classic'
+    mode: DealMode = 'classic',
+    initialScore?: number
   ) => {
     soundEngine.playTap(720);
-    setActiveRoomGameType('ddz');
-    socketClient.emit('c2s_quick_match', { gameType: 'ddz', baseScore, fillBots, mode });
+    setPendingRoomEntry({
+      actionType: 'quick_match',
+      gameType: 'ddz',
+      baseScore,
+      initialScore,
+      mode,
+      fillBots,
+    });
   };
 
-  const handleQuickMatchMahjong = (baseScore = 100, mode = 'puer') => {
+  const handleQuickMatchMahjong = (
+    baseScore = 100,
+    mode = 'puer',
+    initialScore?: number
+  ) => {
     soundEngine.playTap(720);
-    setActiveRoomGameType('mahjong');
-    socketClient.emit('c2s_quick_match', {
+    setPendingRoomEntry({
+      actionType: 'quick_match',
       gameType: 'mahjong',
       baseScore,
-      fillBots: true,
+      initialScore,
       mode,
+      fillBots: true,
     });
   };
 
-  const handleQuickMatchNiuniu = (baseScore = 100, mode = 'qiangzhuang') => {
+  const handleQuickMatchNiuniu = (
+    baseScore = 100,
+    mode = 'qiangzhuang',
+    initialScore?: number
+  ) => {
     soundEngine.playTap(720);
-    setActiveRoomGameType('niuniu');
-    setActiveRoomId('room_niuniu_quick');
-    socketClient.emit('c2s_quick_match', {
+    setPendingRoomEntry({
+      actionType: 'quick_match',
       gameType: 'niuniu',
       baseScore,
-      fillBots: true,
+      initialScore,
       mode,
+      fillBots: true,
     });
   };
 
-  const handleQuickMatchZhajinhua = (baseScore = 100, mode = 'classic') => {
+  const handleQuickMatchZhajinhua = (
+    baseScore = 100,
+    mode = 'classic',
+    initialScore?: number
+  ) => {
     soundEngine.playTap(720);
-    setActiveRoomGameType('zhajinhua');
-    setActiveRoomId('room_zhajinhua_quick');
-    socketClient.emit('c2s_quick_match', {
+    setPendingRoomEntry({
+      actionType: 'quick_match',
       gameType: 'zhajinhua',
       baseScore,
-      fillBots: true,
+      initialScore,
       mode,
+      fillBots: true,
     });
   };
 
-  const handleQuickMatchLaoYanCai = (baseScore = 100, mode = 'kunming') => {
+  const handleQuickMatchLaoYanCai = (
+    baseScore = 100,
+    mode = 'kunming',
+    initialScore?: number
+  ) => {
     soundEngine.playTap(720);
-    setActiveRoomGameType('laoyancai');
-    setActiveRoomId('room_laoyancai_quick');
-    socketClient.emit('c2s_quick_match', {
+    setPendingRoomEntry({
+      actionType: 'quick_match',
       gameType: 'laoyancai',
       baseScore,
-      fillBots: true,
+      initialScore,
       mode,
+      fillBots: true,
     });
   };
 
@@ -1042,34 +1063,119 @@ export default function App() {
     gameType = 'ddz',
     totalRounds = 8,
     payMode: 'host' | 'aa' | 'winner' = 'host',
-    roomId?: string
+    roomId?: string,
+    initialScore = 2000
   ) => {
     soundEngine.playTap(720);
-    setActiveRoomGameType(gameType);
-    syncSubHallStageForGame(gameType);
-    if (roomId) {
-      setActiveRoomId(roomId);
-    }
-    socketClient.emit('c2s_create_room', {
-      roomId,
-      gameType,
+    const normalizedGame: EntryGameType =
+      gameType === 'mahjong' ||
+      gameType === 'niuniu' ||
+      gameType === 'zhajinhua' ||
+      gameType === 'laoyancai'
+        ? gameType
+        : 'ddz';
+    setPendingRoomEntry({
+      actionType: 'create_room',
+      gameType: normalizedGame,
       baseScore,
-      isPrivate,
-      autoFillBots,
+      initialScore,
       mode,
+      fillBots: autoFillBots,
+      isPrivate,
       totalRounds,
       payMode,
+      roomId,
     });
   };
 
   const handleJoinRoom = (roomId: string, gameType?: string) => {
     soundEngine.playTap(720);
-    if (gameType) {
-      setActiveRoomGameType(gameType);
-      syncSubHallStageForGame(gameType);
+    const matchedRoom = rooms.find((r) => r.roomId === roomId);
+    const rawGame = gameType || matchedRoom?.gameType || 'ddz';
+    const normalizedGame: EntryGameType =
+      rawGame === 'mahjong' ||
+      rawGame === 'niuniu' ||
+      rawGame === 'zhajinhua' ||
+      rawGame === 'laoyancai'
+        ? rawGame
+        : 'ddz';
+    setPendingRoomEntry({
+      actionType: 'join_room',
+      gameType: normalizedGame,
+      baseScore: matchedRoom?.baseScore || 100,
+      mode: matchedRoom?.mode,
+      roomId,
+    });
+  };
+
+  const handleExecuteConfirmedRoomEntry = (confirmed: ConfirmedRoomEntryPayload) => {
+    setPendingRoomEntry(null);
+    hasConfirmedEntryRef.current = true;
+    const {
+      actionType,
+      gameType,
+      mode,
+      baseScore,
+      initialScore,
+      totalRounds,
+      payMode,
+      fillBots,
+      isPrivate,
+      roomId,
+    } = confirmed;
+
+    setActiveEntryConfig({ baseScore, initialScore });
+    setActiveRoomGameType(gameType);
+    syncSubHallStageForGame(gameType);
+
+    if (actionType === 'join_room' && roomId) {
+      setActiveRoomId(roomId);
+      socketClient.emit('c2s_join_room', { roomId, gameType });
+      return;
     }
-    setActiveRoomId(roomId);
-    socketClient.emit('c2s_join_room', { roomId, gameType });
+
+    if (actionType === 'create_room') {
+      if (roomId) {
+        setActiveRoomId(roomId);
+      } else if (gameType === 'niuniu') {
+        setActiveRoomId('room_niuniu_quick');
+      } else if (gameType === 'zhajinhua') {
+        setActiveRoomId('room_zhajinhua_quick');
+      } else if (gameType === 'laoyancai') {
+        setActiveRoomId('room_laoyancai_quick');
+      }
+      socketClient.emit('c2s_create_room', {
+        roomId,
+        gameType,
+        baseScore,
+        initialScore,
+        isPrivate,
+        autoFillBots: fillBots,
+        mode,
+        totalRounds,
+        payMode,
+      });
+      return;
+    }
+
+    // quick_match
+    if (gameType === 'niuniu') {
+      setActiveRoomId('room_niuniu_quick');
+    } else if (gameType === 'zhajinhua') {
+      setActiveRoomId('room_zhajinhua_quick');
+    } else if (gameType === 'laoyancai') {
+      setActiveRoomId('room_laoyancai_quick');
+    }
+
+    socketClient.emit('c2s_quick_match', {
+      gameType,
+      baseScore,
+      initialScore,
+      fillBots,
+      mode,
+      totalRounds,
+      payMode,
+    });
   };
 
   const handleExchangeRoomCards = (cardCount: number, beanCost = 0) => {
@@ -1152,6 +1258,8 @@ export default function App() {
                 viewport={viewport}
                 isFullscreen={isFullscreen}
                 onToggleFullscreen={handleToggleFullscreen}
+                initialBaseScore={activeEntryConfig.baseScore}
+                initialTableScore={activeEntryConfig.initialScore}
                 onLeaveRoom={() => {
                   leaveCurrentRoom();
                   exitUniversalFullscreen().catch(() => {});
@@ -1176,6 +1284,8 @@ export default function App() {
                 viewport={viewport}
                 isFullscreen={isFullscreen}
                 onToggleFullscreen={handleToggleFullscreen}
+                initialBaseScore={activeEntryConfig.baseScore}
+                initialTableScore={activeEntryConfig.initialScore}
                 onLeaveRoom={() => {
                   leaveCurrentRoom();
                   exitUniversalFullscreen().catch(() => {});
@@ -1208,6 +1318,17 @@ export default function App() {
             onUpdateProfile={handleUpdateProfile}
           />
         )}
+
+        <RoomEntryManager
+          pendingRequest={pendingRoomEntry}
+          availableRoomCards={profile?.roomCards ?? 28}
+          onCancel={() => setPendingRoomEntry(null)}
+          onReplenishRoomCards={() => {
+            handleExchangeRoomCards(5, 0);
+            showNotice('已补充 +5 张通用房卡');
+          }}
+          onConfirmEntry={handleExecuteConfirmedRoomEntry}
+        />
       </ResponsiveLayoutContainer>
     </GameErrorBoundary>
   );

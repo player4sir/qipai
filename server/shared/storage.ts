@@ -27,6 +27,7 @@ export type BeanLedgerReason =
   | 'ROOM_ESCROW_RELEASE'
   | 'ROOM_ESCROW_CAPTURE'
   | 'ROOM_WINNER_SETTLE'
+  | 'ROOM_REBUY'
   | 'CARD_EXCHANGE'
   | 'ROUND_SETTLEMENT'
   | 'REALTIME_TRANSFER';
@@ -456,6 +457,41 @@ export class StorageService {
     });
     this.save();
     return u;
+  }
+
+  /**
+   * Commercial Bankruptcy Protection Rebuy:
+   * Deducts `cardCost` room cards from player's available balance and records the table score replenishment (`scoreAdded`) in the audit ledger.
+   */
+  rebuyTableScoreWithRoomCard(
+    playerId: string,
+    cardCost: number,
+    scoreAdded: number,
+    roomId: string,
+    gameType: string,
+    note?: string
+  ): { ok: boolean; profile: UserProfile | null } {
+    const u = this.data.users[playerId];
+    if (!u || cardCost <= 0 || u.roomCards < cardCost) {
+      return { ok: false, profile: u ?? null };
+    }
+    u.roomCards -= cardCost;
+    this.appendLedger({
+      playerId,
+      roomId,
+      gameType,
+      deltaBeans: 0,
+      balanceAfter: u.beans,
+      deltaRoomCards: -cardCost,
+      roomCardsAfter: u.roomCards,
+      frozenCardsAfter: u.frozenRoomCards ?? 0,
+      note:
+        note ??
+        `包间 #${roomId} 破产保护消耗 ${cardCost} 张房卡补分 +${scoreAdded.toLocaleString()} 台面积分`,
+      reason: 'ROOM_REBUY',
+    });
+    this.save();
+    return { ok: true, profile: u };
   }
 
   exchangeBeansForRoomCards(playerId: string, cardCount: number, _beanCost = 0): UserProfile | null {

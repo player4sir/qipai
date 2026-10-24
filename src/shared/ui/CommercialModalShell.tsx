@@ -1,151 +1,86 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { X } from 'lucide-react';
-import { soundEngine } from '../audio/SoundEngine';
-import { hapticEngine } from '../haptics/HapticEngine';
-
-export type ModalSizePreset = 'sm' | 'md' | 'lg' | 'xl';
 
 export interface CommercialModalShellProps {
-  open?: boolean;
-  title: React.ReactNode;
-  subtitle?: React.ReactNode;
+  title: string;
+  subtitle?: string;
   icon?: React.ReactNode;
-  headerExtra?: React.ReactNode;
-  headerActions?: React.ReactNode;
-  footer?: React.ReactNode;
-  size?: ModalSizePreset;
-  portalMode?: 'fixed' | 'stage';
-  zIndexClass?: string;
+  size?: 'sm' | 'md' | 'lg' | 'xl';
+  portalMode?: 'stage' | 'screen';
   closeOnBackdrop?: boolean;
-  hideCloseButton?: boolean;
-  bodyClassName?: string;
   onClose: () => void;
+  headerExtra?: React.ReactNode;
+  footer?: React.ReactNode;
   children: React.ReactNode;
 }
 
-const FIXED_SIZE_CLASSES: Record<ModalSizePreset, string> = {
-  sm: 'w-[min(92vw,380px)] max-h-[min(90dvh,440px)]',
-  md: 'w-[min(92vw,460px)] max-h-[min(90dvh,500px)]',
-  lg: 'w-[min(94vw,560px)] max-h-[min(92dvh,540px)]',
-  xl: 'w-[min(94vw,640px)] max-h-[min(92dvh,580px)]',
+const SIZE_CLASSES: Record<NonNullable<CommercialModalShellProps['size']>, string> = {
+  sm: 'max-w-[440px]',
+  md: 'max-w-[560px]',
+  lg: 'max-w-[740px]',
+  xl: 'max-w-[920px]',
 };
 
-const STAGE_SIZE_CLASSES: Record<ModalSizePreset, string> = {
-  sm: 'w-[380px] max-w-[90%] max-h-[84%]',
-  md: 'w-[460px] max-w-[92%] max-h-[86%]',
-  lg: 'w-[560px] max-w-[92%] max-h-[88%]',
-  xl: 'w-[640px] max-w-[94%] max-h-[90%]',
-};
-
-/**
- * Minimalist High-Contrast Commercial Light Modal Shell
- * - Pure white & slate high-contrast surface with zero ornamental clutter.
- * - Dynamic viewport & safe-area adaptation for mobile portrait and landscape screens.
- * - Backdrop strictly blocks click-through; closing is handled by the dedicated top-right Close Button (×).
- */
 export const CommercialModalShell: React.FC<CommercialModalShellProps> = ({
-  open = true,
   title,
   subtitle,
-  headerExtra,
-  headerActions,
-  footer,
+  icon,
   size = 'md',
-  portalMode = 'fixed',
-  zIndexClass = 'z-[90]',
-  closeOnBackdrop = false,
-  hideCloseButton = false,
-  bodyClassName = '',
+  closeOnBackdrop = true,
   onClose,
+  headerExtra,
+  footer,
   children,
 }) => {
-  useEffect(() => {
-    if (!open) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !hideCloseButton) {
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [open, onClose, hideCloseButton]);
-
-  if (!open) return null;
-
-  const handleCloseClick = () => {
-    soundEngine.playTap(640);
-    hapticEngine.tap();
-    onClose();
-  };
-
-  const isStage = portalMode === 'stage';
-  const positionClass = isStage ? 'absolute inset-0' : 'fixed inset-0';
-  const boxSizingClass = isStage
-    ? STAGE_SIZE_CLASSES[size]
-    : FIXED_SIZE_CLASSES[size];
-
   return (
     <div
-      className={`${positionClass} ${zIndexClass} pointer-events-auto flex items-center justify-center bg-slate-950/55 p-2.5 sm:p-4 backdrop-blur-[2px] select-none`}
-      style={
-        isStage
-          ? undefined
-          : {
-              paddingTop: 'max(0.5rem, env(safe-area-inset-top))',
-              paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))',
-              paddingLeft: 'max(0.5rem, env(safe-area-inset-left))',
-              paddingRight: 'max(0.5rem, env(safe-area-inset-right))',
-            }
-      }
-      onClick={(e) => {
-        e.stopPropagation();
-        if (closeOnBackdrop) handleCloseClick();
-      }}
+      className="fixed inset-0 z-[120] flex items-center justify-center bg-black/75 backdrop-blur-md p-4 select-none"
+      onClick={closeOnBackdrop ? onClose : undefined}
     >
       <div
-        className={`relative flex ${boxSizingClass} shrink-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-[0_20px_50px_rgba(15,23,42,0.25)]`}
+        className={`relative w-full ${SIZE_CLASSES[size]} max-h-[88vh] flex flex-col rounded-2xl bg-gradient-to-b from-[#172234] to-[#0d1522] border border-[#f3c86b]/25 shadow-[0_24px_64px_rgba(0,0,0,0.85)] overflow-hidden text-[#f5efe2]`}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* High-Contrast Minimal Header */}
-        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 py-2.5">
-          <div className="min-w-0">
-            <div className="truncate text-[15px] font-black tracking-tight text-slate-900">
-              {title}
-            </div>
-            {subtitle && (
-              <div className="truncate text-[11px] font-medium text-slate-500">
-                {subtitle}
+        {/* Top gold hairline */}
+        <div className="h-[2px] w-full bg-gradient-to-r from-transparent via-[#f3c86b]/70 to-transparent" />
+
+        {/* Header */}
+        <div className="px-5 py-3.5 border-b border-white/10 flex items-center justify-between gap-3 shrink-0 bg-white/[0.02]">
+          <div className="flex items-center gap-3 min-w-0">
+            {icon && (
+              <div className="w-9 h-9 rounded-xl bg-[#f3c86b]/12 border border-[#f3c86b]/30 flex items-center justify-center shrink-0">
+                {icon}
               </div>
             )}
+            <div className="min-w-0">
+              <h3 className="text-base sm:text-lg font-black tracking-wide text-[#f5efe2] truncate">
+                {title}
+              </h3>
+              {subtitle && (
+                <p className="text-[11px] text-[#9ec2b8]/85 truncate mt-0.5">{subtitle}</p>
+              )}
+            </div>
           </div>
 
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             {headerExtra}
-            {headerActions}
-            {!hideCloseButton && (
-              <button
-                type="button"
-                onClick={handleCloseClick}
-                title="关闭"
-                aria-label="关闭"
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 active:scale-95 cursor-pointer"
-              >
-                <X className="h-4 w-4 stroke-[2.5]" />
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="关闭弹窗"
+              className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/15 border border-white/10 flex items-center justify-center text-white/70 hover:text-white transition-colors cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
         </div>
 
-        {/* Adaptive Scrollable Body */}
-        <div
-          className={`flex-1 min-h-0 overflow-y-auto overscroll-contain p-3 sm:p-4 ${bodyClassName}`}
-        >
-          {children}
-        </div>
+        {/* Scrollable Content */}
+        <div className="p-5 overflow-y-auto flex-1 min-h-0">{children}</div>
 
         {/* Optional Footer */}
         {footer && (
-          <div className="shrink-0 border-t border-slate-200 bg-slate-50 px-4 py-2.5">
+          <div className="px-5 py-3 border-t border-white/10 bg-black/30 shrink-0">
             {footer}
           </div>
         )}

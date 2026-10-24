@@ -25,6 +25,7 @@ export interface RoomSummary {
   mode?: string;
   hostId: string;
   baseScore: number;
+  initialScore?: number;
   isPrivate: boolean;
   status: string;
   playerCount: number;
@@ -38,6 +39,7 @@ export interface IGameRoom {
   mode?: string;
   hostId: string;
   baseScore: number;
+  initialScore?: number;
   isPrivate: boolean;
   status: string;
   maxPlayers: number;
@@ -51,6 +53,8 @@ export interface IGameRoom {
   setPlayerReady(playerId: string, ready?: boolean): void;
   addBotPlayer(): boolean;
   replaceBotWithHuman?(player: { playerId: string; nickname: string; avatarId: string; beans: number }): boolean;
+  rebuySeatScore?(playerId: string, addedScore: number): number;
+  triggerImmediateDeal?(): void;
   handlePlayerDisconnect(playerId: string): void;
   handlePlayerReconnect(playerId: string): void;
   handleClientEvent(playerId: string, event: string, payload: unknown): void;
@@ -62,6 +66,7 @@ export type RoomFactory = (options: {
   roomId: string;
   hostId: string;
   baseScore: number;
+  initialScore?: number;
   isPrivate: boolean;
   mode?: string;
   connectionManager: ConnectionManager;
@@ -123,6 +128,7 @@ export class RoomManager {
     gameType: string;
     hostPlayer: { playerId: string; nickname: string; avatarId: string; beans: number };
     baseScore: number;
+    initialScore?: number;
     isPrivate: boolean;
     mode?: string;
   }): IGameRoom {
@@ -142,10 +148,18 @@ export class RoomManager {
       !this.rooms.has(options.preferredRoomId)
         ? options.preferredRoomId
         : this.generateRoomId();
+    const resolvedInitialScore =
+      options.initialScore && options.initialScore > 0
+        ? options.initialScore
+        : options.hostPlayer.beans > 0
+        ? options.hostPlayer.beans
+        : Math.max(2000, options.baseScore * 20);
+
     const room = factory({
       roomId,
       hostId: options.hostPlayer.playerId,
       baseScore: options.baseScore,
+      initialScore: resolvedInitialScore,
       isPrivate: options.isPrivate,
       mode: options.mode,
       connectionManager: this.connectionManager,
@@ -226,15 +240,19 @@ export class RoomManager {
     player: { playerId: string; nickname: string; avatarId: string; beans: number },
     baseScore = 100,
     fillBotsImmediately = true,
-    mode?: string
+    mode?: string,
+    initialScore?: number
   ): IGameRoom {
     const existing = this.getRoomByPlayer(player.playerId);
     if (existing) {
       this.leaveRoom(player.playerId);
     }
 
+    const resolvedInitialScore =
+      initialScore && initialScore > 0 ? initialScore : player.beans;
+
     // 1. Smart Human Matchmaking Window:
-    // Prefer matching into an existing public room with matching gameType, baseScore, and mode
+    // Prefer matching into an existing public room with matching gameType, baseScore, initialScore, and mode
     // that is either waiting for players OR has replaceable AI bots between rounds.
     for (const room of this.rooms.values()) {
       const isWaitingState =
@@ -249,7 +267,9 @@ export class RoomManager {
       if (
         room.gameType === gameType &&
         !room.isPrivate &&
+        !room.isEmptyOfHumans() &&
         room.baseScore === baseScore &&
+        (!room.initialScore || room.initialScore === resolvedInitialScore) &&
         (!mode || !room.mode || room.mode === mode) &&
         isWaitingState &&
         hasOpenOrBotSeat
@@ -272,6 +292,7 @@ export class RoomManager {
       gameType,
       hostPlayer: player,
       baseScore,
+      initialScore: resolvedInitialScore,
       isPrivate: false,
       mode,
     });
@@ -286,31 +307,45 @@ export class RoomManager {
     return newRoom;
   }
 
-  leaveRoom(playerId: string): void {
+  leaveRoom(playerId: string): { refundedNotice?: string } {
     const roomId = this.playerToRoom.get(playerId);
-    if (!roomId) return;
+    if (!roomId) return {};
 
     const room = this.rooms.get(roomId);
     this.playerToRoom.delete(playerId);
     this.unbindSocketRoom(playerId, roomId);
 
+    const beforeSession = roomCardEngine.getSession(roomId);
+    const wasWaitingFirstRound =
+      beforeSession &&
+      beforeSession.status === 'waiting_first_round' &&
+      beforeSession.roundHistory.length === 0;
+
     roomCardEngine.handlePlayerLeaveOrDisconnect(roomId, playerId, false);
 
-    if (!room) return;
+    if (!room) return {};
     room.removePlayer(playerId);
 
+    let refundedNotice: string | undefined;
     if (room.isEmptyOfHumans()) {
       const rcSession = roomCardEngine.getSession(roomId);
       if (rcSession && rcSession.roundHistory.length === 0) {
-        roomCardEngine.disbandOrSettleSession(roomId, playerId);
+        const disbandRes = roomCardEngine.disbandOrSettleSession(roomId, playerId);
+        if (disbandRes.action === 'refunded') {
+          refundedNotice = disbandRes.message;
+        }
       }
       room.destroy();
       this.rooms.delete(roomId);
       this.roomLastActiveAt.delete(roomId);
       void redisClient.del(`room:${roomId}`);
     } else {
+      if (wasWaitingFirstRound) {
+        refundedNotice = '首局尚未发牌，已为您全额退还预冻房卡';
+      }
       void this.syncRoomSnapshotToRedis(room);
     }
+    return { refundedNotice };
   }
 
   getRoomByPlayer(playerId: string): IGameRoom | undefined {

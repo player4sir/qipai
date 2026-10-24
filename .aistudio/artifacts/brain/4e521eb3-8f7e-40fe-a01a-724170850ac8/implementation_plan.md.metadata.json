@@ -1,6 +1,6 @@
 {
-  "summary":  "Full-project optimization plan covering multi-game Friend Room creation & invite copy across all 5 games, Bean Ledger & per-game analytics in the Match Records Center, unified Table HUD with real-time RTT latency indicator, AI Trusteeship overlay banner & quick-chat/emote system across all tables, sub-hall navigation memory on room exit, idle chunk prefetching, and a global error boundary.",
-  "updatedAt":  "2026-10-23T16:49:29.081360805Z",
+  "summary":  "将商业化房卡与初始积分/底分配置实际对接至五大游戏场景（普洱麻将、斗地主、抢庄斗牛、经典金花、云南捞腌菜），移除牌桌内多余的悬浮横幅与顶栏药丸，确保全员按所设初始分同步开局、按底分×倍数实时增减台面分，并仅在局间积分低于底分时按需弹出简洁房卡补分面板。",
+  "updatedAt":  "2026-10-24T19:44:24.152215199Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

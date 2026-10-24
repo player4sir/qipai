@@ -1,5 +1,3 @@
-export type Suit = 'spade' | 'heart' | 'club' | 'diamond' | null;
-
 export type Rank =
   | '3'
   | '4'
@@ -17,22 +15,32 @@ export type Rank =
   | 'small_joker'
   | 'big_joker';
 
+export type Suit = 'spade' | 'heart' | 'club' | 'diamond' | null;
+
 export interface CardData {
   id: string;
-  suit: Suit;
   rank: Rank;
+  suit: Suit;
   value: number;
   isWild?: boolean;
+  mappedRank?: Rank;
 }
 
-export type DealMode =
-  | 'classic'
-  | 'no_shuffle'
-  | 'laizi'
-  | 'tiandi_laizi'
-  | 'swap_three';
+export type DdzPhase =
+  | 'WAITING'
+  | 'DEALING'
+  | 'SWAPPING'
+  | 'BIDDING'
+  | 'GRABBING'
+  | 'LANDLORD_REVEAL'
+  | 'DOUBLING'
+  | 'PLAYING'
+  | 'SETTLEMENT';
 
+export type DealMode = 'classic' | 'no_shuffle' | 'laizi' | 'tiandi_laizi' | 'swap_three';
 export type SwapDirection = 'clockwise' | 'counter_clockwise';
+export type HandSortMode = 'rank' | 'count';
+export type PropType = 'flower' | 'bomb_cup' | 'tea' | 'like' | 'ingot';
 
 export type RoomTier = 'rookie' | 'primary' | 'middle' | 'high';
 
@@ -42,6 +50,8 @@ export interface RoomTierConfig {
   badge: string;
   baseScore: number;
   minBeans: number;
+  roomCardCost?: number;
+  initialScore?: number;
   maxMultiplier: number;
   fee: number;
   accentColor: string;
@@ -50,69 +60,60 @@ export interface RoomTierConfig {
 export const ROOM_TIER_CONFIGS: RoomTierConfig[] = [
   {
     tier: 'rookie',
-    name: '新手场',
-    badge: '轻松入门',
+    name: '新手积分房',
+    badge: '1卡准入 · 2000初始分',
     baseScore: 100,
-    minBeans: 1000,
+    minBeans: 1,
+    roomCardCost: 1,
+    initialScore: 2000,
     maxMultiplier: 32,
-    fee: 30,
-    accentColor: 'emerald',
+    fee: 0,
+    accentColor: 'from-emerald-500 to-teal-700',
   },
   {
     tier: 'primary',
-    name: '初级场',
-    badge: '热门竞技',
-    baseScore: 300,
-    minBeans: 3000,
+    name: '进阶竞技房',
+    badge: '2卡准入 · 10000初始分',
+    baseScore: 500,
+    minBeans: 2,
+    roomCardCost: 2,
+    initialScore: 10000,
     maxMultiplier: 64,
-    fee: 90,
-    accentColor: 'sky',
+    fee: 0,
+    accentColor: 'from-blue-500 to-indigo-700',
   },
   {
     tier: 'middle',
-    name: '中级场',
-    badge: '高手切磋',
-    baseScore: 800,
-    minBeans: 8000,
+    name: '精英尊享房',
+    badge: '4卡准入 · 50000初始分',
+    baseScore: 2000,
+    minBeans: 4,
+    roomCardCost: 4,
+    initialScore: 50000,
     maxMultiplier: 128,
-    fee: 240,
-    accentColor: 'amber',
+    fee: 0,
+    accentColor: 'from-purple-500 to-violet-800',
   },
   {
     tier: 'high',
-    name: '高级场',
-    badge: '巅峰封神',
-    baseScore: 2000,
-    minBeans: 20000,
+    name: '宗师巅峰房',
+    badge: '8卡准入 · 200000初始分',
+    baseScore: 10000,
+    minBeans: 8,
+    roomCardCost: 8,
+    initialScore: 200000,
     maxMultiplier: 256,
-    fee: 600,
-    accentColor: 'rose',
+    fee: 0,
+    accentColor: 'from-amber-500 to-red-700',
   },
 ];
 
 export function getRoomTierByBaseScore(baseScore: number): RoomTierConfig {
-  const exact = ROOM_TIER_CONFIGS.find((c) => c.baseScore === baseScore);
-  if (exact) return exact;
-  if (baseScore >= 1500) return ROOM_TIER_CONFIGS[3];
-  if (baseScore >= 500) return ROOM_TIER_CONFIGS[2];
-  if (baseScore >= 200) return ROOM_TIER_CONFIGS[1];
+  if (baseScore >= 10000) return ROOM_TIER_CONFIGS[3];
+  if (baseScore >= 2000) return ROOM_TIER_CONFIGS[2];
+  if (baseScore >= 500) return ROOM_TIER_CONFIGS[1];
   return ROOM_TIER_CONFIGS[0];
 }
-
-export type HandSortMode = 'rank' | 'count';
-
-export type DdzPhase =
-  | 'WAITING'
-  | 'DEALING'
-  | 'BIDDING'
-  | 'GRABBING'
-  | 'LANDLORD_REVEAL'
-  | 'SWAPPING'
-  | 'DOUBLING'
-  | 'PLAYING'
-  | 'SETTLEMENT';
-
-export type PropType = 'flower' | 'bomb_cup' | 'tea' | 'like' | 'ingot';
 
 export interface SeatPlayerInfo {
   playerId: string;
@@ -120,13 +121,13 @@ export interface SeatPlayerInfo {
   avatarId: string;
   seatIndex: number;
   beans: number;
+  initialScore?: number;
   ready: boolean;
   isBot: boolean;
   disconnected: boolean;
-  trusteeship?: boolean;
+  trusteeship: boolean;
+  doubleFactor?: 1 | 2 | 4;
 }
-
-export type TablePlayerInfo = SeatPlayerInfo;
 
 export interface ChatBubbleInfo {
   id: string;
@@ -135,7 +136,7 @@ export interface ChatBubbleInfo {
   emoji?: string;
 }
 
-export interface SeatActionInfo {
+export interface SeatActionRecord {
   seat: number;
   type:
     | 'call'
@@ -199,44 +200,6 @@ export interface MatchReplayRecord {
   steps: ReplayStep[];
 }
 
-export interface GameSnapshotPayload {
-  roomId: string;
-  dealMode?: DealMode;
-  wildRanks?: Rank[];
-  baseScore: number;
-  maxMultiplier?: number;
-  isPrivate: boolean;
-  hostId: string;
-  phase: DdzPhase;
-  players: Array<SeatPlayerInfo | null>;
-  mySeat: number;
-  myCards: CardData[];
-  othersCount: Record<string, number>;
-  landlordId: string | null;
-  landlordSeat: number | null;
-  landlordCards: CardData[];
-  bottomCardsTag?: string | null;
-  multiplier: number;
-  currentPlayerId: string | null;
-  currentSeat: number;
-  timeoutAt: number;
-  serverTime: number;
-  isFreeLead: boolean;
-  lastPlayed: {
-    playerId: string;
-    seatIndex: number;
-    cards: CardData[];
-    patternLabel: string;
-  } | null;
-  seatLastActions: SeatActionInfo[];
-  cardRecorder?: Record<Rank, number>;
-  swapDirection?: SwapDirection;
-  swappedInCardIds?: string[];
-  swapSubmittedSeats?: number[];
-}
-
-export type DdzSnapshot = GameSnapshotPayload;
-
 export interface SettlementData {
   matchId?: string;
   winnerId: string;
@@ -244,7 +207,7 @@ export interface SettlementData {
   isLandlordWin: boolean;
   baseScore: number;
   grabMultiplier: number;
-  doubleMultiplier?: number;
+  doubleMultiplier: number;
   bombMultiplier: number;
   springMultiplier: number;
   totalMultiplier: number;
@@ -258,4 +221,33 @@ export interface SettlementData {
   remainingHands: Record<string, CardData[]>;
   wildRanks?: Rank[];
   replay?: MatchReplayRecord;
+}
+
+export interface GameSnapshotPayload {
+  roomId: string;
+  dealMode: DealMode;
+  wildRanks?: Rank[];
+  baseScore: number;
+  maxMultiplier?: number;
+  isPrivate: boolean;
+  hostId: string;
+  phase: DdzPhase;
+  players: Array<SeatPlayerInfo | null>;
+  mySeat: number;
+  currentSeat: number;
+  timeoutAt: number;
+  serverTime?: number;
+  isFreeLead: boolean;
+  landlordId: string | null;
+  landlordSeat: number | null;
+  multiplier: number;
+  myCards?: CardData[];
+  othersCount?: Record<string, number>;
+  landlordCards?: CardData[];
+  bottomCardsTag?: string | null;
+  cardRecorder?: Record<Rank, number>;
+  seatLastActions?: SeatActionRecord[];
+  swapDirection?: SwapDirection;
+  swappedInCardIds?: string[];
+  swapSubmittedSeats?: number[];
 }

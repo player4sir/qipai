@@ -1,678 +1,604 @@
-import React, { useEffect, useState } from 'react';
-import type { RoomSummary } from '../../HallView';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Delete, X } from 'lucide-react';
 import { soundEngine } from '../../../shared/audio/SoundEngine';
-import { CommercialModalShell } from '../../../shared/ui/CommercialModalShell';
+import { hapticEngine } from '../../../shared/haptics/HapticEngine';
 import {
-  RoomCardGameType,
+  CUSTOM_STAKES_LIMITS,
   RoomCardPayMode,
-  RoomCardRoundCap,
-  GAME_TYPE_LABELS,
-  PAY_MODE_LABELS,
-  calculateRoomCardCost,
-  roomCardSessionHub,
-  useRoomCardSession,
-} from '../../../shared/control/RoomCardSessionHub';
+  RoomRoundCount,
+  validateCustomStakes,
+} from '../../../shared/roomcard/RoomCardSystem';
 
-export interface CreateRoomCardOptions {
-  roomId: string;
-  gameType: RoomCardGameType;
-  subMode: string;
-  subModeLabel: string;
-  baseScore: number;
-  totalRounds: RoomCardRoundCap;
-  payMode: RoomCardPayMode;
-  autoFillBots: boolean;
-}
+export type SupportedGameType = 'ddz' | 'mahjong' | 'niuniu' | 'zhajinhua' | 'laoyancai';
 
-interface FriendRoomModalProps {
-  open: boolean;
-  initialGameType?: RoomCardGameType;
-  roomCards: number;
-  rooms: RoomSummary[];
-  hostId?: string;
-  hostName?: string;
+export interface FriendRoomModalProps {
   onClose: () => void;
-  onCreateRoom: (opts: CreateRoomCardOptions) => void;
-  onJoinRoom: (roomId: string, gameType?: RoomCardGameType) => void;
-  onOpenRoomCardCenter?: () => void;
+  onJoinRoom: (roomId: string) => void;
+  onCreateRoom: (
+    baseScore: number,
+    isPrivate: boolean,
+    autoFillBots: boolean,
+    mode?: string,
+    gameType?: SupportedGameType,
+    totalRounds?: number,
+    payMode?: 'host' | 'aa' | 'winner',
+    roomId?: string,
+    initialScore?: number
+  ) => void;
+  initialGameType?: SupportedGameType;
+  initialMode?: string;
+  initialBaseScore?: number;
 }
 
-const GAME_OPTIONS: Array<{
-  id: RoomCardGameType;
+interface HostGameConfigSpec {
+  id: SupportedGameType;
   label: string;
-  subModes: Array<{ id: string; label: string }>;
-  baseScores: number[];
-}> = [
-  {
-    id: 'ddz',
-    label: '斗地主',
-    subModes: [
-      { id: 'classic', label: '经典叫抢' },
-      { id: 'wild', label: '百变癞子' },
-      { id: 'no_shuffle', label: '不洗牌' },
-    ],
-    baseScores: [100, 300, 800, 2000],
-  },
+  modeRowLabel: string;
+  modes: Array<{ id: string; label: string }>;
+  capRowLabel: string;
+  capOptions: string[];
+  rounds: Array<{ count: RoomRoundCount; label: string; cards: number }>;
+}
+
+const HOST_GAME_SPECS: HostGameConfigSpec[] = [
   {
     id: 'mahjong',
     label: '普洱麻将',
-    subModes: [
-      { id: 'xzdd', label: '血战到底' },
-      { id: 'xlch', label: '血流成河' },
-      { id: 'classic', label: '推倒胡' },
+    modeRowLabel: '麻将玩法',
+    modes: [
+      { id: 'puer', label: '云南普洱' },
+      { id: 'hongzhong', label: '红中血流' },
+      { id: 'xuezhan', label: '血战到底' },
+      { id: 'tuidaohu', label: '推倒胡' },
     ],
-    baseScores: [100, 200, 500, 2000],
+    capRowLabel: '番数封顶',
+    capOptions: ['32番封顶', '64番封顶', '不设封顶'],
+    rounds: [
+      { count: 4, label: '4局 (1房卡)', cards: 1 },
+      { count: 8, label: '8局 (2房卡)', cards: 2 },
+      { count: 16, label: '16局 (4房卡)', cards: 4 },
+    ],
+  },
+  {
+    id: 'ddz',
+    label: '斗地主',
+    modeRowLabel: '叫牌玩法',
+    modes: [
+      { id: 'classic', label: '经典叫抢' },
+      { id: 'tiandi_laizi', label: '天地癞子' },
+      { id: 'no_shuffle', label: '畅爽不洗牌' },
+    ],
+    capRowLabel: '炸弹封顶',
+    capOptions: ['3炸封顶', '4炸封顶', '不设封顶'],
+    rounds: [
+      { count: 4, label: '4局 (1房卡)', cards: 1 },
+      { count: 8, label: '8局 (2房卡)', cards: 2 },
+      { count: 16, label: '16局 (4房卡)', cards: 4 },
+    ],
   },
   {
     id: 'niuniu',
-    label: '抢庄牛牛',
-    subModes: [
-      { id: 'mpqz', label: '看四张抢' },
-      { id: 'zyqz', label: '自由抢庄' },
-      { id: 'tbnn', label: '通比牛牛' },
+    label: '抢庄斗牛',
+    modeRowLabel: '坐庄模式',
+    modes: [
+      { id: 'qiangzhuang', label: '看牌抢庄' },
+      { id: 'crazy', label: '疯狂翻倍' },
+      { id: 'tongbi', label: '通比牛牛' },
     ],
-    baseScores: [100, 300, 500, 2000],
+    capRowLabel: '翻倍规则',
+    capOptions: ['牛牛3倍', '牛牛4倍', '至尊10倍'],
+    rounds: [
+      { count: 4, label: '4局 (1房卡)', cards: 1 },
+      { count: 8, label: '8局 (2房卡)', cards: 2 },
+      { count: 16, label: '16局 (4房卡)', cards: 4 },
+    ],
   },
   {
     id: 'zhajinhua',
     label: '经典金花',
-    subModes: [
-      { id: 'classic', label: '经典闷抓' },
-      { id: 'passion', label: '短牌大局' },
+    modeRowLabel: '金花玩法',
+    modes: [
+      { id: 'classic', label: '经典金花' },
+      { id: 'bloody', label: '血拼15轮' },
+      { id: 'quick', label: '极速8轮' },
     ],
-    baseScores: [100, 300, 800, 2000],
+    capRowLabel: '必闷规则',
+    capOptions: ['不闷牌', '必闷1轮', '必闷3轮'],
+    rounds: [
+      { count: 4, label: '4局 (1房卡)', cards: 1 },
+      { count: 8, label: '8局 (2房卡)', cards: 2 },
+      { count: 16, label: '16局 (4房卡)', cards: 4 },
+    ],
   },
   {
     id: 'laoyancai',
-    label: '云南捞腌菜',
-    subModes: [
-      { id: 'kunming', label: '双公炸开' },
-      { id: 'puer', label: '滇南三腌' },
+    label: '捞腌菜',
+    modeRowLabel: '地方玩法',
+    modes: [
+      { id: 'kunming', label: '昆明双腌' },
+      { id: 'yuxi', label: '玉溪轮庄' },
+      { id: 'crazy', label: '三公豹子' },
     ],
-    baseScores: [100, 200, 500, 2000],
+    capRowLabel: '倍数规则',
+    capOptions: ['双腌2倍', '三公5倍', '豹子8倍'],
+    rounds: [
+      { count: 4, label: '4局 (1房卡)', cards: 1 },
+      { count: 8, label: '8局 (2房卡)', cards: 2 },
+      { count: 16, label: '16局 (4房卡)', cards: 4 },
+    ],
   },
 ];
 
-const ROUND_OPTIONS: RoomCardRoundCap[] = [4, 8, 16];
-
-const PAY_OPTIONS: Array<{ mode: RoomCardPayMode; label: string; ruleHint: string }> = [
-  { mode: 'host', label: '房主支付', ruleHint: '建房预扣，未开局解散全额退卡' },
-  { mode: 'aa', label: 'AA平摊', ruleHint: '全员入座平摊扣卡，未开局退卡' },
-  { mode: 'winner', label: '大赢家扣卡', ruleHint: '建房0预扣，终局由最高分大赢家扣卡' },
+const BASE_SCORE_PRESETS = [100, 500, 2000, 10000];
+const INITIAL_SCORE_PRESETS = [2000, 10000, 50000, 200000];
+const PAY_MODES: Array<{ id: RoomCardPayMode; label: string }> = [
+  { id: 'host', label: '房主支付' },
+  { id: 'aa', label: 'AA平摊' },
+  { id: 'winner', label: '大赢家支付' },
 ];
 
 export const FriendRoomModal: React.FC<FriendRoomModalProps> = ({
-  open,
-  initialGameType = 'ddz',
-  rooms,
-  hostId = 'local_host',
-  hostName = '本家牌手',
   onClose,
-  onCreateRoom,
   onJoinRoom,
-  onOpenRoomCardCenter,
+  onCreateRoom,
+  initialGameType = 'ddz',
+  initialMode,
+  initialBaseScore = 100,
 }) => {
-  const { store, balance } = useRoomCardSession();
-  const [activeTab, setActiveTab] = useState<'join' | 'create'>('join');
+  const [activeTab, setActiveTab] = useState<'create' | 'join'>('create');
+  const [roomCode, setRoomCode] = useState<string>('');
 
-  // Join state
-  const [roomCode, setRoomCode] = useState('');
-  const [feedbackError, setFeedbackError] = useState<string | null>(null);
-
-  // Create state
-  const [selectedGame, setSelectedGame] = useState<RoomCardGameType>(initialGameType);
-  const currentGameMeta =
-    GAME_OPTIONS.find((g) => g.id === selectedGame) || GAME_OPTIONS[0];
-  const [selectedSubMode, setSelectedSubMode] = useState<string>(
-    currentGameMeta.subModes[0].id
+  const [selectedGameType, setSelectedGameType] = useState<SupportedGameType>(initialGameType);
+  const currentSpec = useMemo(
+    () => HOST_GAME_SPECS.find((g) => g.id === selectedGameType) ?? HOST_GAME_SPECS[0],
+    [selectedGameType]
   );
-  const [baseScore, setBaseScore] = useState<number>(currentGameMeta.baseScores[0]);
-  const [totalRounds, setTotalRounds] = useState<RoomCardRoundCap>(8);
+
+  const [selectedMode, setSelectedMode] = useState<string>(
+    initialMode || currentSpec.modes[0].id
+  );
+  const [totalRounds, setTotalRounds] = useState<RoomRoundCount>(8);
+  const [capIdx, setCapIdx] = useState<number>(1);
   const [payMode, setPayMode] = useState<RoomCardPayMode>('host');
-  const [autoFillBots, setAutoFillBots] = useState<boolean>(true);
+
+  const [baseScoreInput, setBaseScoreInput] = useState<string>(String(initialBaseScore || 100));
+  const [initialScoreInput, setInitialScoreInput] = useState<string>(
+    String(Math.max(2000, (initialBaseScore || 100) * 20))
+  );
 
   useEffect(() => {
-    if (open && initialGameType) {
-      setSelectedGame(initialGameType);
-      const found = GAME_OPTIONS.find((g) => g.id === initialGameType) || GAME_OPTIONS[0];
-      setSelectedSubMode(found.subModes[0].id);
-      setBaseScore(found.baseScores[0]);
-      setFeedbackError(null);
+    if (!currentSpec.modes.some((m) => m.id === selectedMode)) {
+      setSelectedMode(currentSpec.modes[0].id);
     }
-  }, [open, initialGameType]);
+    setCapIdx(1);
+  }, [currentSpec, selectedMode]);
 
-  useEffect(() => {
-    if (!open || activeTab !== 'join') return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key >= '0' && e.key <= '9') {
-        setFeedbackError(null);
-        setRoomCode((prev) => (prev.length < 6 ? prev + e.key : prev));
-      } else if (e.key === 'Backspace') {
-        setFeedbackError(null);
-        setRoomCode((prev) => prev.slice(0, -1));
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [open, activeTab]);
+  const rawBase = Number(baseScoreInput) || 0;
+  const rawInitial = Number(initialScoreInput) || 0;
+  const validation = validateCustomStakes(rawBase, rawInitial);
 
-  const handleSelectGame = (gameId: RoomCardGameType) => {
-    soundEngine.playTap(740);
-    setSelectedGame(gameId);
-    const meta = GAME_OPTIONS.find((g) => g.id === gameId) || GAME_OPTIONS[0];
-    setSelectedSubMode(meta.subModes[0].id);
-    setBaseScore(meta.baseScores[0]);
-    setFeedbackError(null);
-  };
+  const estimatedCardCost = useMemo(() => {
+    const roundBase = totalRounds === 4 ? 1 : totalRounds === 8 ? 2 : 4;
+    const total = Math.max(roundBase, validation.roomCardCost);
+    return payMode === 'aa' ? Math.max(1, Math.ceil(total / 3)) : total;
+  }, [totalRounds, validation.roomCardCost, payMode]);
 
-  const handleDigitPress = (digit: string) => {
-    soundEngine.playTap(740);
-    setFeedbackError(null);
-    setRoomCode((prev) => (prev.length < 6 ? prev + digit : prev));
+  const handleKeyPress = (num: string) => {
+    soundEngine.playTap(750);
+    hapticEngine.tap();
+    if (roomCode.length < 6) {
+      setRoomCode((prev) => prev + num);
+    }
   };
 
   const handleBackspace = () => {
-    soundEngine.playTap(740);
-    setFeedbackError(null);
+    soundEngine.playTap(600);
+    hapticEngine.tap();
     setRoomCode((prev) => prev.slice(0, -1));
   };
 
-  const handleClearCode = () => {
-    soundEngine.playTap(740);
-    setFeedbackError(null);
+  const handleClear = () => {
+    soundEngine.playTap(520);
+    hapticEngine.tap();
     setRoomCode('');
   };
 
-  const handlePasteCode = async () => {
-    soundEngine.playTap(740);
-    try {
-      const text = await navigator.clipboard.readText();
-      const digits = text.replace(/\D/g, '').slice(0, 6);
-      if (digits.length > 0) {
-        setRoomCode(digits);
-        setFeedbackError(null);
-      } else {
-        setFeedbackError('剪贴板中未检测到 6 位数字房号');
-      }
-    } catch {
-      if (store.recentRooms[0]?.roomId) {
-        setRoomCode(store.recentRooms[0].roomId);
-        setFeedbackError(null);
-      } else {
-        setFeedbackError('无法读取剪贴板，请使用数字键盘输入房号');
-      }
+  const handleJoin = () => {
+    if (roomCode.trim()) {
+      soundEngine.playTap(820);
+      hapticEngine.tap();
+      onClose();
+      onJoinRoom(roomCode.trim());
     }
   };
 
-  const handleConfirmJoin = (targetCode?: string, targetGame?: RoomCardGameType) => {
-    const code = (targetCode ?? roomCode).trim();
-    if (!/^\d{6}$/.test(code)) {
-      setFeedbackError('请输入完整的 6 位数字房号');
+  const handleCreate = () => {
+    if (!validation.valid) {
+      soundEngine.playTap(520);
       return;
     }
-
-    const res = roomCardSessionHub.joinSessionByCode({
-      roomId: code,
-      playerId: hostId,
-      playerName: hostName,
-      fallbackGameType: targetGame ?? selectedGame,
-    });
-
-    if (!res.ok || !res.session) {
-      setFeedbackError(res.message);
-      return;
-    }
-
-    soundEngine.playTap(740);
-    onJoinRoom(code, res.session.config.gameType);
-  };
-
-  const handleConfirmCreate = () => {
-    const subModeObj =
-      currentGameMeta.subModes.find((m) => m.id === selectedSubMode) ||
-      currentGameMeta.subModes[0];
-
-    const res = roomCardSessionHub.createSession({
-      gameType: selectedGame,
-      subMode: subModeObj.id,
-      subModeLabel: subModeObj.label,
-      baseScore,
+    soundEngine.playCardPlace(true);
+    hapticEngine.playCard();
+    onClose();
+    onCreateRoom(
+      validation.normalizedBaseScore,
+      false,
+      true,
+      selectedMode,
+      selectedGameType,
       totalRounds,
       payMode,
-      fillBots: autoFillBots,
-      hostId,
-      hostName,
-    });
-
-    if (!res.ok || !res.session) {
-      setFeedbackError(res.message);
-      return;
-    }
-
-    soundEngine.playTap(740);
-    onCreateRoom({
-      roomId: res.session.config.roomId,
-      gameType: selectedGame,
-      subMode: subModeObj.id,
-      subModeLabel: subModeObj.label,
-      baseScore,
-      totalRounds,
-      payMode,
-      autoFillBots,
-    });
+      undefined,
+      validation.normalizedInitialScore
+    );
   };
-
-  const cardCost = calculateRoomCardCost(totalRounds, payMode);
 
   return (
-    <CommercialModalShell
-      open={open}
-      onClose={onClose}
-      title="好友约局"
-      size="lg"
-      headerActions={
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              soundEngine.playTap(740);
-              if (onOpenRoomCardCenter) {
-                onOpenRoomCardCenter();
-              } else {
-                roomCardSessionHub.claimDailyRoomCards();
-              }
-            }}
-            className="h-7 px-2.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs font-bold text-slate-700 transition-colors cursor-pointer whitespace-nowrap shrink-0"
-          >
-            房卡 <span className="font-mono tabular-nums font-black text-slate-900">{balance}</span>
-          </button>
-
-          <div className="grid grid-cols-2 p-0.5 rounded-lg bg-slate-100 border border-slate-200 shrink-0">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 backdrop-blur-xs animate-in fade-in duration-150 select-none"
+      onClick={onClose}
+    >
+      <div
+        className="flex w-full max-w-[480px] flex-col overflow-hidden rounded-2xl border border-amber-200/35 bg-gradient-to-b from-[#2a180d] to-[#1a0f08] text-amber-50 shadow-[0_20px_48px_rgba(0,0,0,0.8)]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header with Segmented Tabs */}
+        <div className="flex items-center justify-between border-b border-amber-200/15 bg-black/25 px-5 py-2.5">
+          <div className="grid grid-cols-2 gap-1 rounded-xl bg-black/35 p-1">
             <button
               type="button"
               onClick={() => {
                 soundEngine.playTap(740);
-                setFeedbackError(null);
+                setActiveTab('create');
+              }}
+              className={`rounded-lg px-4 py-1 text-xs font-bold transition-all cursor-pointer ${
+                activeTab === 'create'
+                  ? 'bg-gradient-to-b from-[#ffe28a] to-[#f59e0b] text-[#241104] font-black shadow-xs'
+                  : 'text-amber-100/75 hover:text-white'
+              }`}
+            >
+              开设房间
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                soundEngine.playTap(740);
                 setActiveTab('join');
               }}
-              className={`px-2.5 py-1 rounded-md text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
+              className={`rounded-lg px-4 py-1 text-xs font-bold transition-all cursor-pointer ${
                 activeTab === 'join'
-                  ? 'bg-white text-slate-900 shadow-2xs'
-                  : 'text-slate-500 hover:text-slate-800'
+                  ? 'bg-gradient-to-b from-[#ffe28a] to-[#f59e0b] text-[#241104] font-black shadow-xs'
+                  : 'text-amber-100/75 hover:text-white'
               }`}
             >
               加入房间
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                soundEngine.playTap(740);
-                setFeedbackError(null);
-                setActiveTab('create');
-              }}
-              className={`px-2.5 py-1 rounded-md text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
-                activeTab === 'create'
-                  ? 'bg-white text-slate-900 shadow-2xs'
-                  : 'text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              创建房间
-            </button>
           </div>
-        </div>
-      }
-    >
-      {feedbackError && (
-        <div className="mb-2.5 px-3 py-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold flex items-center justify-between">
-          <span className="truncate">{feedbackError}</span>
+
           <button
             type="button"
-            onClick={() => setFeedbackError(null)}
-            className="text-[11px] underline shrink-0 ml-3 cursor-pointer"
+            onClick={onClose}
+            className="flex h-7 w-7 items-center justify-center rounded-full bg-white/8 text-amber-100/70 hover:bg-white/15 hover:text-white cursor-pointer"
           >
-            关闭
+            <X className="h-4 w-4" />
           </button>
         </div>
-      )}
 
-      {activeTab === 'join' ? (
-        <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-stretch">
-          {/* Left 7 Cols: 6-Slot Code Display + 3x4 Keypad */}
-          <div className="sm:col-span-7 flex flex-col justify-between">
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-bold text-slate-700">
-                  输入 6 位房间号
-                </span>
-                <button
-                  type="button"
-                  onClick={handlePasteCode}
-                  className="text-xs font-bold text-slate-600 hover:text-slate-900 underline cursor-pointer"
-                >
-                  粘贴房号
-                </button>
+        {activeTab === 'create' ? (
+          <>
+            <div className="space-y-3 px-5 py-4">
+              {/* Row 0: Select Game */}
+              <div className="grid grid-cols-[68px_1fr] items-center gap-3">
+                <span className="text-xs font-bold text-amber-100/80">选择游戏</span>
+                <div className="grid grid-cols-5 gap-1 rounded-xl bg-black/35 p-1">
+                  {HOST_GAME_SPECS.map((g) => {
+                    const active = selectedGameType === g.id;
+                    return (
+                      <button
+                        key={g.id}
+                        type="button"
+                        onClick={() => {
+                          soundEngine.playTap(740);
+                          setSelectedGameType(g.id);
+                        }}
+                        className={`h-8 rounded-lg text-xs font-bold transition-all cursor-pointer truncate px-1 ${
+                          active
+                            ? 'bg-gradient-to-b from-[#ffe28a] to-[#f59e0b] text-[#241104] font-black shadow-xs'
+                            : 'text-amber-100/75 hover:text-white'
+                        }`}
+                      >
+                        {g.label}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
-              <div className="grid grid-cols-6 gap-1.5 mb-2.5">
-                {Array.from({ length: 6 }).map((_, idx) => {
-                  const char = roomCode[idx] || '';
-                  const isActiveSlot = idx === roomCode.length;
-                  return (
-                    <div
-                      key={idx}
-                      className={`h-10 rounded-lg border flex items-center justify-center font-mono tabular-nums text-base font-black transition-colors ${
-                        char
-                          ? 'bg-slate-900 border-slate-900 text-white'
-                          : isActiveSlot
-                          ? 'bg-white border-slate-900 text-slate-400'
-                          : 'bg-slate-50 border-slate-200 text-slate-300'
-                      }`}
-                    >
-                      {char || (isActiveSlot ? '-' : '')}
-                    </div>
-                  );
-                })}
+              {/* Row 1: Game Mode */}
+              <div className="grid grid-cols-[68px_1fr] items-center gap-3">
+                <span className="text-xs font-bold text-amber-100/80">{currentSpec.modeRowLabel}</span>
+                <div
+                  className={`grid gap-1 rounded-xl bg-black/35 p-1 ${
+                    currentSpec.modes.length === 4 ? 'grid-cols-4' : 'grid-cols-3'
+                  }`}
+                >
+                  {currentSpec.modes.map((m) => {
+                    const active = selectedMode === m.id;
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => {
+                          soundEngine.playTap(750);
+                          setSelectedMode(m.id);
+                        }}
+                        className={`h-8 rounded-lg text-xs font-bold transition-all cursor-pointer truncate px-1 ${
+                          active
+                            ? 'bg-gradient-to-b from-[#ffe28a] to-[#f59e0b] text-[#241104] font-black shadow-xs'
+                            : 'text-amber-100/75 hover:text-white'
+                        }`}
+                      >
+                        {m.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Row 2: Round Count */}
+              <div className="grid grid-cols-[68px_1fr] items-center gap-3">
+                <span className="text-xs font-bold text-amber-100/80">牌局局数</span>
+                <div className="grid grid-cols-3 gap-1 rounded-xl bg-black/35 p-1">
+                  {currentSpec.rounds.map((r) => {
+                    const active = totalRounds === r.count;
+                    return (
+                      <button
+                        key={r.count}
+                        type="button"
+                        onClick={() => {
+                          soundEngine.playTap(740);
+                          setTotalRounds(r.count);
+                        }}
+                        className={`h-8 rounded-lg text-xs font-bold transition-all cursor-pointer truncate px-1 ${
+                          active
+                            ? 'bg-gradient-to-b from-[#ffe28a] to-[#f59e0b] text-[#241104] font-black shadow-xs'
+                            : 'text-amber-100/75 hover:text-white'
+                        }`}
+                      >
+                        {r.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Row 3: Cap Rule */}
+              <div className="grid grid-cols-[68px_1fr] items-center gap-3">
+                <span className="text-xs font-bold text-amber-100/80">{currentSpec.capRowLabel}</span>
+                <div className="grid grid-cols-3 gap-1 rounded-xl bg-black/35 p-1">
+                  {currentSpec.capOptions.map((opt, idx) => {
+                    const active = capIdx === idx;
+                    return (
+                      <button
+                        key={opt}
+                        type="button"
+                        onClick={() => {
+                          soundEngine.playTap(740);
+                          setCapIdx(idx);
+                        }}
+                        className={`h-8 rounded-lg text-xs font-bold transition-all cursor-pointer truncate px-1 ${
+                          active
+                            ? 'bg-gradient-to-b from-[#ffe28a] to-[#f59e0b] text-[#241104] font-black shadow-xs'
+                            : 'text-amber-100/75 hover:text-white'
+                        }`}
+                      >
+                        {opt}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Row 4: Pay Mode */}
+              <div className="grid grid-cols-[68px_1fr] items-center gap-3">
+                <span className="text-xs font-bold text-amber-100/80">房费支付</span>
+                <div className="grid grid-cols-3 gap-1 rounded-xl bg-black/35 p-1">
+                  {PAY_MODES.map((p) => {
+                    const active = payMode === p.id;
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => {
+                          soundEngine.playTap(740);
+                          setPayMode(p.id);
+                        }}
+                        className={`h-8 rounded-lg text-xs font-bold transition-all cursor-pointer truncate px-1 ${
+                          active
+                            ? 'bg-gradient-to-b from-[#ffe28a] to-[#f59e0b] text-[#241104] font-black shadow-xs'
+                            : 'text-amber-100/75 hover:text-white'
+                        }`}
+                      >
+                        {p.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Row 5: Symmetrical 2-Column Stakes */}
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <div className="rounded-xl border border-amber-200/15 bg-black/30 p-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-amber-100/85">房间底分</span>
+                    <input
+                      type="number"
+                      min={CUSTOM_STAKES_LIMITS.MIN_BASE_SCORE}
+                      max={CUSTOM_STAKES_LIMITS.MAX_BASE_SCORE}
+                      step={10}
+                      value={baseScoreInput}
+                      onChange={(e) => setBaseScoreInput(e.target.value)}
+                      className="h-7 w-22 rounded-lg border border-amber-200/25 bg-black/50 px-2 text-right font-mono text-xs font-black text-amber-300 tabular-nums focus:border-amber-300 focus:outline-none"
+                    />
+                  </div>
+                  <div className="mt-2 grid grid-cols-4 gap-1">
+                    {BASE_SCORE_PRESETS.map((preset) => {
+                      const active = rawBase === preset;
+                      return (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => {
+                            soundEngine.playTap(750);
+                            setBaseScoreInput(String(preset));
+                            setInitialScoreInput(String(preset * 20));
+                          }}
+                          className={`h-6.5 rounded-md font-mono text-[11px] font-bold tabular-nums transition-colors cursor-pointer ${
+                            active
+                              ? 'bg-amber-400 text-[#241104] font-black'
+                              : 'bg-white/6 text-amber-100/70 hover:bg-white/12'
+                          }`}
+                        >
+                          {preset >= 10000 ? '1万' : preset}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-amber-200/15 bg-black/30 p-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-amber-100/85">初始积分</span>
+                    <input
+                      type="number"
+                      min={CUSTOM_STAKES_LIMITS.MIN_INITIAL_SCORE}
+                      max={CUSTOM_STAKES_LIMITS.MAX_INITIAL_SCORE}
+                      step={100}
+                      value={initialScoreInput}
+                      onChange={(e) => setInitialScoreInput(e.target.value)}
+                      className="h-7 w-22 rounded-lg border border-amber-200/25 bg-black/50 px-2 text-right font-mono text-xs font-black text-emerald-300 tabular-nums focus:border-amber-300 focus:outline-none"
+                    />
+                  </div>
+                  <div className="mt-2 grid grid-cols-4 gap-1">
+                    {INITIAL_SCORE_PRESETS.map((preset) => {
+                      const active = rawInitial === preset;
+                      return (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => {
+                            soundEngine.playTap(750);
+                            setInitialScoreInput(String(preset));
+                          }}
+                          className={`h-6.5 rounded-md font-mono text-[11px] font-bold tabular-nums transition-colors cursor-pointer ${
+                            active
+                              ? 'bg-amber-400 text-[#241104] font-black'
+                              : 'bg-white/6 text-amber-100/70 hover:bg-white/12'
+                          }`}
+                        >
+                          {preset >= 10000 ? `${preset / 10000}万` : preset}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-1.5">
+            {/* Footer */}
+            <div className="flex items-center justify-between gap-3 border-t border-amber-200/15 bg-black/30 px-5 py-3">
+              {!validation.valid ? (
+                <span className="text-xs text-rose-300">{validation.errorMessage}</span>
+              ) : (
+                <div className="flex items-center gap-2 text-xs text-amber-100/80">
+                  <span>
+                    消耗房卡 <strong className="font-mono text-amber-300">{estimatedCardCost}</strong> 张
+                  </span>
+                  <span className="text-white/25">·</span>
+                  <span>
+                    底分 <strong className="font-mono text-white">{validation.normalizedBaseScore.toLocaleString()}</strong>
+                  </span>
+                  <span className="text-white/25">·</span>
+                  <span>
+                    初始积分 <strong className="font-mono text-emerald-300">{validation.normalizedInitialScore.toLocaleString()}</strong>
+                  </span>
+                </div>
+              )}
+
+              <button
+                type="button"
+                disabled={!validation.valid}
+                onClick={handleCreate}
+                className={`shrink-0 rounded-xl px-6 py-2 font-display text-sm font-black transition-all whitespace-nowrap ${
+                  validation.valid
+                    ? 'bg-gradient-to-b from-[#ffe28a] via-[#f59e0b] to-[#d97706] text-[#241104] shadow-md hover:brightness-105 active:scale-95 cursor-pointer'
+                    : 'bg-white/10 text-white/35 cursor-not-allowed'
+                }`}
+              >
+                创建房间
+              </button>
+            </div>
+          </>
+        ) : (
+          /* Tab 2: Clean 6-Digit Room ID Keypad */
+          <div className="flex flex-col items-center p-5">
+            <div className="mb-3 flex h-12 w-full max-w-xs items-center justify-center rounded-xl border border-amber-200/30 bg-black/45 px-4 font-mono text-2xl font-black tracking-[0.35em] text-amber-300 tabular-nums">
+              {roomCode || (
+                <span className="font-sans text-xs font-normal tracking-normal text-white/35">
+                  请输入 6 位房间号
+                </span>
+              )}
+            </div>
+
+            <div className="grid w-full max-w-xs grid-cols-3 gap-2">
               {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((digit) => (
                 <button
                   key={digit}
                   type="button"
-                  onClick={() => handleDigitPress(digit)}
-                  className="h-9 rounded-lg bg-slate-50 hover:bg-slate-100 active:scale-[0.98] border border-slate-200 text-slate-900 font-mono tabular-nums text-sm font-black transition-all cursor-pointer"
+                  onClick={() => handleKeyPress(digit)}
+                  className="flex h-11 items-center justify-center rounded-xl bg-black/35 font-mono text-base font-black text-amber-50 hover:bg-amber-400/25 active:scale-95 tabular-nums cursor-pointer"
                 >
                   {digit}
                 </button>
               ))}
               <button
                 type="button"
-                onClick={handleClearCode}
-                className="h-9 rounded-lg bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-600 text-xs font-bold transition-colors cursor-pointer"
+                onClick={handleClear}
+                className="flex h-11 items-center justify-center rounded-xl bg-rose-950/60 text-xs font-bold text-rose-300 hover:bg-rose-900 active:scale-95 cursor-pointer"
               >
                 清空
               </button>
               <button
                 type="button"
-                onClick={() => handleDigitPress('0')}
-                className="h-9 rounded-lg bg-slate-50 hover:bg-slate-100 active:scale-[0.98] border border-slate-200 text-slate-900 font-mono tabular-nums text-sm font-black transition-all cursor-pointer"
+                onClick={() => handleKeyPress('0')}
+                className="flex h-11 items-center justify-center rounded-xl bg-black/35 font-mono text-base font-black text-amber-50 hover:bg-amber-400/25 active:scale-95 tabular-nums cursor-pointer"
               >
                 0
               </button>
               <button
                 type="button"
                 onClick={handleBackspace}
-                className="h-9 rounded-lg bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-600 text-xs font-bold transition-colors cursor-pointer"
+                className="flex h-11 items-center justify-center rounded-xl bg-amber-950/60 text-amber-300 hover:bg-amber-900 active:scale-95 cursor-pointer"
               >
-                退格
+                <Delete className="h-4 w-4" />
               </button>
             </div>
 
             <button
               type="button"
-              disabled={roomCode.length < 6}
-              onClick={() => handleConfirmJoin()}
-              className="mt-2.5 w-full h-9 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:bg-slate-200 disabled:text-slate-400 text-white font-black text-xs transition-colors cursor-pointer"
+              disabled={!roomCode.trim()}
+              onClick={handleJoin}
+              className={`mt-4 w-full max-w-xs rounded-xl py-2.5 font-display text-sm font-black transition-all ${
+                roomCode.trim()
+                  ? 'bg-gradient-to-b from-[#ffe28a] via-[#f59e0b] to-[#d97706] text-[#241104] shadow-md hover:brightness-105 active:scale-95 cursor-pointer'
+                  : 'bg-white/10 text-white/35 cursor-not-allowed'
+              }`}
             >
-              进入房间
+              加入房间
             </button>
           </div>
-
-          {/* Right 5 Cols: Active Rooms List */}
-          <div className="sm:col-span-5 rounded-xl border border-slate-200 bg-slate-50/60 p-3 flex flex-col">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-bold text-slate-700">可加入房间</span>
-              <span className="text-[11px] text-slate-400">点击直达</span>
-            </div>
-
-            <div className="divide-y divide-slate-200/70 max-h-56 overflow-y-auto pr-0.5 flex-1">
-              {rooms.length === 0 && store.recentRooms.length === 0 ? (
-                <div className="py-10 text-center text-xs text-slate-400">
-                  暂无活跃房间，可切换至「创建房间」发起对局
-                </div>
-              ) : (
-                <>
-                  {rooms.slice(0, 4).map((r) => (
-                    <div
-                      key={r.roomId}
-                      className="py-2 flex items-center justify-between gap-2"
-                    >
-                      <div className="min-w-0">
-                        <div className="text-xs font-black text-slate-900 font-mono tabular-nums truncate">
-                          #{r.roomId} · {GAME_TYPE_LABELS[(r.gameType as RoomCardGameType) || 'ddz'] || '斗地主'}
-                        </div>
-                        <div className="text-[11px] text-slate-500 font-mono tabular-nums truncate">
-                          底分 {r.baseScore} · {r.playerCount}/{r.maxPlayers}人
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          handleConfirmJoin(
-                            r.roomId,
-                            (r.gameType as RoomCardGameType) || 'ddz'
-                          )
-                        }
-                        className="h-7 px-2.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shrink-0 cursor-pointer"
-                      >
-                        加入
-                      </button>
-                    </div>
-                  ))}
-
-                  {store.recentRooms
-                    .filter((item) => !rooms.some((r) => r.roomId === item.roomId))
-                    .map((item) => (
-                      <div
-                        key={item.roomId}
-                        className="py-2 flex items-center justify-between gap-2"
-                      >
-                        <div className="min-w-0">
-                          <div className="text-xs font-black text-slate-900 truncate">
-                            <span className="font-mono tabular-nums">#{item.roomId}</span>
-                            <span> · {GAME_TYPE_LABELS[item.gameType]}</span>
-                          </div>
-                          <div className="text-[11px] text-slate-500 truncate">
-                            {item.subModeLabel} · {item.totalRounds}局 ·{' '}
-                            {PAY_MODE_LABELS[item.payMode]}
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => handleConfirmJoin(item.roomId, item.gameType)}
-                          className="h-7 px-2.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shrink-0 cursor-pointer"
-                        >
-                          加入
-                        </button>
-                      </div>
-                    ))}
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      ) : (
-        /* Tab 2: Flat Dynamic Adaptive Grid Layout for Room Creation */
-        <div className="space-y-3">
-          <div className="grid grid-cols-1 sm:grid-cols-[56px_1fr] items-center gap-x-3 gap-y-2.5">
-            {/* 1. Game Type */}
-            <span className="text-xs font-bold text-slate-500">游戏</span>
-            <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
-              {GAME_OPTIONS.map((game) => {
-                const active = selectedGame === game.id;
-                return (
-                  <button
-                    key={game.id}
-                    type="button"
-                    onClick={() => handleSelectGame(game.id)}
-                    className={`h-8 rounded-lg border text-xs font-bold whitespace-nowrap px-2 transition-colors cursor-pointer ${
-                      active
-                        ? 'bg-slate-900 text-white border-slate-900'
-                        : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
-                    }`}
-                  >
-                    {game.label}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* 2. Sub-Mode */}
-            <span className="text-xs font-bold text-slate-500">模式</span>
-            <div className="grid grid-cols-3 gap-1.5">
-              {currentGameMeta.subModes.map((sm) => {
-                const active = selectedSubMode === sm.id;
-                return (
-                  <button
-                    key={sm.id}
-                    type="button"
-                    onClick={() => {
-                      soundEngine.playTap(740);
-                      setSelectedSubMode(sm.id);
-                    }}
-                    className={`h-8 rounded-lg border text-xs font-bold whitespace-nowrap px-2 transition-colors cursor-pointer ${
-                      active
-                        ? 'bg-slate-900 text-white border-slate-900'
-                        : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
-                    }`}
-                  >
-                    {sm.label}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* 3. Base Score */}
-            <span className="text-xs font-bold text-slate-500">底分</span>
-            <div className="grid grid-cols-4 gap-1.5">
-              {currentGameMeta.baseScores.map((score) => {
-                const active = baseScore === score;
-                return (
-                  <button
-                    key={score}
-                    type="button"
-                    onClick={() => {
-                      soundEngine.playTap(740);
-                      setBaseScore(score);
-                    }}
-                    className={`h-8 rounded-lg border font-mono tabular-nums text-xs font-bold whitespace-nowrap transition-colors cursor-pointer ${
-                      active
-                        ? 'bg-slate-900 text-white border-slate-900'
-                        : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
-                    }`}
-                  >
-                    {score} 分
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* 4. Total Rounds */}
-            <span className="text-xs font-bold text-slate-500">局数</span>
-            <div className="grid grid-cols-3 gap-1.5">
-              {ROUND_OPTIONS.map((r) => {
-                const active = totalRounds === r;
-                return (
-                  <button
-                    key={r}
-                    type="button"
-                    onClick={() => {
-                      soundEngine.playTap(740);
-                      setTotalRounds(r);
-                    }}
-                    className={`h-8 rounded-lg border font-mono tabular-nums text-xs font-bold whitespace-nowrap transition-colors cursor-pointer ${
-                      active
-                        ? 'bg-slate-900 text-white border-slate-900'
-                        : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
-                    }`}
-                  >
-                    {r} 局
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* 5. Pay Mode */}
-            <span className="text-xs font-bold text-slate-500">房费</span>
-            <div className="grid grid-cols-3 gap-1.5">
-              {PAY_OPTIONS.map((po) => {
-                const active = payMode === po.mode;
-                return (
-                  <button
-                    key={po.mode}
-                    type="button"
-                    onClick={() => {
-                      soundEngine.playTap(740);
-                      setPayMode(po.mode);
-                    }}
-                    className={`h-8 rounded-lg border text-xs font-bold whitespace-nowrap transition-colors cursor-pointer ${
-                      active
-                        ? 'bg-slate-900 text-white border-slate-900'
-                        : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
-                    }`}
-                  >
-                    {po.label}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* 6. Bot Fill */}
-            <span className="text-xs font-bold text-slate-500">补位</span>
-            <div className="grid grid-cols-2 gap-1.5">
-              <button
-                type="button"
-                onClick={() => {
-                  soundEngine.playTap(740);
-                  setAutoFillBots(true);
-                }}
-                className={`h-8 rounded-lg border text-xs font-bold whitespace-nowrap transition-colors cursor-pointer ${
-                  autoFillBots
-                    ? 'bg-slate-900 text-white border-slate-900'
-                    : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
-                }`}
-              >
-                缺人自动补位
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  soundEngine.playTap(740);
-                  setAutoFillBots(false);
-                }}
-                className={`h-8 rounded-lg border text-xs font-bold whitespace-nowrap transition-colors cursor-pointer ${
-                  !autoFillBots
-                    ? 'bg-slate-900 text-white border-slate-900'
-                    : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
-                }`}
-              >
-                仅限好友入座
-              </button>
-            </div>
-          </div>
-
-          {/* Flat Action Footer Row */}
-          <div className="pt-2.5 border-t border-slate-200 flex items-center justify-between gap-3">
-            <div className="text-xs text-slate-500 truncate">
-              <span>
-                需消耗 <strong className="font-mono tabular-nums text-slate-900">{cardCost}</strong> 张房卡（余{' '}
-                <strong className="font-mono tabular-nums text-slate-900">{balance}</strong> 张）
-              </span>
-              <span className="hidden sm:inline text-slate-400">
-                {' '}· {PAY_OPTIONS.find((p) => p.mode === payMode)?.ruleHint}
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={handleConfirmCreate}
-              className="h-9 px-5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-black text-xs whitespace-nowrap transition-colors cursor-pointer shrink-0"
-            >
-              创建房间
-            </button>
-          </div>
-        </div>
-      )}
-    </CommercialModalShell>
+        )}
+      </div>
+    </div>
   );
 };

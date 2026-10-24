@@ -19,7 +19,6 @@ export interface HandTilesZoneProps {
   optimalDiscardTile?: number;
   optimalDiscardReason?: string;
   discardHints?: Array<{ card: number; waits: number[] }>;
-  mode?: string;
 }
 
 export const HandTilesZone: React.FC<HandTilesZoneProps> = ({
@@ -33,7 +32,6 @@ export const HandTilesZone: React.FC<HandTilesZoneProps> = ({
   optimalDiscardTile,
   optimalDiscardReason,
   discardHints = [],
-  mode = 'puer',
 }) => {
   const [selectedTileIdx, setSelectedTileIdx] = useState<number | null>(null);
 
@@ -169,7 +167,6 @@ export const HandTilesZone: React.FC<HandTilesZoneProps> = ({
                   isDingQue={isIllegal}
                   isNewDraw={isNew}
                   kind="hand"
-                  mode={mode}
                   onClick={() => handleTileClick(t, idx)}
                 />
               </div>

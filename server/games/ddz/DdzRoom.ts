@@ -1,5 +1,6 @@
 import { ConnectionManager } from '../../core/ConnectionManager.js';
 import { IGameRoom, RoomPlayerInfo, RoomSummary } from '../../core/RoomManager.js';
+import { roomCardEngine } from '../../core/RoomCardEngine.js';
 import { redisClient } from '../../core/redisClient.js';
 import { storageService } from '../../shared/storage.js';
 import { DdzBotEngine } from './DdzBotEngine.js';
@@ -19,6 +20,7 @@ const TURN_DURATION_MS = 18000;
 const BOT_THINK_DELAY_MS = 1250;
 const TRUSTEESHIP_DELAY_MS = 1250;
 const SETTLEMENT_AUTO_START_DELAY_MS = 6000;
+const PRE_DEAL_ESCROW_WINDOW_MS = 3200;
 
 export class DdzRoom implements IGameRoom {
   roomId: string;
@@ -26,6 +28,7 @@ export class DdzRoom implements IGameRoom {
   dealMode: DealMode;
   hostId: string;
   baseScore: number;
+  initialScore: number;
   isPrivate: boolean;
   maxPlayers = 3;
   createdAt: number = Date.now();
@@ -39,11 +42,13 @@ export class DdzRoom implements IGameRoom {
   private startRoundTimer: NodeJS.Timeout | null = null;
   private redealTimer: NodeJS.Timeout | null = null;
   private hintCursorMap: Map<string, number> = new Map();
+  private hasDealtFirstRound = false;
 
   constructor(options: {
     roomId: string;
     hostId: string;
     baseScore: number;
+    initialScore?: number;
     isPrivate: boolean;
     mode?: string;
     connectionManager: ConnectionManager;
@@ -52,6 +57,10 @@ export class DdzRoom implements IGameRoom {
     this.roomId = options.roomId;
     this.hostId = options.hostId;
     this.baseScore = options.baseScore;
+    this.initialScore =
+      options.initialScore && options.initialScore > 0
+        ? options.initialScore
+        : Math.max(2000, options.baseScore * 20);
     this.isPrivate = options.isPrivate;
     const validModes: DealMode[] = [
       'classic',
@@ -118,7 +127,7 @@ export class DdzRoom implements IGameRoom {
       BOT_PROFILES.find((p) => !usedNames.has(p.nickname)) ??
       BOT_PROFILES[emptySeat % BOT_PROFILES.length];
 
-    const botDefaultBeans = Math.max(25000, this.baseScore * 60);
+    const botDefaultBeans = this.initialScore;
     return this.addPlayer({
       playerId: `bot_${this.roomId}_${emptySeat}_${Date.now().toString().slice(-3)}`,
       nickname: profile.nickname,
@@ -198,20 +207,58 @@ export class DdzRoom implements IGameRoom {
     const player = this.seats.find((s) => s?.playerId === playerId);
     if (!player) return;
 
-    const stored = storageService.getUser(playerId);
-    if (stored) {
-      player.beans = stored.beans;
+    if (ready && !player.isBot && player.beans < this.baseScore) {
+      this.connectionManager.emitToPlayer(playerId, 's2c_bankruptcy_prompt', {
+        roomId: this.roomId,
+        gameType: this.gameType,
+        currentScore: player.beans,
+        baseScore: this.baseScore,
+        initialScore: this.initialScore,
+      });
+      return;
     }
 
     player.ready = ready;
     player.trusteeship = false;
 
     for (const s of this.seats) {
-      if (s && s.isBot) s.ready = true;
+      if (s && s.isBot) {
+        if (s.beans < this.baseScore) s.beans = this.initialScore;
+        s.ready = true;
+      }
     }
 
     this.broadcastRoomState();
-    this.checkStartGame();
+    this.checkStartGame(180);
+  }
+
+  rebuySeatScore(playerId: string, addedScore: number): number {
+    const player = this.seats.find((s) => s?.playerId === playerId);
+    if (!player) return 0;
+    player.beans = Math.max(0, player.beans) + Math.max(0, Math.round(addedScore));
+    player.ready = true;
+    player.trusteeship = false;
+    this.broadcastRoomState();
+    this.sendSnapshotToPlayer(playerId);
+    this.checkStartGame(280);
+    return player.beans;
+  }
+
+  triggerImmediateDeal(): void {
+    if (this.stateMachine.phase !== 'WAITING' && this.stateMachine.phase !== 'SETTLEMENT') {
+      return;
+    }
+    if (this.startRoundTimer) {
+      clearTimeout(this.startRoundTimer);
+      this.startRoundTimer = null;
+    }
+    for (const s of this.seats) {
+      if (s && s.isBot) s.ready = true;
+    }
+    const allSeated = this.seats.every((s) => s !== null);
+    if (allSeated) {
+      this.startNewRound(false);
+    }
   }
 
   handlePlayerDisconnect(playerId: string): void {
@@ -368,20 +415,63 @@ export class DdzRoom implements IGameRoom {
       return;
     }
 
+    // Check if any human seat is bankrupt (< baseScore)
+    for (const s of this.seats) {
+      if (s && !s.isBot && s.beans < this.baseScore) {
+        s.ready = false;
+        this.connectionManager.emitToPlayer(s.playerId, 's2c_bankruptcy_prompt', {
+          roomId: this.roomId,
+          gameType: this.gameType,
+          currentScore: s.beans,
+          baseScore: this.baseScore,
+          initialScore: this.initialScore,
+        });
+        return;
+      }
+      if (s && s.isBot && s.beans < this.baseScore) {
+        s.beans = this.initialScore;
+      }
+    }
+
     const allSeatedAndReady = this.seats.every((s) => s !== null && s.ready);
     if (!allSeatedAndReady) return;
+
+    const effectiveDelay = !this.hasDealtFirstRound
+      ? Math.max(delayMs, PRE_DEAL_ESCROW_WINDOW_MS)
+      : delayMs;
 
     if (this.startRoundTimer) return;
     this.startRoundTimer = setTimeout(() => {
       this.startRoundTimer = null;
-      const stillReady = this.seats.every((s) => s !== null && s.ready);
+      const stillReady = this.seats.every((s) => s !== null && s.ready && s.beans >= this.baseScore);
       if (
         stillReady &&
         (this.stateMachine.phase === 'WAITING' || this.stateMachine.phase === 'SETTLEMENT')
       ) {
         this.startNewRound(false);
       }
-    }, delayMs);
+    }, effectiveDelay);
+  }
+
+  private commitFirstRoundEscrow(): void {
+    const { capturedTotal, session } = roomCardEngine.captureEscrowOnFirstRound(this.roomId);
+    if (!session) return;
+    for (const seat of this.seats) {
+      if (seat && !seat.isBot) {
+        const updatedProfile = storageService.getUser(seat.playerId);
+        this.connectionManager.emitToPlayer(seat.playerId, 's2c_rc_session_sync', {
+          session,
+          profile: updatedProfile,
+          action: 'escrow_captured',
+          capturedTotal,
+        });
+        if (updatedProfile && capturedTotal > 0) {
+          this.connectionManager.emitToPlayer(seat.playerId, 's2c_profile_updated', {
+            profile: updatedProfile,
+          });
+        }
+      }
+    }
   }
 
   private startNewRound(isRedeal: boolean): void {
@@ -393,6 +483,10 @@ export class DdzRoom implements IGameRoom {
     this.hintCursorMap.clear();
     if (!isRedeal) {
       this.stateMachine.redealCount = 0;
+    }
+    if (!this.hasDealtFirstRound) {
+      this.hasDealtFirstRound = true;
+      this.commitFirstRoundEscrow();
     }
     this.stateMachine.startDealing(this.dealMode);
 
@@ -841,8 +935,11 @@ export class DdzRoom implements IGameRoom {
 
       remainingHands[p.playerId] = this.stateMachine.hands.get(s) ?? [];
       p.beans = Math.max(0, p.beans + delta);
-      // Trusteeship (AFK) humans auto-ready, otherwise the room would wait forever.
-      p.ready = p.isBot || p.trusteeship;
+      if (p.isBot && p.beans < this.baseScore) {
+        p.beans = this.initialScore;
+      }
+      // Trusteeship (AFK) humans auto-ready only if not bankrupt
+      p.ready = p.isBot || (p.trusteeship && p.beans >= this.baseScore);
 
       storageResults.push({
         playerId: p.playerId,
@@ -893,6 +990,28 @@ export class DdzRoom implements IGameRoom {
       }
     );
 
+    // Sync round settlement with RoomCardEngine session
+    const humanSeat = this.seats.find((s) => s && !s.isBot);
+    if (humanSeat) {
+      const updatedRcSession = roomCardEngine.recordRoundSettlement({
+        roomId: this.roomId,
+        heroId: humanSeat.playerId,
+        heroDelta: scoreChanges[humanSeat.playerId] ?? 0,
+        heroName: humanSeat.nickname,
+        summaryText: isLandlordWin ? '地主获胜' : '农民合作获胜',
+        peerDeltas: this.seats
+          .filter((s): s is RoomPlayerInfo => s !== null && s.playerId !== humanSeat.playerId)
+          .map((s) => ({
+            id: s.playerId,
+            name: s.nickname,
+            delta: scoreChanges[s.playerId] ?? 0,
+          })),
+      });
+      if (updatedRcSession) {
+        this.broadcastToRoom('s2c_rc_session_sync', { session: updatedRcSession });
+      }
+    }
+
     const savedReplay = storageService.getMatchReplay(matchRecord.id) ?? undefined;
     const winnerPlayer = this.seats[winnerSeat]!;
     const settlementPayload: SettlementSummary = {
@@ -919,6 +1038,21 @@ export class DdzRoom implements IGameRoom {
     };
 
     this.broadcastToRoom('s2c_game_settlement', settlementPayload);
+
+    // Emit bankruptcy prompt to any human player whose table score dropped below baseScore
+    for (let s = 0; s < 3; s++) {
+      const p = this.seats[s];
+      if (p && !p.isBot && !p.disconnected && p.beans < this.baseScore) {
+        p.ready = false;
+        this.connectionManager.emitToPlayer(p.playerId, 's2c_bankruptcy_prompt', {
+          roomId: this.roomId,
+          gameType: this.gameType,
+          currentScore: p.beans,
+          baseScore: this.baseScore,
+          initialScore: this.initialScore,
+        });
+      }
+    }
 
     // Humans who dropped during the round are released now so they cannot block the next round.
     for (let s = 0; s < 3; s++) {
@@ -1116,6 +1250,7 @@ export class DdzRoom implements IGameRoom {
       dealMode: this.dealMode,
       wildRanks: this.stateMachine.wildRanks,
       baseScore: this.baseScore,
+      initialScore: this.initialScore,
       maxMultiplier: DdzRules.getMaxMultiplierForBaseScore(this.baseScore),
       isPrivate: this.isPrivate,
       hostId: this.hostId,
@@ -1167,6 +1302,7 @@ export class DdzRoom implements IGameRoom {
       wildRanks: this.stateMachine.wildRanks,
       hostId: this.hostId,
       baseScore: this.baseScore,
+      initialScore: this.initialScore,
       maxMultiplier: DdzRules.getMaxMultiplierForBaseScore(this.baseScore),
       isPrivate: this.isPrivate,
       status: this.stateMachine.phase,
@@ -1195,6 +1331,7 @@ export class DdzRoom implements IGameRoom {
         dealMode: this.dealMode,
         phase: this.stateMachine.phase,
         baseScore: this.baseScore,
+        initialScore: this.initialScore,
         multiplier: this.stateMachine.totalMultiplier,
         landlordSeat: this.stateMachine.landlordSeat,
         currentTurnSeat: this.stateMachine.currentTurnSeat,
@@ -1211,6 +1348,7 @@ export class DdzRoom implements IGameRoom {
       mode: this.dealMode,
       hostId: this.hostId,
       baseScore: this.baseScore,
+      initialScore: this.initialScore,
       isPrivate: this.isPrivate,
       status: this.stateMachine.phase,
       playerCount: this.getPlayerCount(),

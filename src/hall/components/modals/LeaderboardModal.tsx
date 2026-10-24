@@ -1,9 +1,9 @@
-import React from 'react';
-import { Coins, Trophy } from 'lucide-react';
+import React, { useState } from 'react';
+import { Flame, Trophy, X } from 'lucide-react';
+import { UserProfile } from '../../HallView';
 import { AvatarSvg } from '../../../shared/ui/AvatarSvg';
-import { CommercialModalShell } from '../../../shared/ui/CommercialModalShell';
-import { RankMedalSvg } from '../../../shared/ui/ModalVectorIcons';
-import type { UserProfile } from '../../HallView';
+import { soundEngine } from '../../../shared/audio/SoundEngine';
+import { hapticEngine } from '../../../shared/haptics/HapticEngine';
 
 export interface LeaderboardModalProps {
   leaderboard: UserProfile[];
@@ -16,69 +16,160 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
   myProfile,
   onClose,
 }) => {
+  const [activeTab, setActiveTab] = useState<'wealth' | 'wins'>('wealth');
+
+  const myRankIdx = leaderboard.findIndex((u) => u.playerId === myProfile?.playerId);
+  const myRankText = myRankIdx >= 0 ? `#${myRankIdx + 1}` : '榜外';
+
+  const sortedList = [...leaderboard].sort((a, b) => {
+    if (activeTab === 'wealth') return b.beans - a.beans;
+    return b.gamesWon - a.gamesWon;
+  });
+
   return (
-    <CommercialModalShell
-      title="巅峰积分榜"
-      subtitle="全服累计对局积分与胜率实时排行"
-      icon={<Trophy className="h-5 w-5" />}
-      size="md"
-      onClose={onClose}
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-3 sm:p-4 backdrop-blur-xs animate-in fade-in duration-200"
+      onClick={onClose}
     >
-      {leaderboard.length === 0 ? (
-        <div className="rounded-2xl border border-[#E8E1D0] bg-white py-12 text-center text-sm font-medium text-[#8C96A4]">
-          暂无榜单数据
+      <div
+        className="flex max-h-[85vh] w-full max-w-xl flex-col overflow-hidden rounded-3xl border border-white/15 bg-gradient-to-b from-[#232838] to-[#171a24] shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-white/10 px-4 py-3 sm:px-5">
+          <div className="flex items-center gap-2">
+            <Trophy className="h-5 w-5 text-amber-400" />
+            <h3 className="font-display text-base font-extrabold text-amber-200 sm:text-lg">
+              全服巅峰荣誉榜
+            </h3>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg p-1 text-white/60 hover:text-white"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
-      ) : (
-        <div className="space-y-2">
-          {leaderboard.map((item, idx) => {
-            const rank = idx + 1;
-            const isMe = myProfile?.playerId === item.playerId;
+
+        {/* Tab switch */}
+        <div className="flex border-b border-white/10 bg-black/20 px-4 pt-2 gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              soundEngine.playTap(700);
+              hapticEngine.tap();
+              setActiveTab('wealth');
+            }}
+            className={`flex items-center gap-1.5 border-b-2 py-2 px-3 text-xs font-black transition-colors ${
+              activeTab === 'wealth'
+                ? 'border-amber-400 text-amber-300'
+                : 'border-transparent text-white/60 hover:text-white'
+            }`}
+          >
+            <Trophy className="h-3.5 w-3.5" />
+            <span>总积分巅峰榜</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              soundEngine.playTap(700);
+              hapticEngine.tap();
+              setActiveTab('wins');
+            }}
+            className={`flex items-center gap-1.5 border-b-2 py-2 px-3 text-xs font-black transition-colors ${
+              activeTab === 'wins'
+                ? 'border-amber-400 text-amber-300'
+                : 'border-transparent text-white/60 hover:text-white'
+            }`}
+          >
+            <Flame className="h-3.5 w-3.5" />
+            <span>胜场王者榜</span>
+          </button>
+        </div>
+
+        {/* Scrollable List */}
+        <div className="flex-1 space-y-2 overflow-y-auto p-3.5 sm:p-4">
+          {sortedList.map((u, idx) => {
+            const isMe = u.playerId === myProfile?.playerId;
             const winRate =
-              item.gamesPlayed > 0
-                ? Math.round((item.gamesWon / item.gamesPlayed) * 100)
-                : 0;
+              u.gamesPlayed > 0 ? Math.round((u.gamesWon / u.gamesPlayed) * 100) : 0;
 
             return (
               <div
-                key={item.playerId}
-                className={`flex items-center justify-between gap-3 rounded-xl border px-3.5 py-2.5 transition-all ${
+                key={u.playerId}
+                className={`flex items-center justify-between rounded-2xl border px-3.5 py-2.5 transition-colors ${
                   isMe
-                    ? 'border-[#F59E0B] bg-[#FFFBEB] shadow-xs'
-                    : 'border-[#E8E1D0] bg-white hover:border-[#DEC99A]'
+                    ? 'border-amber-400/50 bg-amber-500/15'
+                    : 'border-white/8 bg-[#12151f]'
                 }`}
               >
-                <div className="flex min-w-0 items-center gap-3">
-                  <div className="flex w-7 shrink-0 items-center justify-center">
-                    <RankMedalSvg rank={rank} className="h-7 w-7" />
-                  </div>
-                  <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full border border-[#DEC99A] bg-[#F5F1E7]">
-                    <AvatarSvg avatarId={item.avatarId} />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="truncate text-sm font-black text-[#1E242B]">
-                        {item.nickname}
-                      </span>
-                      {isMe && (
-                        <span className="text-xs font-extrabold text-[#D97706] whitespace-nowrap shrink-0">
-                          · 我
-                        </span>
-                      )}
+                <div className="flex items-center gap-2.5">
+                  <span
+                    className={`w-6 text-center font-mono text-sm font-black ${
+                      idx === 0
+                        ? 'text-amber-300 text-base'
+                        : idx === 1
+                        ? 'text-slate-300 text-base'
+                        : idx === 2
+                        ? 'text-amber-600 text-base'
+                        : 'text-white/60'
+                    }`}
+                  >
+                    #{idx + 1}
+                  </span>
+                  <AvatarSvg avatarId={u.avatarId} size={32} />
+                  <div>
+                    <div className="text-xs font-bold text-white sm:text-sm">
+                      {u.nickname} {isMe && <span className="text-[10px] text-amber-300">(我)</span>}
                     </div>
-                    <div className="font-mono text-[11px] font-medium text-[#5A6572] tabular-nums">
-                      对局 {item.gamesPlayed} 场 · 胜率 {winRate}%
+                    <div className="text-[10px] text-white/55 tabular-nums">
+                      总胜局 {u.gamesWon} 场 · 胜率 {winRate}%
                     </div>
                   </div>
                 </div>
 
-                <div className="flex shrink-0 items-center gap-1 text-right font-mono text-sm font-black text-[#B45309] tabular-nums">
-                  <span>{item.beans > 0 ? `+${item.beans.toLocaleString()}` : item.beans.toLocaleString()} 积分</span>
+                <div className="text-right">
+                  {activeTab === 'wealth' ? (
+                    <div className="flex items-center gap-1 font-mono text-xs font-extrabold text-amber-300 tabular-nums sm:text-sm">
+                      <img
+                        src="/assets/ui/icon_gold.png"
+                        alt="积分"
+                        className="h-4 w-4 object-contain"
+                      />
+                      <span>{u.beans.toLocaleString()} 分</span>
+                    </div>
+                  ) : (
+                    <div className="font-mono text-xs font-extrabold text-emerald-400 tabular-nums sm:text-sm">
+                      胜 {u.gamesWon} 局
+                    </div>
+                  )}
                 </div>
               </div>
             );
           })}
         </div>
-      )}
-    </CommercialModalShell>
+
+        {/* Sticky Bottom: My Rank */}
+        {myProfile && (
+          <div className="flex items-center justify-between border-t border-white/10 bg-[#0e111a] px-4 py-2.5 sm:px-5">
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-xs font-bold text-amber-400">
+                我的当前排名：{myRankText}
+              </span>
+            </div>
+            <div className="flex items-center gap-1 font-mono text-xs font-extrabold text-amber-300">
+              <img
+                src="/assets/ui/icon_gold.png"
+                alt="积分"
+                className="h-4 w-4 object-contain"
+              />
+              <span>{myProfile.beans.toLocaleString()} 分</span>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 };
