@@ -1091,11 +1091,17 @@ export class DdzBotEngine {
   }
 
   /**
-   * Tactical AI Decision Engine for playing cards or passing.
+   * Tactical AI Decision Engine for playing cards or passing:
+   * - Distinguishes Landlord Upper-Seat Peasant (顶牌手 Gatekeeper) vs Lower-Seat Peasant (送牌手 Feeder)
+   * - Protects Bombs/Rockets unless intercepting an enemy endgame threat or executing a 2-turn checkmate
    */
   static chooseBestMove(ctx: BotContext): CardData[] {
     const { myCards, mySeat, landlordSeat, lastPlayed, seatCardCounts, wildRanks = [] } = ctx;
     const isMeLandlord = mySeat === landlordSeat;
+    const nextSeat = (mySeat + 1) % 3;
+    const isGatekeeper = !isMeLandlord && nextSeat === landlordSeat; // 地主上家（顶牌手）
+    const isFeeder = !isMeLandlord && nextSeat !== landlordSeat; // 地主下家（顺牌/送牌手）
+
     const targetPattern =
       lastPlayed && lastPlayed.seat !== mySeat ? lastPlayed.pattern : null;
 
@@ -1114,6 +1120,7 @@ export class DdzBotEngine {
       : [landlordSeat];
     const enemyMinCards = Math.min(...enemySeats.map((s) => seatCardCounts[s] ?? 17));
     const enemyMaxCards = Math.max(...enemySeats.map((s) => seatCardCounts[s] ?? 17));
+    const landlordCardsLeft = seatCardCounts[landlordSeat] ?? 17;
 
     // 1.5 Two-Turn Checkmate Lookahead (二步必胜终局求解)
     const checkmateMove = this.solveTwoTurnCheckmate(
@@ -1129,17 +1136,32 @@ export class DdzBotEngine {
 
     const part = this.partitionHand(myCards, wildRanks);
 
-    // 2. Free Lead Logic
+    // 2. Free Lead Logic (主动领出博弈)
     if (!targetPattern) {
       if (!isMeLandlord) {
         const teammateSeat = [0, 1, 2].find((s) => s !== mySeat && s !== landlordSeat)!;
         const teammateCount = seatCardCounts[teammateSeat] ?? 17;
-        // Feeder cooperation: feed lowest single/pair when teammate is down to 1 or 2 cards
-        if (teammateCount === 1 && part.singles.length > 0) {
-          return part.singles[0];
+
+        // Teammate 1-card alert (报单喂牌): feed lowest single in hand (even breaking a low pair/triple if needed)
+        if (teammateCount === 1) {
+          const allSingles = moves.filter((m) => {
+            const p = DdzRules.identifyPattern(m, wildRanks);
+            return p && p.type === PatternType.SINGLE;
+          });
+          if (allSingles.length > 0) {
+            return allSingles.reduce((minM, m) => (m[0].value < minM[0].value ? m : minM));
+          }
         }
-        if (teammateCount === 2 && part.pairs.length > 0) {
-          return part.pairs[0];
+
+        // Teammate 2-card alert (报双喂牌): feed lowest pair in hand
+        if (teammateCount === 2) {
+          const allPairs = moves.filter((m) => {
+            const p = DdzRules.identifyPattern(m, wildRanks);
+            return p && p.type === PatternType.PAIR;
+          });
+          if (allPairs.length > 0) {
+            return allPairs.reduce((minM, m) => (m[0].value < minM[0].value ? m : minM));
+          }
         }
       }
 
@@ -1160,35 +1182,80 @@ export class DdzBotEngine {
         if (nonPairMove) return nonPairMove;
       }
 
+      // Gatekeeper (地主上家顶牌策略): if leading a single while Landlord has >= 3 cards,
+      // prefer multi-card structural combos first; if leading a single, play a mid-high blocking single (10..A)
+      if (isGatekeeper && landlordCardsLeft >= 3 && moves[0]?.length === 1) {
+        const structuralLead = moves.find((m) => {
+          const p = DdzRules.identifyPattern(m, wildRanks);
+          return (
+            p &&
+            p.type !== PatternType.SINGLE &&
+            p.type !== PatternType.BOMB &&
+            p.type !== PatternType.ROCKET
+          );
+        });
+        if (structuralLead) return structuralLead;
+
+        const blockingSingle = part.singles.find(
+          (s) => s[0].value >= 10 && s[0].value <= 14
+        );
+        if (blockingSingle) return blockingSingle;
+      }
+
       return moves[0];
     }
 
-    // 3. Following someone else's play
+    // 3. Following someone else's play (跟牌/压牌协同博弈)
     const lastSeat = lastPlayed!.seat;
     const isTeammatePlay = !isMeLandlord && lastSeat !== landlordSeat;
     const lastPlayerCardsLeft = seatCardCounts[lastSeat] ?? 17;
 
     if (isTeammatePlay) {
-      // Never suppress a teammate who is about to win or played a multi-card / high-value control pattern
+      // Never suppress a teammate who is about to win (<= 5 cards) or played a multi-card / high control pattern
       if (lastPlayerCardsLeft <= 5) return [];
+
+      // Emergency interception: if Gatekeeper sees Landlord is at 1-card alert and Teammate played a small single (< 2),
+      // Gatekeeper must block with a high single (>= A) so Landlord cannot win on this trick!
+      if (
+        isGatekeeper &&
+        landlordCardsLeft === 1 &&
+        targetPattern.type === PatternType.SINGLE &&
+        targetPattern.mainValue < 14
+      ) {
+        const highSingle = moves
+          .filter((m) => m.length === 1 && m[0].value >= 14)
+          .sort((a, b) => b[0].value - a[0].value)[0];
+        if (highSingle) return highSingle;
+      }
+
+      // Feeder (地主下家): Landlord ALREADY passed on Teammate's play!
+      // Do NOT waste cards beating Teammate unless we have <= 2 turns left and Teammate played a tiny card (< 9)
+      if (isFeeder) {
+        if (part.netTurns <= 2 && targetPattern.length === 1 && targetPattern.mainValue <= 9) {
+          const cleanFinishSingle = part.singles.find(
+            (s) => s[0].value > targetPattern.mainValue && s[0].value <= 14
+          );
+          if (cleanFinishSingle) return cleanFinishSingle;
+        }
+        return [];
+      }
+
       if (targetPattern.length >= 2 || targetPattern.mainValue >= 11) return [];
 
-      // Gatekeeper (守门员, next seat is Landlord): if teammate played a tiny single (< J) and we hold an isolated mid-high single (J..A), step up to block Landlord's cheap pass
-      const nextSeat = (mySeat + 1) % 3;
-      const isGatekeeper = nextSeat === landlordSeat;
-      const maxFollowVal = isGatekeeper ? 14 : 13;
+      // Gatekeeper (地主上家顶牌): if teammate led a small single (< J) and we hold an isolated mid-high single (J..A),
+      // step up to block Landlord's cheap pass
       const cleanSingleFollow = part.singles.find(
-        (s) => s[0].value > targetPattern.mainValue && s[0].value <= maxFollowVal
+        (s) => s[0].value > targetPattern.mainValue && s[0].value >= 11 && s[0].value <= 14
       );
       return cleanSingleFollow ?? [];
     }
 
-    // 4. Following an Enemy Play
+    // 4. Following an Enemy Play (压制地主/敌方出牌)
     const firstMove = moves[0];
     const firstPattern = DdzRules.identifyPatternFor(firstMove, wildRanks, targetPattern);
     if (!firstPattern) return [];
 
-    // Enemy 1-card alert on Single: block with our highest available single or non-bomb control
+    // Enemy 1-card alert on Single: block with our highest available single or Bomb/Rocket
     if (enemyMinCards === 1 && targetPattern.type === PatternType.SINGLE) {
       const nonBombSingles = moves.filter((m) => {
         const p = DdzRules.identifyPatternFor(m, wildRanks, targetPattern);
@@ -1196,6 +1263,10 @@ export class DdzBotEngine {
       });
       if (nonBombSingles.length > 0) {
         return nonBombSingles.reduce((best, m) => (m[0].value > best[0].value ? m : best));
+      }
+      // If we have no higher single and enemy is at 1 card, use Bomb/Rocket if available!
+      if (firstPattern.type === PatternType.BOMB || firstPattern.type === PatternType.ROCKET) {
+        return firstMove;
       }
     }
 
@@ -1208,8 +1279,15 @@ export class DdzBotEngine {
       if (nonBombPairs.length > 0 && lastPlayerCardsLeft <= 2) {
         return nonBombPairs[nonBombPairs.length - 1];
       }
+      if (
+        lastPlayerCardsLeft <= 2 &&
+        (firstPattern.type === PatternType.BOMB || firstPattern.type === PatternType.ROCKET)
+      ) {
+        return firstMove;
+      }
     }
 
+    // Bomb / Rocket discipline: only detonate when enemy is low on cards (<= 5), or we can finish in <= 2 turns
     if (firstPattern.type === PatternType.BOMB || firstPattern.type === PatternType.ROCKET) {
       if (lastPlayerCardsLeft <= 5 || enemyMinCards <= 3 || part.netTurns <= 2) {
         return firstMove;

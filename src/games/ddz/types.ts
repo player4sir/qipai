@@ -44,6 +44,59 @@ export type PropType = 'flower' | 'bomb_cup' | 'tea' | 'like' | 'ingot';
 
 export type RoomTier = 'rookie' | 'primary' | 'middle' | 'high';
 
+export interface HoleCardBonusInfo {
+  type:
+    | 'DUAL_JOKER'
+    | 'TRIPLE'
+    | 'STRAIGHT_FLUSH'
+    | 'STRAIGHT'
+    | 'FLUSH'
+    | 'BIG_JOKER'
+    | 'SMALL_JOKER'
+    | 'DOUBLE_TWO'
+    | 'PAIR'
+    | 'NONE';
+  label: string;
+  multiplier: number;
+}
+
+export function evaluateHoleCardBonus(cards: CardData[]): HoleCardBonusInfo | null {
+  if (!cards || cards.length !== 3) return null;
+  const vals = cards.map((c) => c.value).sort((a, b) => a - b);
+  const suits = cards.map((c) => c.suit);
+
+  if (vals.includes(16) && vals.includes(17)) {
+    return { type: 'DUAL_JOKER', label: '双王底牌 ×4', multiplier: 4 };
+  }
+  if (vals[0] === vals[1] && vals[1] === vals[2]) {
+    return { type: 'TRIPLE', label: '豹子底牌 ×4', multiplier: 4 };
+  }
+  const isFlush = suits[0] !== null && suits[0] === suits[1] && suits[1] === suits[2];
+  const isStraight = vals[2] <= 14 && vals[1] === vals[0] + 1 && vals[2] === vals[1] + 1;
+  if (isFlush && isStraight) {
+    return { type: 'STRAIGHT_FLUSH', label: '同花顺底 ×4', multiplier: 4 };
+  }
+  if (isStraight) {
+    return { type: 'STRAIGHT', label: '顺子底牌 ×3', multiplier: 3 };
+  }
+  if (isFlush) {
+    return { type: 'FLUSH', label: '同花底牌 ×3', multiplier: 3 };
+  }
+  if (vals.includes(17)) {
+    return { type: 'BIG_JOKER', label: '大王底牌 ×2', multiplier: 2 };
+  }
+  if (vals.includes(16)) {
+    return { type: 'SMALL_JOKER', label: '小王底牌 ×2', multiplier: 2 };
+  }
+  if (vals.filter((v) => v === 15).length >= 2) {
+    return { type: 'DOUBLE_TWO', label: '双2底牌 ×2', multiplier: 2 };
+  }
+  if (vals[0] === vals[1] || vals[1] === vals[2]) {
+    return { type: 'PAIR', label: '对子底牌 ×2', multiplier: 2 };
+  }
+  return null;
+}
+
 export interface RoomTierConfig {
   tier: RoomTier;
   name: string;
@@ -53,6 +106,8 @@ export interface RoomTierConfig {
   roomCardCost?: number;
   initialScore?: number;
   maxMultiplier: number;
+  maxMult: number;
+  maxCap: number;
   fee: number;
   accentColor: string;
 }
@@ -67,6 +122,8 @@ export const ROOM_TIER_CONFIGS: RoomTierConfig[] = [
     roomCardCost: 1,
     initialScore: 2000,
     maxMultiplier: 32,
+    maxMult: 32,
+    maxCap: 6400,
     fee: 0,
     accentColor: 'from-emerald-500 to-teal-700',
   },
@@ -79,6 +136,8 @@ export const ROOM_TIER_CONFIGS: RoomTierConfig[] = [
     roomCardCost: 2,
     initialScore: 10000,
     maxMultiplier: 64,
+    maxMult: 64,
+    maxCap: 64000,
     fee: 0,
     accentColor: 'from-blue-500 to-indigo-700',
   },
@@ -91,6 +150,8 @@ export const ROOM_TIER_CONFIGS: RoomTierConfig[] = [
     roomCardCost: 4,
     initialScore: 50000,
     maxMultiplier: 128,
+    maxMult: 128,
+    maxCap: 512000,
     fee: 0,
     accentColor: 'from-purple-500 to-violet-800',
   },
@@ -103,6 +164,8 @@ export const ROOM_TIER_CONFIGS: RoomTierConfig[] = [
     roomCardCost: 8,
     initialScore: 200000,
     maxMultiplier: 256,
+    maxMult: 256,
+    maxCap: 5120000,
     fee: 0,
     accentColor: 'from-amber-500 to-red-700',
   },
@@ -127,6 +190,8 @@ export interface SeatPlayerInfo {
   disconnected: boolean;
   trusteeship: boolean;
   doubleFactor?: 1 | 2 | 4;
+  doubleMultiplier?: number;
+  openHandFactor?: 1 | 3 | 5;
 }
 
 export interface ChatBubbleInfo {
@@ -147,6 +212,7 @@ export interface SeatActionRecord {
     | 'double_1'
     | 'double_2'
     | 'double_4'
+    | 'open_hand'
     | 'play'
     | 'pass';
   cards?: CardData[];
@@ -166,6 +232,7 @@ export interface ReplayStep {
     | 'double_1'
     | 'double_2'
     | 'double_4'
+    | 'open_hand'
     | 'play'
     | 'pass';
   cards?: CardData[];
@@ -210,6 +277,9 @@ export interface SettlementData {
   doubleMultiplier: number;
   bombMultiplier: number;
   springMultiplier: number;
+  bottomCardMultiplier?: number;
+  bottomCardsTag?: string | null;
+  openHandMultiplier?: number;
   totalMultiplier: number;
   maxMultiplier?: number;
   effectiveMultiplier?: number;
@@ -245,6 +315,9 @@ export interface GameSnapshotPayload {
   othersCount?: Record<string, number>;
   landlordCards?: CardData[];
   bottomCardsTag?: string | null;
+  holeCardBonus?: HoleCardBonusInfo | null;
+  openHandMultiplier?: number;
+  openHands?: Record<number, CardData[]>;
   cardRecorder?: Record<Rank, number>;
   seatLastActions?: SeatActionRecord[];
   swapDirection?: SwapDirection;

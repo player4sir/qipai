@@ -130,7 +130,7 @@ export const LaoYanCaiActionBar: React.FC<LaoYanCaiActionBarProps> = ({
     return (
       <div className="flex flex-col items-center gap-2">
         <div className="rounded-full border border-amber-300/60 bg-[#2b1405]/90 px-4 py-1 text-xs font-extrabold text-amber-200 shadow-lg">
-          🎉 恭喜庄家抓到天牌【{handResult?.name || '八/九点'}】！选择【炸开】可立即亮牌与全场比大小（闲家不可再捞牌）
+          庄家天牌（{handResult?.name || '八/九点'}），可选择立即炸开全场比大小
         </div>
         <div className="flex items-center gap-4">
           <button
@@ -138,14 +138,14 @@ export const LaoYanCaiActionBar: React.FC<LaoYanCaiActionBarProps> = ({
             onClick={() => onBankerNatural(true)}
             className="rounded-full border-2 border-yellow-100 bg-gradient-to-r from-[#ffe58f] via-[#f59e0b] to-[#dc2626] px-7 py-2 font-display text-sm font-black text-white shadow-[0_0_20px_rgba(245,158,11,0.75)] transition-transform active:scale-95 cursor-pointer hover:brightness-110"
           >
-            🔥 庄家天牌炸开 (全场比牌)
+            天牌炸开
           </button>
           <button
             type="button"
             onClick={() => onBankerNatural(false)}
             className="rounded-full border border-white/30 bg-slate-800/90 px-5 py-2 font-display text-xs font-bold text-slate-200 shadow transition-transform active:scale-95 cursor-pointer hover:bg-slate-700"
           >
-            暂不炸开 (继续)
+            暂不炸开
           </button>
         </div>
       </div>
@@ -157,7 +157,7 @@ export const LaoYanCaiActionBar: React.FC<LaoYanCaiActionBarProps> = ({
     if (selfPlayer.isDealer) {
       return (
         <div className="rounded-full border border-amber-300/40 bg-black/65 px-5 py-1.5 text-xs font-extrabold text-amber-200 backdrop-blur-xs">
-          等待各闲家抉择【炸开 / 捞牌 / 不捞】... ({countdown}s)
+          等待闲家选择操作... ({countdown}s)
         </div>
       );
     }
@@ -165,13 +165,13 @@ export const LaoYanCaiActionBar: React.FC<LaoYanCaiActionBarProps> = ({
     if (selfPlayer.decision !== 'PENDING') {
       const decLabel =
         selfPlayer.decision === 'ZHAKAI'
-          ? '已选择【🔥炸开】'
+          ? '已选择炸开'
           : selfPlayer.decision === 'LAO'
-          ? '已选择【🥬捞牌】'
-          : '已选择【🛡️不捞】';
+          ? '已选择捞牌'
+          : '已选择不捞';
       return (
         <div className="rounded-full border border-emerald-300/40 bg-black/65 px-5 py-1.5 text-xs font-extrabold text-emerald-200 backdrop-blur-xs">
-          {decLabel} · 当前牌型：{handResult?.name} ({handResult?.badgeText})，等待其他玩家... ({countdown}s)
+          {decLabel} · {handResult?.name} ({handResult?.badgeText}) · 等待其他玩家... ({countdown}s)
         </div>
       );
     }
@@ -182,22 +182,22 @@ export const LaoYanCaiActionBar: React.FC<LaoYanCaiActionBarProps> = ({
       <div className="flex flex-col items-center gap-2">
         {/* Real-Time Draw Odds & EV Assist HUD */}
         {drawOdds && (
-          <div className="flex flex-wrap items-center justify-center gap-2 rounded-full border border-emerald-300/40 bg-[#082219]/92 px-4 py-1 text-[11px] sm:text-xs font-bold text-emerald-100 shadow-lg backdrop-blur-xs">
+          <div className="flex flex-wrap items-center justify-center gap-2 rounded-full border border-emerald-300/40 bg-[#082219]/92 px-4 py-1 text-[11px] sm:text-xs font-bold text-emerald-100 shadow-lg backdrop-blur-xs tabular-nums">
             <span className="text-amber-300 font-extrabold">
               {drawOdds.adviceText}
             </span>
             <span className="text-white/30">|</span>
-            <span className="font-mono text-emerald-300">
+            <span className="text-emerald-300">
               捞牌提升率 {drawOdds.improveProbability}%
             </span>
             <span className="text-white/30">·</span>
-            <span className="font-mono text-sky-300">
+            <span className="text-sky-300">
               大牌率(≥7点) {drawOdds.highHandProbability}%
             </span>
             {drawOdds.specialMultiplierProbability > 0 && (
               <>
                 <span className="text-white/30">·</span>
-                <span className="font-mono text-pink-300">
+                <span className="text-pink-300">
                   高倍(≥3x)率 {drawOdds.specialMultiplierProbability}%
                 </span>
               </>
@@ -214,7 +214,7 @@ export const LaoYanCaiActionBar: React.FC<LaoYanCaiActionBarProps> = ({
                 drawOdds?.recommendation === 'ZHAKAI' ? 'ring-2 ring-yellow-300 animate-pulse' : ''
               }`}
             >
-              🔥 炸开亮牌 ({handResult?.points}点)
+              炸开亮牌 ({handResult?.points}点)
             </button>
           )}
 
@@ -225,7 +225,7 @@ export const LaoYanCaiActionBar: React.FC<LaoYanCaiActionBarProps> = ({
               drawOdds?.recommendation === 'LAO' ? 'ring-2 ring-emerald-200' : ''
             }`}
           >
-            🥬 捞腌菜 (摸第3张)
+            捞牌 (摸第3张)
             {drawOdds?.recommendation === 'LAO' && (
               <span className="ml-1.5 rounded bg-black/25 px-1.5 py-0.2 text-[10px] text-amber-200">
                 推荐
@@ -240,7 +240,7 @@ export const LaoYanCaiActionBar: React.FC<LaoYanCaiActionBarProps> = ({
               drawOdds?.recommendation === 'BULAO' ? 'ring-2 ring-sky-300' : ''
             }`}
           >
-            🛡️ 不捞 (守2张)
+            不捞 (守2张)
             {drawOdds?.recommendation === 'BULAO' && (
               <span className="ml-1.5 rounded bg-sky-400/25 px-1.5 py-0.2 text-[10px] text-sky-200">
                 推荐
@@ -257,7 +257,7 @@ export const LaoYanCaiActionBar: React.FC<LaoYanCaiActionBarProps> = ({
     if (!selfPlayer.isDealer) {
       return (
         <div className="rounded-full border border-amber-300/40 bg-black/65 px-5 py-1.5 text-xs font-extrabold text-amber-200 backdrop-blur-xs">
-          闲家操作完毕，等待庄家抉择【捞牌 / 不捞】... ({countdown}s)
+          等待庄家选择捞牌或不捞... ({countdown}s)
         </div>
       );
     }
@@ -265,16 +265,16 @@ export const LaoYanCaiActionBar: React.FC<LaoYanCaiActionBarProps> = ({
     return (
       <div className="flex flex-col items-center gap-2">
         {drawOdds && (
-          <div className="flex flex-wrap items-center justify-center gap-2 rounded-full border border-amber-300/45 bg-[#1b1407]/92 px-4 py-1 text-[11px] sm:text-xs font-bold text-amber-100 shadow-lg backdrop-blur-xs">
+          <div className="flex flex-wrap items-center justify-center gap-2 rounded-full border border-amber-300/45 bg-[#1b1407]/92 px-4 py-1 text-[11px] sm:text-xs font-bold text-amber-100 shadow-lg backdrop-blur-xs tabular-nums">
             <span className="text-amber-300 font-extrabold">
-              庄家决策参考：{drawOdds.adviceText}
+              庄家参考：{drawOdds.adviceText}
             </span>
             <span className="text-white/30">|</span>
-            <span className="font-mono text-emerald-300">
+            <span className="text-emerald-300">
               捞牌提升率 {drawOdds.improveProbability}%
             </span>
             <span className="text-white/30">·</span>
-            <span className="font-mono text-sky-300">
+            <span className="text-sky-300">
               捞后期望 {drawOdds.expectedPointsAfterDraw}点
             </span>
           </div>
@@ -288,7 +288,7 @@ export const LaoYanCaiActionBar: React.FC<LaoYanCaiActionBarProps> = ({
               drawOdds?.recommendation === 'LAO' ? 'ring-2 ring-emerald-200' : ''
             }`}
           >
-            🥬 庄家捞牌 (抓第3张)
+            庄家捞牌
           </button>
 
           <button
@@ -298,7 +298,7 @@ export const LaoYanCaiActionBar: React.FC<LaoYanCaiActionBarProps> = ({
               drawOdds?.recommendation !== 'LAO' ? 'ring-2 ring-amber-200' : ''
             }`}
           >
-            🛡️ 庄家不捞 (立即开牌)
+            庄家不捞
           </button>
         </div>
       </div>

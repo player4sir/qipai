@@ -344,6 +344,12 @@ export class DdzRoom implements IGameRoom {
         this.onDoubleScore(seat, factor);
         break;
       }
+      case 'c2s_declare_open_hand': {
+        const rawOpenFactor = Number(data.factor);
+        const openFactor: 3 | 5 = rawOpenFactor === 5 ? 5 : 3;
+        this.onDeclareOpenHand(seat, openFactor);
+        break;
+      }
       case 'c2s_play_cards': {
         const cards = Array.isArray(data.cards) ? (data.cards as CardData[]) : [];
         this.onPlayCards(seat, cards);
@@ -708,6 +714,8 @@ export class DdzRoom implements IGameRoom {
     const landlordSeat = this.stateMachine.landlordSeat!;
     const landlordPlayer = this.seats[landlordSeat]!;
     const bottomCardsTag = this.stateMachine.getBottomCardsTag();
+    const holeCardBonus = this.stateMachine.getBottomCardsBonus();
+    const openHands = this.stateMachine.getOpenHandsMap();
 
     for (let seat = 0; seat < 3; seat++) {
       const p = this.seats[seat];
@@ -727,6 +735,9 @@ export class DdzRoom implements IGameRoom {
         landlordSeat,
         landlordCards: this.stateMachine.landlordCards,
         bottomCardsTag,
+        holeCardBonus,
+        openHandMultiplier: this.stateMachine.openHandMultiplier,
+        openHands,
         multiplier: this.stateMachine.totalMultiplier,
         wildRanks: this.stateMachine.wildRanks,
         myCards: this.stateMachine.hands.get(seat) ?? [],
@@ -737,6 +748,31 @@ export class DdzRoom implements IGameRoom {
 
     this.broadcastRoomState();
     this.advanceTurnTimer();
+  }
+
+  private onDeclareOpenHand(seat: number, factor: 3 | 5 = 3): void {
+    const seatPlayer = this.seats[seat];
+    if (!seatPlayer) return;
+
+    const res = this.stateMachine.handleDeclareOpenHand(seat, factor);
+    if (!res.valid) {
+      if (!seatPlayer.isBot) {
+        this.connectionManager.emitToPlayer(seatPlayer.playerId, 's2c_action_error', {
+          message: res.error ?? '当前不可明牌',
+        });
+      }
+      return;
+    }
+
+    this.broadcastToRoom('s2c_open_hand_declared', {
+      playerId: seatPlayer.playerId,
+      seatIndex: seat,
+      factor: res.factor,
+      multiplier: this.stateMachine.totalMultiplier,
+      openHandMultiplier: this.stateMachine.openHandMultiplier,
+      openHands: this.stateMachine.getOpenHandsMap(),
+    });
+    this.broadcastRoomState();
   }
 
   private onDoubleScore(seat: number, factor: 1 | 2 | 4): void {
@@ -813,6 +849,7 @@ export class DdzRoom implements IGameRoom {
         patternLabel: res.pattern ? res.pattern.label : '不出',
         mainValue: res.pattern ? res.pattern.mainValue : 0,
         multiplier: this.stateMachine.totalMultiplier,
+        openHands: this.stateMachine.getOpenHandsMap(),
         wildRanks: this.stateMachine.wildRanks,
         remainingCount: remainingMyCards.length,
         myCards: this.stateMachine.hands.get(viewerSeat) ?? [],
@@ -1024,6 +1061,9 @@ export class DdzRoom implements IGameRoom {
       doubleMultiplier: this.stateMachine.doubleMultiplier,
       bombMultiplier: this.stateMachine.bombMultiplier,
       springMultiplier: this.stateMachine.springMultiplier,
+      bottomCardMultiplier: this.stateMachine.bottomCardMultiplier,
+      bottomCardsTag: this.stateMachine.getBottomCardsTag(),
+      openHandMultiplier: this.stateMachine.openHandMultiplier,
       totalMultiplier: totalMul,
       maxMultiplier,
       effectiveMultiplier,
@@ -1267,6 +1307,12 @@ export class DdzRoom implements IGameRoom {
         this.stateMachine.landlordSeat !== null
           ? this.stateMachine.getBottomCardsTag()
           : null,
+      holeCardBonus:
+        this.stateMachine.landlordSeat !== null
+          ? this.stateMachine.getBottomCardsBonus()
+          : null,
+      openHandMultiplier: this.stateMachine.openHandMultiplier,
+      openHands: this.stateMachine.getOpenHandsMap(),
       multiplier: this.stateMachine.totalMultiplier,
       currentPlayerId: currentPlayer?.playerId ?? null,
       currentSeat: this.stateMachine.currentTurnSeat,

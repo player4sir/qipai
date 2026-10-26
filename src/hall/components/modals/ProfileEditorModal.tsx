@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Sparkles, Volume2, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { AvatarSvg, SPINE_CHARACTER_LIST } from '../../../shared/ui/AvatarSvg';
 import { soundEngine } from '../../../shared/audio/SoundEngine';
 import { hapticEngine } from '../../../shared/haptics/HapticEngine';
@@ -35,44 +35,42 @@ export const ProfileEditorModal: React.FC<ProfileEditorModalProps> = ({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-3 sm:p-4 backdrop-blur-xs animate-in fade-in duration-200"
-      onClick={onClose}
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-[3px] animate-in fade-in duration-150 select-none">
       <div
-        className="flex max-h-[min(90dvh,580px)] w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-amber-400/45 bg-[#1b0e07] p-4 text-white shadow-2xl sm:p-5"
+        className="flex max-h-[84dvh] w-full max-w-[440px] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#12171B]/95 text-[#F3F4F6] shadow-[0_24px_60px_rgba(0,0,0,0.72)] backdrop-blur-md"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex shrink-0 items-center justify-between border-b border-white/10 pb-2.5">
-          <span className="font-display text-base font-extrabold text-amber-200">
-            玩家形象与国潮角色出战管理
-          </span>
+        {/* Header */}
+        <div className="flex shrink-0 items-center justify-between border-b border-white/[0.08] bg-white/[0.02] px-4 py-3 sm:px-5">
+          <h3 className="text-sm sm:text-base font-bold text-[#F3F4F6]">个人资料设置</h3>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg p-1 text-amber-200/70 hover:text-white"
+            aria-label="关闭面板"
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-[#9CA3AF] hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="mt-3.5 flex-1 min-h-0 space-y-3 overflow-y-auto overscroll-contain pr-0.5">
+        {/* Body */}
+        <div className="flex-1 min-h-0 space-y-3.5 overflow-y-auto overscroll-contain p-4 sm:p-5">
           {/* Nickname Input */}
           <div>
-            <label className="text-xs font-semibold text-amber-200">修改玩家昵称：</label>
+            <label className="text-xs font-medium text-[#9CA3AF]">玩家昵称</label>
             <input
               type="text"
               value={nicknameDraft}
               onChange={(e) => setNicknameDraft(e.target.value)}
               maxLength={14}
-              placeholder="输入新昵称"
-              className="mt-1 w-full rounded-xl border border-amber-400/35 bg-[#0f0703] px-3 py-2 text-xs text-white placeholder:text-white/30 focus:border-amber-400 focus:outline-none"
+              placeholder="输入昵称"
+              className="mt-1.5 h-9 w-full rounded-lg border border-white/12 bg-black/40 px-3 text-xs font-semibold text-[#F3F4F6] placeholder:text-[#6B7280] focus:border-[#D49B35] focus:outline-none"
             />
           </div>
 
           {/* Character selection */}
           <div>
-            <label className="text-xs font-semibold text-amber-200">出战国潮角色（点击试听台词语音）：</label>
+            <label className="text-xs font-medium text-[#9CA3AF]">选择出战形象</label>
             <div className="mt-1.5 grid grid-cols-3 gap-2">
               {SPINE_CHARACTER_LIST.map((ch) => {
                 const active = avatarDraft === ch.id;
@@ -81,26 +79,15 @@ export const ProfileEditorModal: React.FC<ProfileEditorModalProps> = ({
                     key={ch.id}
                     type="button"
                     onClick={() => handleSelectChar(ch.id)}
-                    className={`relative flex flex-col items-center gap-1 rounded-2xl border p-2 transition-all active:scale-95 ${
+                    className={`relative flex flex-col items-center gap-1 rounded-xl border p-2.5 transition-all active:scale-98 cursor-pointer ${
                       active
-                        ? 'border-amber-400 bg-amber-500/25 ring-2 ring-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.3)]'
-                        : 'border-white/10 bg-black/35 opacity-75 hover:opacity-100 hover:border-white/25'
+                        ? 'border-[#D4AF37]/45 bg-[#D4AF37]/[0.10] ring-1 ring-[#D4AF37]/35'
+                        : 'border-white/[0.07] bg-white/[0.03] hover:bg-white/[0.06]'
                     }`}
                   >
-                    {/* Rarity Badge */}
-                    <span
-                      className={`absolute top-1 left-1.5 rounded-full px-1.5 py-0.2 font-mono text-[9px] font-black shadow-xs ${
-                        ch.rarity === 'SSR'
-                          ? 'bg-gradient-to-r from-amber-400 to-orange-500 text-black'
-                          : 'bg-emerald-600 text-white'
-                      }`}
-                    >
-                      {ch.rarity}
-                    </span>
-
                     <AvatarSvg avatarId={ch.id} size={38} animState={active ? 'win' : 'idle'} />
-                    <span className="text-xs font-bold text-white">{ch.name}</span>
-                    <span className="text-[10px] text-amber-300/80 truncate max-w-full">
+                    <span className="text-xs font-bold text-[#F3F4F6]">{ch.name}</span>
+                    <span className="text-[10px] text-[#9CA3AF] truncate max-w-full">
                       {ch.title}
                     </span>
                   </button>
@@ -109,34 +96,27 @@ export const ProfileEditorModal: React.FC<ProfileEditorModalProps> = ({
             </div>
           </div>
 
-          {/* Selected character voice & skill spotlight banner */}
-          <div className="rounded-2xl border border-amber-400/30 bg-amber-500/10 p-3 text-xs">
-            <div className="flex items-center justify-between text-amber-300 font-bold">
-              <span className="flex items-center gap-1.5">
-                <Sparkles className="h-3.5 w-3.5 text-amber-400" />
-                <span>绝技：{selectedCharMeta.signatureSkill}</span>
-              </span>
-              <button
-                type="button"
-                onClick={() => soundEngine.speak(selectedCharMeta.voiceLine)}
-                className="flex items-center gap-1 text-[11px] text-amber-200/80 hover:text-amber-200 underline"
-              >
-                <Volume2 className="h-3.5 w-3.5" />
-                <span>重听</span>
-              </button>
-            </div>
-            <p className="mt-1 text-[11px] text-white/75 italic">
-              “{selectedCharMeta.voiceLine}”
-            </p>
+          {/* Selected character voice line preview */}
+          <div className="flex items-center justify-between rounded-xl border border-white/[0.07] bg-white/[0.03] px-3.5 py-2.5 text-xs">
+            <span className="text-[#D1D5DB] truncate">
+              台词：“{selectedCharMeta.voiceLine}”
+            </span>
+            <button
+              type="button"
+              onClick={() => soundEngine.speak(selectedCharMeta.voiceLine)}
+              className="ml-2 shrink-0 font-semibold text-[#FBBF24] hover:text-[#FDE68A] cursor-pointer"
+            >
+              试听语音
+            </button>
           </div>
         </div>
 
-        {/* Buttons */}
-        <div className="mt-4 flex justify-end gap-2.5">
+        {/* Footer */}
+        <div className="flex shrink-0 justify-end gap-2.5 border-t border-white/[0.08] bg-white/[0.02] px-4 py-3 sm:px-5">
           <button
             type="button"
             onClick={onClose}
-            className="rounded-xl border border-amber-400/25 px-4 py-2 text-xs font-semibold text-amber-200/80 hover:bg-white/5"
+            className="h-8.5 min-w-[80px] rounded-lg border border-white/12 bg-white/[0.06] hover:bg-white/[0.11] px-3.5 text-xs font-semibold text-[#E5E7EB] transition-colors active:scale-98 cursor-pointer"
           >
             取消
           </button>
@@ -146,9 +126,9 @@ export const ProfileEditorModal: React.FC<ProfileEditorModalProps> = ({
               onSave(nicknameDraft.trim() || initialNickname, avatarDraft);
               onClose();
             }}
-            className="rounded-xl bg-gradient-to-r from-amber-400 to-orange-500 px-5 py-2 text-xs font-black text-[#18181B] shadow hover:brightness-105 active:scale-95"
+            className="h-8.5 min-w-[96px] rounded-lg bg-[#D49B35] hover:bg-[#E0A842] px-4 text-xs font-bold text-[#111315] transition-colors active:scale-98 cursor-pointer"
           >
-            保存出战形象
+            保存设置
           </button>
         </div>
       </div>

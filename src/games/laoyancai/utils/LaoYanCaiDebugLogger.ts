@@ -57,9 +57,9 @@ export class LaoYanCaiDebugLogger {
     const roleTag = isDealer ? '庄家' : '闲家';
     const actionMap: Record<LaoYanCaiDecision, string> = {
       PENDING: '思考中',
-      ZHAKAI: '🔥 炸开亮牌',
-      LAO: `🥬 捞第3张牌 (${drawnCard ? formatCardLabel(drawnCard) : ''})`,
-      BULAO: '🛡️ 不捞守牌',
+      ZHAKAI: '炸开亮牌',
+      LAO: `捞第3张牌 (${drawnCard ? formatCardLabel(drawnCard) : ''})`,
+      BULAO: '不捞守牌',
     };
     console.log(
       `%c[LYC-DEBUG][博弈抉择] 座位${seatIndex}(${nickname}·${roleTag}) -> ${actionMap[decision]}`,

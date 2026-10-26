@@ -1,11 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Smartphone } from 'lucide-react';
 
-/**
- * Landscape Orientation Prompt (Section 4.1 of Development Doc).
- * Automatically detects portrait viewport (`window.innerHeight > window.innerWidth`)
- * and displays a non-CSS-forced rotation prompt overlay, with an optional bypass button for desktop testing.
- */
 export const RotatePrompt: React.FC = () => {
   const [isPortrait, setIsPortrait] = useState(false);
   const [dismissed, setDismissed] = useState(false);
@@ -31,23 +25,24 @@ export const RotatePrompt: React.FC = () => {
   if (!isPortrait || dismissed) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#072B1E]/95 px-6 text-center backdrop-blur-md">
-      <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-2xl border border-amber-400/30 bg-[#0D4A34] text-amber-400 shadow-lg">
-        <Smartphone className="h-10 w-10 rotate-90 transition-transform duration-500" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-[3px] select-none">
+      <div className="flex w-[300px] sm:w-[320px] flex-col overflow-hidden rounded-xl border border-white/10 bg-[#12171B]/95 p-5 text-center text-[#F3F4F6] shadow-[0_24px_60px_rgba(0,0,0,0.72)] backdrop-blur-md">
+        <h2 className="text-sm sm:text-[15px] font-bold text-[#F3F4F6]">
+          横屏显示提示
+        </h2>
+        <p className="mt-1.5 text-xs text-[#9CA3AF] leading-relaxed">
+          建议将设备旋转至横屏以获得完整牌桌视野。
+        </p>
+        <div className="mt-4 flex justify-center">
+          <button
+            type="button"
+            onClick={() => setDismissed(true)}
+            className="h-8.5 min-w-[96px] rounded-lg bg-[#D49B35] px-4 text-xs font-bold text-[#111315] hover:bg-[#E0A842] whitespace-nowrap cursor-pointer"
+          >
+            继续体验
+          </button>
+        </div>
       </div>
-      <h2 className="font-display text-2xl font-bold text-[#FAF8F5]">
-        请将手机旋转至横屏体验
-      </h2>
-      <p className="mt-2 max-w-xs text-sm text-emerald-100/80">
-        本游戏采用 1334×750 商业级宽屏牌桌设计，横屏握持可获得最佳选牌与出牌视野。
-      </p>
-      <button
-        type="button"
-        onClick={() => setDismissed(true)}
-        className="mt-6 rounded-lg border border-emerald-400/30 bg-emerald-900/60 px-5 py-2 text-xs font-medium text-emerald-100 hover:bg-emerald-800/80 whitespace-nowrap shrink-0"
-      >
-        当前窗口继续体验
-      </button>
     </div>
   );
 };

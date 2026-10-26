@@ -1,5 +1,6 @@
 export type RoomCardPayMode = 'host' | 'aa' | 'winner';
 export type RoomRoundCount = 4 | 8 | 16;
+export type RoomEntryActionKind = 'quick_match' | 'create_room' | 'join_room';
 export type EscrowPhaseStatus = 'FROZEN' | 'CAPTURED' | 'RELEASED' | 'ELIGIBILITY_LOCKED';
 
 export interface CommercialStakePreset {
@@ -88,7 +89,11 @@ export interface CustomStakesValidationResult {
 }
 
 /**
- * Dynamically calculates single-session Room Card cost from baseScore and initialScore.
+ * Dynamically calculates single-session Quick Match Room Card cost from baseScore and initialScore.
+ * - 标准场 (< 500 底分 & < 10,000 初始分): 1 张
+ * - 精英场 (500 ~ 1,999 底分 or 10,000 ~ 39,999 初始分): 2 张
+ * - 大师场 (2,000 ~ 9,999 底分 or 40,000 ~ 199,999 初始分): 4 张
+ * - 至尊场 (>= 10,000 底分 or >= 200,000 初始分): 8 张
  */
 export function calculateStakeTierRoomCardCost(
   baseScore: number,
@@ -98,7 +103,6 @@ export function calculateStakeTierRoomCardCost(
   const cleanInit = Math.max(500, Math.round(Number(initialScore) || cleanBase * 20));
 
   if (cleanBase >= 10000 || cleanInit >= 200000) return 8;
-  if (cleanBase >= 5000 || cleanInit >= 100000) return 6;
   if (cleanBase >= 2000 || cleanInit >= 40000) return 4;
   if (cleanBase >= 500 || cleanInit >= 10000) return 2;
   return 1;
@@ -221,59 +225,79 @@ export interface RoomCardCostEvaluation {
   description: string;
 }
 
+/**
+ * Unified Commercial Room Card Cost Algorithm:
+ * 1. Quick Match (`actionType === 'quick_match'`):
+ *    Charged strictly by single-match stake tier (1 / 2 / 4 / 8 cards), deducted immediately upon entry.
+ * 2. Private Friend Room (`create_room` / `join_room`):
+ *    Charged strictly by fixed round count (4局=1卡, 8局=2卡, 16局=4卡; AA平摊: 4/8局=1卡/人, 16局=2卡/人),
+ *    independent of base score tier or seat count.
+ */
 export function calculateRoomCardCost(
   totalRounds: RoomRoundCount = 8,
   payMode: RoomCardPayMode = 'host',
-  seatCount = 3,
+  _seatCount = 3,
   baseScore = 100,
-  initialScore = 2000
+  initialScore = 2000,
+  actionType: RoomEntryActionKind = 'create_room'
 ): RoomCardCostEvaluation {
-  const roundBase = totalRounds === 4 ? 1 : totalRounds === 8 ? 2 : 4;
-  const stakeScale =
-    baseScore >= 10000 || initialScore >= 200000
-      ? 3
-      : baseScore >= 2000 || initialScore >= 50000
-      ? 2
-      : 1;
-  const baseTotal = roundBase * stakeScale;
+  if (actionType === 'quick_match') {
+    const tierCost = calculateStakeTierRoomCardCost(baseScore, initialScore);
+    return {
+      totalCost: tierCost,
+      perPlayerCost: tierCost,
+      payMode: 'host',
+      totalRounds: 4,
+      baseScore,
+      initialScore,
+      stakeMultiplier: 1,
+      description: `快速场准入 · 入场即扣 ${tierCost} 张房卡`,
+    };
+  }
+
+  // Friend room: fixed strictly by round count (4局=1卡, 8局=2卡, 16局=4卡)
+  const roundFixedTotal = totalRounds === 4 ? 1 : totalRounds === 8 ? 2 : 4;
 
   if (payMode === 'aa') {
-    const perPlayerCost = Math.max(1, Math.ceil(baseTotal / Math.max(2, seatCount)));
-    const totalCost = perPlayerCost * Math.max(2, seatCount);
+    const aaPerPlayer = totalRounds === 16 ? 2 : 1;
     return {
-      totalCost,
-      perPlayerCost,
-      payMode,
+      totalCost: roundFixedTotal,
+      perPlayerCost: aaPerPlayer,
+      payMode: 'aa',
       totalRounds,
       baseScore,
       initialScore,
-      stakeMultiplier: stakeScale,
-      description: `AA平摊 · 入场预冻 ${perPlayerCost} 张/人（首局发牌扣卡）`,
+      stakeMultiplier: 1,
+      description: `AA平摊 · 入场即扣 ${aaPerPlayer} 张/人（超时未开局自动退还）`,
     };
   }
 
   if (payMode === 'winner') {
     return {
-      totalCost: baseTotal,
-      perPlayerCost: baseTotal,
-      payMode,
+      totalCost: roundFixedTotal,
+      perPlayerCost: roundFixedTotal,
+      payMode: 'winner',
       totalRounds,
       baseScore,
       initialScore,
-      stakeMultiplier: stakeScale,
-      description: `大赢家扣卡 · 准入锁 ${baseTotal} 张（终局大赢家核销）`,
+      stakeMultiplier: 1,
+      description: `大赢家支付 · 准入需持有 ${roundFixedTotal} 张（终局真人最高分实扣）`,
     };
   }
 
+  const hostEntryCost = actionType === 'join_room' ? 0 : roundFixedTotal;
   return {
-    totalCost: baseTotal,
-    perPlayerCost: baseTotal,
+    totalCost: roundFixedTotal,
+    perPlayerCost: hostEntryCost,
     payMode: 'host',
     totalRounds,
     baseScore,
     initialScore,
-    stakeMultiplier: stakeScale,
-    description: `房主支付 · 入场预冻 ${baseTotal} 张（首局发牌扣卡）`,
+    stakeMultiplier: 1,
+    description:
+      actionType === 'join_room'
+        ? `房主已付 (${roundFixedTotal}张) · 本次加入免扣房卡`
+        : `房主支付 · 入场即扣 ${roundFixedTotal} 张（超时未开局自动退还）`,
   };
 }
 

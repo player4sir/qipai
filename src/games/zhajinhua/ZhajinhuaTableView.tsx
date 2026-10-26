@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, HelpCircle, Maximize2, Minimize2, Volume2, VolumeX } from 'lucide-react';
+import { ArrowLeft, HelpCircle, Maximize2, Minimize2, Volume2, VolumeX, X } from 'lucide-react';
 import type { ViewportMetrics } from '../../App';
 import { AutoLandscapeContainer } from '../../shared/components/AutoLandscapeContainer';
 import { soundEngine } from '../../shared/audio/SoundEngine';
@@ -332,148 +332,156 @@ export const ZhajinhuaTableView: React.FC<ZhajinhuaTableViewProps> = ({
                 />
               </div>
             )}
+          </div>
 
-            {/* Focused Settlement Modal (RESULT phase) */}
-            {snapshot?.phase === 'RESULT' && (
-              <div className="pointer-events-auto absolute inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md animate-in fade-in duration-200">
-                <div className="relative flex w-full max-w-2xl flex-col overflow-hidden rounded-3xl border-2 border-amber-300/75 bg-gradient-to-b from-[#24140a] via-[#170d06] to-[#0f0804] text-white shadow-[0_28px_72px_rgba(0,0,0,0.92)]">
-                  <SettlementHeroHeader
-                    selfScoreDelta={snapshot.seats[mySeat]?.delta ?? 0}
-                    titleWin="金花大捷 · 本局结算"
-                    titleLose="再接再厉 · 本局结算"
-                    subtitle={`${modeLabel} · 底注 ${snapshot.baseScore.toLocaleString()} · 底池 ${snapshot.pot.toLocaleString()}`}
-                  />
+          {/* Focused Settlement Modal (Outside scaled stage) */}
+          {snapshot?.phase === 'RESULT' && (
+            <div className="pointer-events-auto fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-[3px] animate-in fade-in duration-150">
+              <div
+                className="relative flex max-h-[85dvh] w-full max-w-[480px] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#12171B]/95 text-[#F3F4F6] shadow-[0_24px_60px_rgba(0,0,0,0.72)] backdrop-blur-md"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <SettlementHeroHeader
+                  selfScoreDelta={snapshot.seats[mySeat]?.delta ?? 0}
+                  titleWin="本局胜利"
+                  titleLose="本局结算"
+                  subtitle={`${modeLabel} · 底注 ${snapshot.baseScore.toLocaleString()} · 底池 ${snapshot.pot.toLocaleString()}`}
+                  onClose={() => {
+                    soundEngine.playTap(760);
+                    hapticEngine.tap();
+                    socketClient.emit('c2s_zjh_ready', {});
+                  }}
+                />
 
-                  <div className="flex max-h-[54vh] flex-col gap-2 overflow-y-auto p-3.5 sm:p-4">
-                    {snapshot.seats.filter(Boolean).map((s) => {
-                      const seat = s!;
-                      const isSelf = seat.seatIndex === mySeat;
-                      return (
-                        <div
-                          key={seat.playerId}
-                          className={`flex items-center justify-between gap-2 rounded-2xl border px-3.5 py-2 ${
-                            isSelf
-                              ? 'border-amber-300/70 bg-amber-500/15 shadow-[0_0_16px_rgba(245,158,11,0.18)]'
-                              : 'border-white/10 bg-white/5'
-                          }`}
-                        >
-                          <div className="flex min-w-0 flex-1 items-center gap-2.5">
-                            <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-full border border-amber-200/40 bg-black">
-                              <AvatarSvg avatarId={seat.avatarId} size={36} />
-                            </div>
-                            <div className="flex min-w-0 flex-col">
-                              <div className="flex items-center gap-1.5">
-                                <span className="max-w-[100px] truncate text-xs sm:text-sm font-extrabold text-white">
-                                  {seat.nickname}
-                                </span>
-                                {seat.isWinner && (
-                                  <span className="rounded bg-amber-400 px-1.5 py-0.2 text-[10px] font-black text-[#240e03]">
-                                    赢家
-                                  </span>
-                                )}
-                                {seat.status === 'folded' && (
-                                  <span className="rounded bg-neutral-700 px-1.5 py-0.2 text-[10px] font-bold text-neutral-300">
-                                    弃牌
-                                  </span>
-                                )}
-                                {seat.status === 'lost' && (
-                                  <span className="rounded bg-rose-900/80 px-1.5 py-0.2 text-[10px] font-bold text-rose-200">
-                                    比牌惜败
-                                  </span>
-                                )}
-                              </div>
-                              <span className="font-mono text-[10px] text-amber-100/60">
-                                当前积分: {seat.beans.toLocaleString()} · 下注 {seat.totalBet.toLocaleString()}
-                              </span>
-                            </div>
+                <div className="flex flex-1 min-h-0 flex-col gap-2 overflow-y-auto overscroll-contain p-3.5 sm:p-4">
+                  {snapshot.seats.filter(Boolean).map((s) => {
+                    const seat = s!;
+                    const isSelf = seat.seatIndex === mySeat;
+                    const stateLabel = seat.isWinner
+                      ? '本局赢家'
+                      : seat.status === 'folded'
+                      ? '已弃牌'
+                      : seat.status === 'lost'
+                      ? '比牌出局'
+                      : '完赛';
+
+                    return (
+                      <div
+                        key={seat.playerId}
+                        className={`flex items-center justify-between gap-3 rounded-xl border px-3.5 py-2.5 ${
+                          isSelf
+                            ? 'border-[#D4AF37]/35 bg-[#D4AF37]/[0.08]'
+                            : 'border-white/[0.07] bg-white/[0.03]'
+                        }`}
+                      >
+                        <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                          <div className="relative h-8 w-8 shrink-0 overflow-hidden rounded-full border border-white/12 bg-black/40">
+                            <AvatarSvg avatarId={seat.avatarId} size={32} />
                           </div>
-
-                          <div className="flex shrink-0 items-center gap-2">
-                            {seat.cards && seat.cards.length === 3 && (
-                              <div className="hidden sm:flex items-center -space-x-2">
-                                {seat.cards.map((c, idx) => (
-                                  <ZjhCardView key={`${c.id}_${idx}`} card={c} size="sm" />
-                                ))}
-                              </div>
-                            )}
-                            {seat.handLabel && (
-                              <span className="rounded-full border border-amber-300/45 bg-black/50 px-2.5 py-0.5 text-xs font-black text-amber-200 whitespace-nowrap">
-                                {seat.handLabel}
+                          <div className="flex min-w-0 flex-col">
+                            <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-[#F3F4F6]">
+                              <span className="max-w-[100px] truncate">{seat.nickname}</span>
+                              {isSelf && (
+                                <span className="text-[11px] font-semibold text-[#E5B85B]">· 我</span>
+                              )}
+                            </div>
+                            <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-[#9CA3AF] tabular-nums">
+                              <span className={seat.isWinner ? 'text-[#E5B85B] font-semibold' : ''}>
+                                {stateLabel}
                               </span>
-                            )}
-                          </div>
-
-                          <div className="flex w-28 shrink-0 flex-col items-end">
-                            <RollingScoreCounter
-                              value={seat.delta}
-                              size="md"
-                              durationMs={950}
-                              playTickSound={isSelf}
-                            />
+                              <span aria-hidden="true">·</span>
+                              <span>下 {seat.totalBet.toLocaleString()}</span>
+                              <span aria-hidden="true">·</span>
+                              <span>积分 {seat.beans.toLocaleString()}</span>
+                            </div>
                           </div>
                         </div>
-                      );
-                    })}
-                  </div>
 
-                  <div className="flex items-center justify-between border-t border-white/10 bg-black/45 px-5 py-3">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        soundEngine.playTap(640);
-                        onLeaveRoom();
-                      }}
-                      className="rounded-full border border-white/25 bg-white/10 px-6 py-1.5 text-xs sm:text-sm font-bold text-white/90 hover:bg-white/20 active:scale-95 cursor-pointer"
-                    >
-                      返回大厅
-                    </button>
+                        <div className="flex shrink-0 items-center gap-2.5">
+                          {seat.cards && seat.cards.length === 3 && (
+                            <div className="hidden sm:flex items-center -space-x-2">
+                              {seat.cards.map((c, idx) => (
+                                <ZjhCardView key={`${c.id}_${idx}`} card={c} size="sm" />
+                              ))}
+                            </div>
+                          )}
+                          {seat.handLabel && (
+                            <span className="w-16 text-right text-xs font-semibold text-[#E5B85B] whitespace-nowrap">
+                              {seat.handLabel}
+                            </span>
+                          )}
+                        </div>
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        soundEngine.playTap(760);
-                        hapticEngine.tap();
-                        socketClient.emit('c2s_zjh_ready', {});
-                      }}
-                      className="rounded-full border-2 border-amber-200 bg-gradient-to-b from-[#ffe58f] via-[#f59e0b] to-[#c2410c] px-7 py-1.5 text-xs sm:text-sm font-black text-[#240e03] shadow-lg hover:brightness-110 active:scale-95 cursor-pointer"
-                    >
-                      再来一局 {snapshot.countdown > 0 ? `(${snapshot.countdown}s)` : ''}
-                    </button>
-                  </div>
+                        <div className="flex w-22 shrink-0 flex-col items-end">
+                          <RollingScoreCounter
+                            value={seat.delta}
+                            size="md"
+                            durationMs={900}
+                            playTickSound={isSelf}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              </div>
-            )}
 
-            {/* Rules */}
-            {showRules && (
-              <div
-                className="absolute inset-0 z-[60] flex items-center justify-center bg-black/80"
-                onClick={() => setShowRules(false)}
-              >
-                <div
-                  className="w-[560px] rounded-2xl border border-amber-400/50 bg-[#0b1c14] p-6 shadow-2xl"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <h3 className="mb-3 text-center text-lg font-black text-amber-300">炸金花 · 玩法说明</h3>
-                  <div className="space-y-2.5 text-[13px] leading-relaxed text-white/85">
-                    {RULES.map(([title, body]) => (
-                      <p key={title}>
-                        <b className="text-amber-200">{title}：</b>
-                        {body}
-                      </p>
-                    ))}
-                  </div>
+                <div className="flex shrink-0 items-center justify-end gap-2.5 border-t border-white/[0.08] bg-white/[0.02] px-4 py-2.5">
                   <button
                     type="button"
-                    onClick={() => setShowRules(false)}
-                    className="mx-auto mt-4 block rounded-full bg-amber-500 px-8 py-1.5 text-sm font-black text-black hover:brightness-110"
+                    onClick={() => {
+                      soundEngine.playTap(640);
+                      onLeaveRoom();
+                    }}
+                    className="flex h-8.5 min-w-[84px] items-center justify-center rounded-lg border border-white/12 bg-white/[0.06] px-3.5 text-xs font-semibold text-[#E5E7EB] transition-colors hover:bg-white/[0.11] active:scale-98 whitespace-nowrap shrink-0 cursor-pointer"
                   >
-                    知道了
+                    返回大厅
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      soundEngine.playTap(760);
+                      hapticEngine.tap();
+                      socketClient.emit('c2s_zjh_ready', {});
+                    }}
+                    className="flex h-8.5 min-w-[108px] items-center justify-center rounded-lg bg-[#D49B35] px-4 text-xs font-bold text-[#111315] transition-colors hover:bg-[#E0A842] active:scale-98 whitespace-nowrap tabular-nums shrink-0 cursor-pointer"
+                  >
+                    再来一局 {snapshot.countdown > 0 ? `(${snapshot.countdown}s)` : ''}
                   </button>
                 </div>
               </div>
-            )}
-          </div>
+            </div>
+          )}
+
+          {/* Rules (Outside scaled stage) */}
+          {showRules && (
+            <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-[3px] animate-in fade-in duration-150">
+              <div
+                className="flex max-h-[82dvh] w-full max-w-[420px] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#12171B]/95 text-[#F3F4F6] shadow-[0_24px_60px_rgba(0,0,0,0.72)] backdrop-blur-md"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex shrink-0 items-center justify-between border-b border-white/[0.08] bg-white/[0.02] px-4 sm:px-5 py-3">
+                  <h3 className="text-[15px] font-bold text-[#F3F4F6]">炸金花 · 规则说明</h3>
+                  <button
+                    type="button"
+                    onClick={() => setShowRules(false)}
+                    aria-label="关闭"
+                    className="flex h-7 w-7 items-center justify-center rounded-lg text-[#9CA3AF] hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="flex-1 min-h-0 space-y-2.5 overflow-y-auto overscroll-contain p-4 sm:p-5 text-xs leading-relaxed text-[#9CA3AF]">
+                  {RULES.map(([title, body]) => (
+                    <p key={title}>
+                      <b className="font-bold text-[#F3F4F6]">{title}：</b>
+                      {body}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </AutoLandscapeContainer>

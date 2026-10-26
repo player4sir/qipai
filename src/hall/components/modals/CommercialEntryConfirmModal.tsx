@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Plus, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { soundEngine } from '../../../shared/audio/SoundEngine';
 import { hapticEngine } from '../../../shared/haptics/HapticEngine';
 import {
@@ -55,9 +55,9 @@ const GAME_HOST_SCHEMAS: Record<SupportedGameType, GameHostPanelSchema> = {
       { id: 'tuidaohu', label: '推倒胡' },
     ],
     rounds: [
-      { count: 4, label: '4局 (1房卡)', baseCards: 1 },
-      { count: 8, label: '8局 (2房卡)', baseCards: 2 },
-      { count: 16, label: '16局 (4房卡)', baseCards: 4 },
+      { count: 4, label: '4局 (1卡)', baseCards: 1 },
+      { count: 8, label: '8局 (2卡)', baseCards: 2 },
+      { count: 16, label: '16局 (4卡)', baseCards: 4 },
     ],
     capRowLabel: '番数封顶',
     capOptions: ['32番封顶', '64番封顶', '不设封顶'],
@@ -71,9 +71,9 @@ const GAME_HOST_SCHEMAS: Record<SupportedGameType, GameHostPanelSchema> = {
       { id: 'no_shuffle', label: '畅爽不洗牌' },
     ],
     rounds: [
-      { count: 6, label: '6局 (1房卡)', baseCards: 1 },
-      { count: 12, label: '12局 (2房卡)', baseCards: 2 },
-      { count: 24, label: '24局 (4房卡)', baseCards: 4 },
+      { count: 6, label: '6局 (1卡)', baseCards: 1 },
+      { count: 12, label: '12局 (2卡)', baseCards: 2 },
+      { count: 24, label: '24局 (4卡)', baseCards: 4 },
     ],
     capRowLabel: '炸弹封顶',
     capOptions: ['3炸封顶', '4炸封顶', '不设封顶'],
@@ -87,9 +87,9 @@ const GAME_HOST_SCHEMAS: Record<SupportedGameType, GameHostPanelSchema> = {
       { id: 'tongbi', label: '通比牛牛' },
     ],
     rounds: [
-      { count: 10, label: '10局 (1房卡)', baseCards: 1 },
-      { count: 20, label: '20局 (2房卡)', baseCards: 2 },
-      { count: 30, label: '30局 (4房卡)', baseCards: 4 },
+      { count: 10, label: '10局 (1卡)', baseCards: 1 },
+      { count: 20, label: '20局 (2卡)', baseCards: 2 },
+      { count: 30, label: '30局 (4卡)', baseCards: 4 },
     ],
     capRowLabel: '翻倍规则',
     capOptions: ['牛牛3倍', '牛牛4倍', '至尊10倍'],
@@ -103,9 +103,9 @@ const GAME_HOST_SCHEMAS: Record<SupportedGameType, GameHostPanelSchema> = {
       { id: 'quick', label: '极速8轮' },
     ],
     rounds: [
-      { count: 8, label: '8局 (1房卡)', baseCards: 1 },
-      { count: 16, label: '16局 (2房卡)', baseCards: 2 },
-      { count: 24, label: '24局 (4房卡)', baseCards: 4 },
+      { count: 8, label: '8局 (1卡)', baseCards: 1 },
+      { count: 16, label: '16局 (2卡)', baseCards: 2 },
+      { count: 24, label: '24局 (4卡)', baseCards: 4 },
     ],
     capRowLabel: '必闷规则',
     capOptions: ['不闷牌', '必闷1轮', '必闷3轮'],
@@ -119,9 +119,9 @@ const GAME_HOST_SCHEMAS: Record<SupportedGameType, GameHostPanelSchema> = {
       { id: 'crazy', label: '三公豹子' },
     ],
     rounds: [
-      { count: 8, label: '8局 (1房卡)', baseCards: 1 },
-      { count: 16, label: '16局 (2房卡)', baseCards: 2 },
-      { count: 24, label: '24局 (4房卡)', baseCards: 4 },
+      { count: 8, label: '8局 (1卡)', baseCards: 1 },
+      { count: 16, label: '16局 (2卡)', baseCards: 2 },
+      { count: 24, label: '24局 (4卡)', baseCards: 4 },
     ],
     capRowLabel: '倍数规则',
     capOptions: ['双腌2倍', '三公5倍', '豹子8倍'],
@@ -222,57 +222,50 @@ export const CommercialEntryConfirmModal: React.FC<CommercialEntryConfirmModalPr
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 backdrop-blur-xs animate-in fade-in duration-150 select-none"
-      onClick={onClose}
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-[3px] animate-in fade-in duration-150 select-none">
       <div
-        className="flex w-full max-w-[480px] flex-col overflow-hidden rounded-2xl border border-amber-200/35 bg-gradient-to-b from-[#2a180d] to-[#1a0f08] text-amber-50 shadow-[0_20px_48px_rgba(0,0,0,0.8)]"
+        className="flex w-full max-w-[450px] max-h-[84dvh] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#12171B]/95 text-[#F3F4F6] shadow-[0_24px_60px_rgba(0,0,0,0.72)] backdrop-blur-md"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-amber-200/15 bg-black/25 px-5 py-3">
-          <h3 className="font-display text-base font-black tracking-wide text-amber-100">
+        <div className="flex shrink-0 items-center justify-between border-b border-white/[0.08] bg-white/[0.02] px-4 sm:px-5 py-3">
+          <h3 className="text-sm sm:text-base font-bold tracking-wide text-[#F3F4F6] truncate">
             {schema.title}
           </h3>
 
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-7 items-center rounded-full border border-amber-200/30 bg-black/40 pr-1 pl-2.5">
-              <img
-                src="/assets/ui/zjm_icon_jinka.png"
-                alt="房卡"
-                className="h-3.5 w-3.5 object-contain"
-              />
-              <span className="px-1.5 font-mono text-xs font-black text-amber-200 tabular-nums">
+          <div className="flex items-center gap-2 shrink-0">
+            <div className="flex h-7 items-center rounded-lg border border-white/10 bg-black/35 px-2 text-xs">
+              <span className="text-[#9CA3AF]">房卡</span>
+              <span className="mx-1.5 font-mono font-bold text-[#FBBF24] tabular-nums">
                 {myRoomCards}
               </span>
               <button
                 type="button"
                 onClick={onClaimRoomCards}
-                title="补充房卡"
-                className="flex h-5 w-5 items-center justify-center rounded-full bg-gradient-to-b from-[#ffe58f] to-[#d97706] text-[#261105] hover:brightness-110 active:scale-90 cursor-pointer"
+                className="rounded bg-[#D49B35] hover:bg-[#E0A842] px-1.5 py-0.5 text-[11px] font-bold text-[#111315] active:scale-95 cursor-pointer"
               >
-                <Plus className="h-3 w-3 stroke-[3]" />
+                补充
               </button>
             </div>
 
             <button
               type="button"
               onClick={onClose}
-              className="flex h-7 w-7 items-center justify-center rounded-full bg-white/8 text-amber-100/70 hover:bg-white/15 hover:text-white cursor-pointer"
+              aria-label="关闭面板"
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-[#9CA3AF] hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
             >
               <X className="h-4 w-4" />
             </button>
           </div>
         </div>
 
-        {/* Body: Strictly Aligned Commercial Grid */}
-        <div className="space-y-3 px-5 py-4">
+        {/* Body */}
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain space-y-2.5 px-4 sm:px-5 py-3.5">
           {/* Row 1: Play Mode */}
-          <div className="grid grid-cols-[68px_1fr] items-center gap-3">
-            <span className="text-xs font-bold text-amber-100/80">{schema.modeRowLabel}</span>
+          <div className="grid grid-cols-[60px_1fr] items-center gap-2.5">
+            <span className="text-xs font-medium text-[#9CA3AF]">{schema.modeRowLabel}</span>
             <div
-              className={`grid gap-1 rounded-xl bg-black/35 p-1 ${
+              className={`grid gap-1 rounded-lg bg-black/35 border border-white/[0.08] p-1 ${
                 schema.modes.length === 4 ? 'grid-cols-4' : 'grid-cols-3'
               }`}
             >
@@ -286,10 +279,10 @@ export const CommercialEntryConfirmModal: React.FC<CommercialEntryConfirmModalPr
                       soundEngine.playTap(750);
                       setSelectedMode(m.id);
                     }}
-                    className={`h-8 rounded-lg text-xs font-bold transition-all cursor-pointer truncate px-1 ${
+                    className={`h-7 rounded-md text-xs font-semibold transition-colors cursor-pointer truncate px-1 ${
                       active
-                        ? 'bg-gradient-to-b from-[#ffe28a] to-[#f59e0b] text-[#241104] font-black shadow-xs'
-                        : 'text-amber-100/75 hover:text-white'
+                        ? 'bg-[#D49B35] text-[#111315] font-bold'
+                        : 'text-[#9CA3AF] hover:text-[#F3F4F6]'
                     }`}
                   >
                     {m.label}
@@ -300,9 +293,9 @@ export const CommercialEntryConfirmModal: React.FC<CommercialEntryConfirmModalPr
           </div>
 
           {/* Row 2: Round Count */}
-          <div className="grid grid-cols-[68px_1fr] items-center gap-3">
-            <span className="text-xs font-bold text-amber-100/80">牌局局数</span>
-            <div className="grid grid-cols-3 gap-1 rounded-xl bg-black/35 p-1">
+          <div className="grid grid-cols-[60px_1fr] items-center gap-2.5">
+            <span className="text-xs font-medium text-[#9CA3AF]">牌局局数</span>
+            <div className="grid grid-cols-3 gap-1 rounded-lg bg-black/35 border border-white/[0.08] p-1">
               {schema.rounds.map((r, idx) => {
                 const active = roundIdx === idx;
                 return (
@@ -313,10 +306,10 @@ export const CommercialEntryConfirmModal: React.FC<CommercialEntryConfirmModalPr
                       soundEngine.playTap(740);
                       setRoundIdx(idx);
                     }}
-                    className={`h-8 rounded-lg text-xs font-bold transition-all cursor-pointer truncate px-1 ${
+                    className={`h-7 rounded-md text-xs font-semibold transition-colors cursor-pointer truncate px-1 ${
                       active
-                        ? 'bg-gradient-to-b from-[#ffe28a] to-[#f59e0b] text-[#241104] font-black shadow-xs'
-                        : 'text-amber-100/75 hover:text-white'
+                        ? 'bg-[#D49B35] text-[#111315] font-bold'
+                        : 'text-[#9CA3AF] hover:text-[#F3F4F6]'
                     }`}
                   >
                     {r.label}
@@ -327,9 +320,9 @@ export const CommercialEntryConfirmModal: React.FC<CommercialEntryConfirmModalPr
           </div>
 
           {/* Row 3: Cap / Multiplier Rule */}
-          <div className="grid grid-cols-[68px_1fr] items-center gap-3">
-            <span className="text-xs font-bold text-amber-100/80">{schema.capRowLabel}</span>
-            <div className="grid grid-cols-3 gap-1 rounded-xl bg-black/35 p-1">
+          <div className="grid grid-cols-[60px_1fr] items-center gap-2.5">
+            <span className="text-xs font-medium text-[#9CA3AF]">{schema.capRowLabel}</span>
+            <div className="grid grid-cols-3 gap-1 rounded-lg bg-black/35 border border-white/[0.08] p-1">
               {schema.capOptions.map((opt, idx) => {
                 const active = capIdx === idx;
                 return (
@@ -340,10 +333,10 @@ export const CommercialEntryConfirmModal: React.FC<CommercialEntryConfirmModalPr
                       soundEngine.playTap(740);
                       setCapIdx(idx);
                     }}
-                    className={`h-8 rounded-lg text-xs font-bold transition-all cursor-pointer truncate px-1 ${
+                    className={`h-7 rounded-md text-xs font-semibold transition-colors cursor-pointer truncate px-1 ${
                       active
-                        ? 'bg-gradient-to-b from-[#ffe28a] to-[#f59e0b] text-[#241104] font-black shadow-xs'
-                        : 'text-amber-100/75 hover:text-white'
+                        ? 'bg-[#D49B35] text-[#111315] font-bold'
+                        : 'text-[#9CA3AF] hover:text-[#F3F4F6]'
                     }`}
                   >
                     {opt}
@@ -353,12 +346,11 @@ export const CommercialEntryConfirmModal: React.FC<CommercialEntryConfirmModalPr
             </div>
           </div>
 
-          {/* Row 4: Symmetrical 2-Column Stakes Configuration (Base Score & Initial Score) */}
-          <div className="grid grid-cols-2 gap-3 pt-1">
-            {/* Left Column: Base Score */}
-            <div className="rounded-xl border border-amber-200/15 bg-black/30 p-2.5">
+          {/* Row 4: Stakes Configuration */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-0.5">
+            <div className="rounded-xl border border-white/[0.07] bg-white/[0.03] p-2.5">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-bold text-amber-100/85">房间底分</span>
+                <span className="text-xs font-medium text-[#9CA3AF]">房间底分</span>
                 <input
                   type="number"
                   min={CUSTOM_STAKES_LIMITS.MIN_BASE_SCORE}
@@ -366,7 +358,7 @@ export const CommercialEntryConfirmModal: React.FC<CommercialEntryConfirmModalPr
                   step={10}
                   value={baseScoreInput}
                   onChange={(e) => setBaseScoreInput(e.target.value)}
-                  className="h-7 w-22 rounded-lg border border-amber-200/25 bg-black/50 px-2 text-right font-mono text-xs font-black text-amber-300 tabular-nums focus:border-amber-300 focus:outline-none"
+                  className="h-7 w-22 rounded-lg border border-white/12 bg-black/40 px-2 text-right font-mono text-xs font-bold text-[#F3F4F6] tabular-nums focus:border-[#D49B35] focus:outline-none"
                 />
               </div>
               <div className="mt-2 grid grid-cols-4 gap-1">
@@ -377,10 +369,10 @@ export const CommercialEntryConfirmModal: React.FC<CommercialEntryConfirmModalPr
                       key={preset}
                       type="button"
                       onClick={() => handleSelectBaseScorePreset(preset)}
-                      className={`h-6.5 rounded-md font-mono text-[11px] font-bold tabular-nums transition-colors cursor-pointer ${
+                      className={`h-6.5 rounded-md font-mono text-[11px] font-semibold tabular-nums transition-colors cursor-pointer ${
                         active
-                          ? 'bg-amber-400 text-[#241104] font-black'
-                          : 'bg-white/6 text-amber-100/70 hover:bg-white/12'
+                          ? 'bg-[#D49B35] text-[#111315] font-bold'
+                          : 'border border-white/[0.08] bg-white/[0.04] text-[#9CA3AF] hover:text-[#F3F4F6]'
                       }`}
                     >
                       {preset >= 10000 ? '1万' : preset}
@@ -390,10 +382,9 @@ export const CommercialEntryConfirmModal: React.FC<CommercialEntryConfirmModalPr
               </div>
             </div>
 
-            {/* Right Column: Initial Score */}
-            <div className="rounded-xl border border-amber-200/15 bg-black/30 p-2.5">
+            <div className="rounded-xl border border-white/[0.07] bg-white/[0.03] p-2.5">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-bold text-amber-100/85">初始积分</span>
+                <span className="text-xs font-medium text-[#9CA3AF]">初始积分</span>
                 <input
                   type="number"
                   min={CUSTOM_STAKES_LIMITS.MIN_INITIAL_SCORE}
@@ -401,7 +392,7 @@ export const CommercialEntryConfirmModal: React.FC<CommercialEntryConfirmModalPr
                   step={100}
                   value={initialScoreInput}
                   onChange={(e) => setInitialScoreInput(e.target.value)}
-                  className="h-7 w-22 rounded-lg border border-amber-200/25 bg-black/50 px-2 text-right font-mono text-xs font-black text-emerald-300 tabular-nums focus:border-amber-300 focus:outline-none"
+                  className="h-7 w-22 rounded-lg border border-white/12 bg-black/40 px-2 text-right font-mono text-xs font-bold text-[#F3F4F6] tabular-nums focus:border-[#D49B35] focus:outline-none"
                 />
               </div>
               <div className="mt-2 grid grid-cols-4 gap-1">
@@ -412,10 +403,10 @@ export const CommercialEntryConfirmModal: React.FC<CommercialEntryConfirmModalPr
                       key={preset}
                       type="button"
                       onClick={() => handleSelectInitialScorePreset(preset)}
-                      className={`h-6.5 rounded-md font-mono text-[11px] font-bold tabular-nums transition-colors cursor-pointer ${
+                      className={`h-6.5 rounded-md font-mono text-[11px] font-semibold tabular-nums transition-colors cursor-pointer ${
                         active
-                          ? 'bg-amber-400 text-[#241104] font-black'
-                          : 'bg-white/6 text-amber-100/70 hover:bg-white/12'
+                          ? 'bg-[#D49B35] text-[#111315] font-bold'
+                          : 'border border-white/[0.08] bg-white/[0.04] text-[#9CA3AF] hover:text-[#F3F4F6]'
                       }`}
                     >
                       {preset >= 10000 ? `${preset / 10000}万` : preset}
@@ -428,41 +419,37 @@ export const CommercialEntryConfirmModal: React.FC<CommercialEntryConfirmModalPr
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between gap-3 border-t border-amber-200/15 bg-black/30 px-5 py-3">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-white/[0.08] bg-white/[0.02] px-4 sm:px-5 py-3">
           {!validation.valid ? (
-            <div className="flex items-center gap-2 text-xs text-rose-300">
+            <div className="flex items-center gap-2 text-xs text-[#F87171]">
               <span>{validation.errorMessage}</span>
               <button
                 type="button"
                 onClick={handleAutoFixRatio}
-                className="font-bold text-amber-300 underline hover:text-amber-200 cursor-pointer whitespace-nowrap"
+                className="font-semibold text-[#FBBF24] underline hover:text-[#FDE68A] cursor-pointer whitespace-nowrap"
               >
                 自动配平
               </button>
             </div>
           ) : !canAfford ? (
-            <div className="flex items-center gap-2 text-xs text-rose-300">
+            <div className="flex items-center gap-2 text-xs text-[#F87171]">
               <span>房卡不足（需 {roomCardCost} 张）</span>
               <button
                 type="button"
                 onClick={onClaimRoomCards}
-                className="font-bold text-amber-300 underline hover:text-amber-200 cursor-pointer whitespace-nowrap"
+                className="font-semibold text-[#FBBF24] underline hover:text-[#FDE68A] cursor-pointer whitespace-nowrap"
               >
                 补充房卡
               </button>
             </div>
           ) : (
-            <div className="flex items-center gap-2 text-xs text-amber-100/80">
+            <div className="flex items-center gap-2 text-xs text-[#9CA3AF] tabular-nums">
               <span>
-                消耗房卡 <strong className="font-mono text-amber-300">{roomCardCost}</strong> 张
+                消耗房卡 <strong className="font-mono text-[#FBBF24]">{roomCardCost}</strong> 张
               </span>
-              <span className="text-white/25">·</span>
+              <span className="text-white/20">·</span>
               <span>
-                底分 <strong className="font-mono text-white">{validation.normalizedBaseScore.toLocaleString()}</strong>
-              </span>
-              <span className="text-white/25">·</span>
-              <span>
-                初始积分 <strong className="font-mono text-emerald-300">{validation.normalizedInitialScore.toLocaleString()}</strong>
+                底分 <strong className="font-mono text-[#F3F4F6]">{validation.normalizedBaseScore.toLocaleString()}</strong>
               </span>
             </div>
           )}
@@ -471,10 +458,10 @@ export const CommercialEntryConfirmModal: React.FC<CommercialEntryConfirmModalPr
             type="button"
             disabled={!validation.valid || !canAfford}
             onClick={handleConfirm}
-            className={`shrink-0 rounded-xl px-6 py-2 font-display text-sm font-black transition-all whitespace-nowrap ${
+            className={`h-8.5 min-w-[96px] shrink-0 rounded-lg px-5 text-xs font-bold transition-colors whitespace-nowrap ${
               validation.valid && canAfford
-                ? 'bg-gradient-to-b from-[#ffe28a] via-[#f59e0b] to-[#d97706] text-[#241104] shadow-md hover:brightness-105 active:scale-95 cursor-pointer'
-                : 'bg-white/10 text-white/35 cursor-not-allowed'
+                ? 'bg-[#D49B35] hover:bg-[#E0A842] text-[#111315] active:scale-98 cursor-pointer'
+                : 'bg-white/[0.06] text-[#6B7280] cursor-not-allowed'
             }`}
           >
             进入游戏

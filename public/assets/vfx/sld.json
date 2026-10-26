@@ -1,0 +1,57 @@
+{
+  "frames": {
+    "dan": {
+      "frame": {
+        "x": 2,
+        "y": 2,
+        "w": 236,
+        "h": 322
+      },
+      "rotated": true,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 236,
+        "h": 322
+      },
+      "sourceSize": {
+        "w": 236,
+        "h": 322
+      }
+    },
+    "xx": {
+      "frame": {
+        "x": 326,
+        "y": 102,
+        "w": 68,
+        "h": 136
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 68,
+        "h": 136
+      },
+      "sourceSize": {
+        "w": 68,
+        "h": 136
+      }
+    }
+  },
+  "animations": {
+    "default": [
+      "dan",
+      "xx"
+    ]
+  },
+  "meta": {
+    "app": "Commercial-SpineAtlas-JSON",
+    "version": "1.0",
+    "image": "sld.png",
+    "format": "RGBA8888",
+    "scale": "1"
+  }
+}

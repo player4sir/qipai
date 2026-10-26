@@ -1,5 +1,5 @@
 import React from 'react';
-import { KeyRound, RefreshCw, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { RoomSummary } from '../../HallView';
 import { getRoomTierByBaseScore } from '../../../games/ddz/types';
 
@@ -27,23 +27,16 @@ export const PublicRoomsModal: React.FC<PublicRoomsModalProps> = ({
   onJoinRoom,
 }) => {
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-3 sm:p-4 backdrop-blur-xs animate-in fade-in duration-200"
-      onClick={onClose}
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-[3px] animate-in fade-in duration-150 select-none">
       <div
-        className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-white/15 bg-gradient-to-b from-[#232838] to-[#171a24] shadow-2xl"
+        className="flex max-h-[84dvh] w-full max-w-[520px] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#12171B]/95 text-[#F3F4F6] shadow-[0_24px_60px_rgba(0,0,0,0.72)] backdrop-blur-md"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-4 py-3 sm:px-5">
-          <div>
-            <h3 className="font-display text-base font-extrabold text-white sm:text-lg">
-              实时公开牌桌（{rooms.length} 桌在线）
-            </h3>
-            <p className="text-xs text-white/60">
-              支持一键加入公开房或点击「好友房」输入房号直达
-            </p>
-          </div>
+        {/* Header */}
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-white/[0.08] bg-white/[0.02] px-4 py-3 sm:px-5">
+          <h3 className="text-sm sm:text-base font-bold text-[#F3F4F6]">
+            在线房间 ({rooms.length})
+          </h3>
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -51,35 +44,33 @@ export const PublicRoomsModal: React.FC<PublicRoomsModalProps> = ({
                 onClose();
                 onOpenFriendRoom();
               }}
-              className="flex items-center gap-1.5 rounded-xl border border-amber-400/40 bg-amber-500/20 px-3 py-1.5 text-xs font-bold text-amber-200 hover:bg-amber-500/30 active:scale-95"
+              className="h-7 rounded-lg border border-white/12 bg-white/[0.06] hover:bg-white/[0.11] px-3 text-xs font-semibold text-[#E5E7EB] transition-colors active:scale-98 cursor-pointer"
             >
-              <KeyRound className="h-3.5 w-3.5" />
-              <span>房号/建房</span>
+              房号/建房
             </button>
             <button
               type="button"
               onClick={onRefresh}
-              className="flex items-center gap-1.5 rounded-xl border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/15 active:scale-95"
+              className="h-7 rounded-lg border border-white/12 bg-white/[0.06] hover:bg-white/[0.11] px-3 text-xs font-semibold text-[#E5E7EB] transition-colors active:scale-98 cursor-pointer"
             >
-              <RefreshCw className="h-3.5 w-3.5" />
-              <span>刷新</span>
+              刷新
             </button>
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg p-1 text-white/60 hover:text-white"
+              aria-label="关闭面板"
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-[#9CA3AF] hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
             >
               <X className="h-4 w-4" />
             </button>
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-3.5 sm:p-4">
+        {/* Body */}
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4">
           {rooms.length === 0 ? (
-            <div className="rounded-2xl border border-white/8 bg-[#12151f] py-10 text-center">
-              <p className="text-xs text-white/65 sm:text-sm">
-                当前暂无等待中的公开房间，可前往斗地主专场直接选场匹配开局！
-              </p>
+            <div className="rounded-xl border border-white/[0.07] bg-white/[0.03] py-10 text-center">
+              <p className="text-xs text-[#9CA3AF]">当前暂无等待中的公开房间</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
@@ -88,21 +79,21 @@ export const PublicRoomsModal: React.FC<PublicRoomsModalProps> = ({
                 return (
                   <div
                     key={rm.roomId}
-                    className="flex items-center justify-between rounded-2xl border border-white/10 bg-[#12151f] p-3.5 transition-colors hover:border-amber-400/30"
+                    className="flex items-center justify-between rounded-xl border border-white/[0.07] bg-white/[0.03] p-3.5 transition-colors hover:border-[#D4AF37]/35"
                   >
                     <div>
                       <div className="flex items-center gap-1.5">
-                        <span className="font-mono text-xs font-bold text-amber-300 sm:text-sm">
+                        <span className="font-mono text-xs sm:text-sm font-bold text-[#F3F4F6]">
                           房号 {rm.roomId}
                         </span>
-                        <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-bold text-amber-200">
+                        <span className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-semibold text-[#9CA3AF]">
                           {modeShortLabel(rm.mode)}
                         </span>
-                        <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-white/80">
+                        <span className="rounded border border-[#D4AF37]/30 bg-[#D4AF37]/10 px-1.5 py-0.5 text-[10px] font-semibold text-[#FBBF24]">
                           {tierInfo.name}
                         </span>
                       </div>
-                      <p className="mt-1 text-[11px] text-white/60 tabular-nums">
+                      <p className="mt-1 text-[11px] text-[#9CA3AF] tabular-nums">
                         底分 {rm.baseScore} · 封顶 ×{tierInfo.maxMultiplier} · 在座{' '}
                         {rm.playerCount}/{rm.maxPlayers}
                       </p>
@@ -113,7 +104,7 @@ export const PublicRoomsModal: React.FC<PublicRoomsModalProps> = ({
                         onClose();
                         onJoinRoom(rm.roomId);
                       }}
-                      className="rounded-xl bg-amber-500 px-3 py-1.5 text-xs font-bold text-[#18181B] hover:bg-amber-400 active:scale-95"
+                      className="h-8 rounded-lg bg-[#D49B35] hover:bg-[#E0A842] px-3.5 text-xs font-bold text-[#111315] transition-colors active:scale-98 cursor-pointer"
                     >
                       加入
                     </button>

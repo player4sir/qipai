@@ -31,6 +31,7 @@ export interface SeatActionRecord {
     | 'double_1'
     | 'double_2'
     | 'double_4'
+    | 'open_hand'
     | 'play'
     | 'pass';
   cards?: CardData[];
@@ -50,6 +51,7 @@ export interface ReplayStep {
     | 'double_1'
     | 'double_2'
     | 'double_4'
+    | 'open_hand'
     | 'play'
     | 'pass';
   cards?: CardData[];
@@ -94,6 +96,9 @@ export interface SettlementSummary {
   doubleMultiplier: number;
   bombMultiplier: number;
   springMultiplier: number;
+  bottomCardMultiplier?: number;
+  bottomCardsTag?: string | null;
+  openHandMultiplier?: number;
   totalMultiplier: number;
   maxMultiplier?: number;
   effectiveMultiplier?: number;
@@ -137,15 +142,18 @@ export class DdzStateMachine {
   lastGrabberSeat: number | null = null;
   redealCount: number = 0;
 
-  // Doubling phase state
+  // Doubling & Open-Hand state
   doublingStep: number = 0;
   seatDoubleFactors: Map<number, 1 | 2 | 4> = new Map();
+  openHandSeats: Map<number, 3 | 5> = new Map();
 
   // Multipliers & counters
   grabMultiplier: number = 1;
   doubleMultiplier: number = 1;
   bombMultiplier: number = 1;
   springMultiplier: number = 1;
+  bottomCardMultiplier: number = 1;
+  openHandMultiplier: number = 1;
 
   // Playing trick state
   lastPlayed: {
@@ -169,7 +177,9 @@ export class DdzStateMachine {
       this.grabMultiplier *
       this.doubleMultiplier *
       this.bombMultiplier *
-      this.springMultiplier
+      this.springMultiplier *
+      this.bottomCardMultiplier *
+      this.openHandMultiplier
     );
   }
 
@@ -192,10 +202,13 @@ export class DdzStateMachine {
     }
     this.doublingStep = 0;
     this.seatDoubleFactors.clear();
+    this.openHandSeats.clear();
     this.grabMultiplier = 1;
     this.doubleMultiplier = 1;
     this.bombMultiplier = 1;
     this.springMultiplier = 1;
+    this.bottomCardMultiplier = 1;
+    this.openHandMultiplier = 1;
     this.lastPlayed = null;
     this.passCountInTrick = 0;
     this.seatLastAction.clear();
@@ -363,25 +376,101 @@ export class DdzStateMachine {
   }
 
   /**
-   * Analyze the 3 hole cards for special feature tags ("双王底牌", "同花底牌", "顺子底牌", etc.)
+   * Analyze the 3 hole cards for special high-stakes multiplier bonus ("双王底牌 ×4", "同花底牌 ×3", "顺子底牌 ×3", etc.)
    */
-  getBottomCardsTag(): string | null {
+  getBottomCardsBonus(): { type: string; label: string; multiplier: number } | null {
     if (this.landlordCards.length !== 3) return null;
     const vals = this.landlordCards.map((c) => c.value).sort((a, b) => a - b);
     const suits = this.landlordCards.map((c) => c.suit);
 
-    if (vals.includes(16) && vals.includes(17)) return '双王底牌';
-    if (vals.includes(17)) return '大王底牌';
-    if (vals.includes(16)) return '小王底牌';
-    if (vals[0] === vals[1] && vals[1] === vals[2]) return '豹子底牌';
+    if (vals.includes(16) && vals.includes(17)) {
+      return { type: 'DUAL_JOKER', label: '双王底牌 ×4', multiplier: 4 };
+    }
+    if (vals[0] === vals[1] && vals[1] === vals[2]) {
+      return { type: 'TRIPLE', label: '豹子底牌 ×4', multiplier: 4 };
+    }
 
     const isFlush = suits[0] !== null && suits[0] === suits[1] && suits[1] === suits[2];
     const isStraight = vals[2] <= 14 && vals[1] === vals[0] + 1 && vals[2] === vals[1] + 1;
-    if (isFlush && isStraight) return '同花顺底';
-    if (isStraight) return '顺子底牌';
-    if (isFlush) return '同花底牌';
-    if (vals[0] === vals[1] || vals[1] === vals[2]) return '对子底牌';
+    if (isFlush && isStraight) {
+      return { type: 'STRAIGHT_FLUSH', label: '同花顺底 ×4', multiplier: 4 };
+    }
+    if (isStraight) {
+      return { type: 'STRAIGHT', label: '顺子底牌 ×3', multiplier: 3 };
+    }
+    if (isFlush) {
+      return { type: 'FLUSH', label: '同花底牌 ×3', multiplier: 3 };
+    }
+    if (vals.includes(17)) {
+      return { type: 'BIG_JOKER', label: '大王底牌 ×2', multiplier: 2 };
+    }
+    if (vals.includes(16)) {
+      return { type: 'SMALL_JOKER', label: '小王底牌 ×2', multiplier: 2 };
+    }
+    if (vals.filter((v) => v === 15).length >= 2) {
+      return { type: 'DOUBLE_TWO', label: '双2底牌 ×2', multiplier: 2 };
+    }
+    if (vals[0] === vals[1] || vals[1] === vals[2]) {
+      return { type: 'PAIR', label: '对子底牌 ×2', multiplier: 2 };
+    }
     return null;
+  }
+
+  getBottomCardsTag(): string | null {
+    return this.getBottomCardsBonus()?.label ?? null;
+  }
+
+  /**
+   * Declare Open-Hand (明牌 ×3 / ×5) during BIDDING, GRABBING, DOUBLING, or before playing first card.
+   */
+  handleDeclareOpenHand(
+    seat: number,
+    requestedFactor: 3 | 5 = 3
+  ): {
+    valid: boolean;
+    error?: string;
+    factor: 3 | 5;
+  } {
+    if (
+      this.phase !== 'BIDDING' &&
+      this.phase !== 'GRABBING' &&
+      this.phase !== 'DOUBLING' &&
+      this.phase !== 'PLAYING'
+    ) {
+      return { valid: false, error: '当前阶段不可明牌', factor: 3 };
+    }
+    if (this.openHandSeats.has(seat)) {
+      return { valid: false, error: '您已声明过明牌', factor: this.openHandSeats.get(seat)! };
+    }
+    if (this.phase === 'PLAYING' && (this.landlordPlayCount > 0 || this.peasantPlayCount > 0)) {
+      return { valid: false, error: '出牌后不可再声明明牌', factor: 3 };
+    }
+
+    const factor: 3 | 5 =
+      this.phase === 'BIDDING' && requestedFactor === 5 ? 5 : 3;
+    this.openHandSeats.set(seat, factor);
+    this.openHandMultiplier = Math.max(this.openHandMultiplier, factor);
+
+    this.recordStep(seat, 'open_hand', this.hands.get(seat), `明牌 ×${factor}`);
+    return { valid: true, factor };
+  }
+
+  /**
+   * Returns a map of seatIndex -> remaining CardData[] for all seats that declared Open-Hand (明牌)
+   * or all 3 seats when in SETTLEMENT showdown.
+   */
+  getOpenHandsMap(): Record<number, CardData[]> {
+    const res: Record<number, CardData[]> = {};
+    if (this.phase === 'SETTLEMENT') {
+      for (const [s, cards] of this.hands.entries()) {
+        res[s] = cards;
+      }
+      return res;
+    }
+    for (const [s] of this.openHandSeats.entries()) {
+      res[s] = this.hands.get(s) ?? [];
+    }
+    return res;
   }
 
   /**
@@ -503,6 +592,8 @@ export class DdzStateMachine {
     }
 
     this.landlordCards = DdzRules.markWildCards(this.landlordCards, this.wildRanks);
+    const holeBonus = this.getBottomCardsBonus();
+    this.bottomCardMultiplier = holeBonus?.multiplier ?? 1;
 
     for (let s = 0; s < 3; s++) {
       const h = this.hands.get(s) ?? [];
@@ -516,7 +607,12 @@ export class DdzStateMachine {
       }
     }
 
-    this.recordStep(seat, 'landlord_reveal', this.landlordCards, '底牌入库');
+    this.recordStep(
+      seat,
+      'landlord_reveal',
+      this.landlordCards,
+      holeBonus ? `底牌(${holeBonus.label})` : '底牌入库'
+    );
 
     // Transition into DOUBLING phase starting with the Landlord
     this.doublingStep = 0;

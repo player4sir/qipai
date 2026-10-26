@@ -1,13 +1,4 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import {
-  Brain,
-  CheckCircle2,
-  ChevronRight,
-  RotateCcw,
-  Sparkles,
-  Trophy,
-  Undo2,
-} from 'lucide-react';
 import { soundEngine } from '../../../shared/audio/SoundEngine';
 import { hapticEngine } from '../../../shared/haptics/HapticEngine';
 import { AvatarSvg } from '../../../shared/ui/AvatarSvg';
@@ -399,7 +390,7 @@ function solvePuzzleMinimax(
     const candidates = generateAllValidMoves(landlordHand, effectiveTarget);
     candidates.sort((a, b) => b.cards.length - a.cards.length || a.mainValue - b.mainValue);
 
-    let fallbackMove: PuzzleMovePattern | null = candidates[0] ?? null;
+    const fallbackMove: PuzzleMovePattern | null = candidates[0] ?? null;
 
     for (const move of candidates) {
       const nextL = removeCards(landlordHand, move.cards);
@@ -610,13 +601,13 @@ export const PuzzleChallengeModal: React.FC<PuzzleChallengeModalProps> = ({
         setLastActor('peasant');
         setPeasantStatusText(`农民打出：${move.label}`);
         setLandlordStatusText(
-          nextP.length === 0 ? '农民已走完手牌！' : '轮到您管牌或选择不出'
+          nextP.length === 0 ? '农民已走完手牌' : '轮到您管牌或选择不出'
         );
         setTurn('landlord');
       } else {
         soundEngine.playDdzActionVoice('pass');
         setPeasantStatusText('农民选择：要不起');
-        setLandlordStatusText('农民要不起 · 您获得自由先手牌权');
+        setLandlordStatusText('农民要不起 · 您获得先手牌权');
         setLastMove(null);
         setLastActor('landlord');
         setTurn('landlord');
@@ -667,7 +658,7 @@ export const PuzzleChallengeModal: React.FC<PuzzleChallengeModalProps> = ({
     if (!isFreeLead && !canPuzzleMoveBeat(move, lastMove)) {
       soundEngine.playDefeatTone();
       hapticEngine.tap();
-      setLandlordStatusText(`压制失败：必须大过农民的【${lastMove?.label}】`);
+      setLandlordStatusText(`压制失败：需大过农民的 ${lastMove?.label}`);
       return;
     }
 
@@ -750,7 +741,7 @@ export const PuzzleChallengeModal: React.FC<PuzzleChallengeModalProps> = ({
     hapticEngine.smartComboLock();
 
     if (!minimaxEval.landlordWins) {
-      setSolverHintText('当前局面已被农民反制，建议点击「悔棋」重选前序出牌');
+      setSolverHintText('当前局面已被农民反制，请点击「悔棋」重选');
       return;
     }
 
@@ -777,8 +768,8 @@ export const PuzzleChallengeModal: React.FC<PuzzleChallengeModalProps> = ({
       card.rank === 'big_joker'
         ? '大王'
         : card.rank === 'small_joker'
-          ? '小王'
-          : card.rank;
+        ? '小王'
+        : card.rank;
 
     return (
       <button
@@ -821,8 +812,8 @@ export const PuzzleChallengeModal: React.FC<PuzzleChallengeModalProps> = ({
     <CommercialModalShell
       title="残局闯关"
       subtitle={`${currentLevel.title} · 首通奖励 +${currentLevel.rewardBeans} 积分`}
-      icon={<Brain className="h-4.5 w-4.5" />}
       size="lg"
+      closeOnBackdrop={false}
       onClose={onClose}
       footer={
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -831,27 +822,24 @@ export const PuzzleChallengeModal: React.FC<PuzzleChallengeModalProps> = ({
               type="button"
               onClick={handleUndo}
               disabled={history.length === 0}
-              className="flex h-9 items-center gap-1 rounded-xl border border-[#D8CEB8] bg-white px-3 text-xs font-extrabold text-[#334155] hover:bg-[#FAF8F3] disabled:opacity-40 whitespace-nowrap shrink-0 cursor-pointer"
+              className="flex h-8.5 items-center justify-center rounded-lg border border-white/12 bg-white/[0.06] px-3 text-xs font-semibold text-[#E5E7EB] hover:bg-white/[0.11] disabled:opacity-35 whitespace-nowrap shrink-0 cursor-pointer"
             >
-              <Undo2 className="h-3.5 w-3.5" />
-              <span>悔棋</span>
+              悔棋
             </button>
             <button
               type="button"
               onClick={() => loadLevel(levelIdx)}
-              className="flex h-9 items-center gap-1 rounded-xl border border-[#D8CEB8] bg-white px-3 text-xs font-extrabold text-[#334155] hover:bg-[#FAF8F3] whitespace-nowrap shrink-0 cursor-pointer"
+              className="flex h-8.5 items-center justify-center rounded-lg border border-white/12 bg-white/[0.06] px-3 text-xs font-semibold text-[#E5E7EB] hover:bg-white/[0.11] whitespace-nowrap shrink-0 cursor-pointer"
             >
-              <RotateCcw className="h-3.5 w-3.5" />
-              <span>重玩</span>
+              重玩
             </button>
             <button
               type="button"
               onClick={handleMinimaxHint}
               disabled={turn !== 'landlord' || gameResult !== 'playing'}
-              className="flex h-9 items-center gap-1 rounded-xl border border-[#0D9488]/40 bg-[#F0FDFA] px-3 text-xs font-black text-[#0F766E] hover:bg-[#CCFBF1] disabled:opacity-40 whitespace-nowrap shrink-0 cursor-pointer"
+              className="flex h-8.5 items-center justify-center rounded-lg border border-[#D4AF37]/35 bg-[#D4AF37]/[0.08] px-3 text-xs font-bold text-[#E5B85B] hover:bg-[#D4AF37]/15 disabled:opacity-35 whitespace-nowrap shrink-0 cursor-pointer"
             >
-              <Sparkles className="h-3.5 w-3.5 text-[#0D9488]" />
-              <span>出牌提示</span>
+              出牌提示
             </button>
           </div>
 
@@ -865,7 +853,7 @@ export const PuzzleChallengeModal: React.FC<PuzzleChallengeModalProps> = ({
                 lastActor !== 'peasant' ||
                 !lastMove
               }
-              className="flex h-9 items-center justify-center rounded-xl border border-[#D8CEB8] bg-white px-5 text-xs font-black text-[#334155] hover:bg-[#FAF8F3] disabled:opacity-40 whitespace-nowrap shrink-0 cursor-pointer"
+              className="flex h-8.5 min-w-[76px] items-center justify-center rounded-lg border border-white/12 bg-white/[0.06] px-4 text-xs font-semibold text-[#E5E7EB] hover:bg-white/[0.11] disabled:opacity-35 whitespace-nowrap shrink-0 cursor-pointer"
             >
               不出
             </button>
@@ -873,7 +861,7 @@ export const PuzzleChallengeModal: React.FC<PuzzleChallengeModalProps> = ({
               type="button"
               onClick={handlePlaySelected}
               disabled={turn !== 'landlord' || gameResult !== 'playing' || selectedIds.size === 0}
-              className="flex h-9 min-w-[96px] items-center justify-center rounded-xl bg-gradient-to-r from-[#F59E0B] to-[#D97706] px-6 text-xs sm:text-sm font-black text-white shadow-xs hover:brightness-105 disabled:opacity-40 whitespace-nowrap shrink-0 cursor-pointer"
+              className="flex h-8.5 min-w-[88px] items-center justify-center rounded-lg bg-[#D49B35] px-5 text-xs font-bold text-[#111315] hover:bg-[#E0A842] disabled:opacity-35 whitespace-nowrap shrink-0 cursor-pointer"
             >
               出牌
             </button>
@@ -881,8 +869,8 @@ export const PuzzleChallengeModal: React.FC<PuzzleChallengeModalProps> = ({
         </div>
       }
     >
-      <div className="space-y-2.5">
-        {/* Compact Level Selector Pills */}
+      <div className="space-y-3">
+        {/* Level Selector Tabs */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
           {PUZZLE_LEVELS.map((lv, idx) => {
             const active = idx === levelIdx;
@@ -892,33 +880,34 @@ export const PuzzleChallengeModal: React.FC<PuzzleChallengeModalProps> = ({
                 key={lv.id}
                 type="button"
                 onClick={() => loadLevel(idx)}
-                className={`flex h-8 items-center gap-1 rounded-xl border px-2.5 text-xs font-extrabold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
+                className={`flex h-7.5 items-center justify-center rounded-lg border px-3 text-xs font-semibold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
                   active
-                    ? 'border-[#F59E0B] bg-[#FFFBEB] text-[#B45309] shadow-2xs'
-                    : 'border-[#E8E1D0] bg-white text-[#5A6572] hover:bg-[#FAF8F3] hover:text-[#1E242B]'
+                    ? 'border-[#D49B35] bg-[#D49B35] text-[#111315] font-bold'
+                    : solved
+                    ? 'border-[#D4AF37]/35 bg-[#D4AF37]/[0.08] text-[#E5B85B]'
+                    : 'border-white/[0.08] bg-white/[0.03] text-[#9CA3AF] hover:text-[#F3F4F6]'
                 }`}
               >
-                {solved && <CheckCircle2 className="h-3 w-3 text-[#0D9488]" />}
-                <span>第{lv.id}关</span>
+                第{lv.id}关{solved ? ' (已通)' : ''}
               </button>
             );
           })}
         </div>
 
         {/* Peasant Open Hand */}
-        <div className="rounded-xl border border-[#E8E1D0] bg-white p-3 shadow-2xs">
-          <div className="mb-2 flex items-center justify-between gap-2 text-xs">
+        <div className="rounded-xl border border-white/[0.07] bg-white/[0.03] p-3.5">
+          <div className="mb-2.5 flex items-center justify-between gap-2 text-xs">
             <div className="flex items-center gap-2">
               <AvatarSvg
                 avatarId="kashen"
                 size={28}
                 animState={turn === 'peasant' ? 'think' : gameResult === 'lose' ? 'win' : 'idle'}
               />
-              <span className="font-black text-[#1E242B]">
+              <span className="font-bold text-[#F3F4F6]">
                 守关农民（余 {peasantHand.length} 张）
               </span>
             </div>
-            <span className="font-bold text-[#B45309]">{peasantStatusText}</span>
+            <span className="font-bold text-[#E5B85B]">{peasantStatusText}</span>
           </div>
           <div className="flex flex-wrap items-center justify-center gap-1.5">
             {peasantHand.map((c) => renderCardButton(c, false))}
@@ -926,43 +915,41 @@ export const PuzzleChallengeModal: React.FC<PuzzleChallengeModalProps> = ({
         </div>
 
         {/* Center Trick Banner */}
-        <div className="flex flex-col items-center justify-center rounded-xl border border-[#DEC99A] bg-[#F5F0E4] px-3 py-2 text-center">
+        <div className="flex flex-col items-center justify-center rounded-xl border border-[#D4AF37]/30 bg-[#D4AF37]/[0.08] px-3 py-2.5 text-center">
           {gameResult === 'win' ? (
             <div className="flex flex-wrap items-center justify-center gap-2">
-              <span className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-black text-[#B45309]">
-                <Trophy className="h-4 w-4 text-[#D97706]" />
-                <span>恭喜破局获胜！</span>
+              <span className="text-xs sm:text-sm font-bold text-[#E5B85B]">
+                恭喜破局获胜
               </span>
               {levelIdx + 1 < PUZZLE_LEVELS.length && (
                 <button
                   type="button"
                   onClick={() => loadLevel(levelIdx + 1)}
-                  className="inline-flex h-7 items-center gap-1 rounded-lg bg-gradient-to-r from-[#F59E0B] to-[#D97706] px-3 text-xs font-black text-white shadow-2xs hover:brightness-105 cursor-pointer"
+                  className="inline-flex h-7 items-center justify-center rounded-lg bg-[#D49B35] px-3 text-xs font-bold text-[#111315] hover:bg-[#E0A842] cursor-pointer"
                 >
-                  <span>下一关</span>
-                  <ChevronRight className="h-3.5 w-3.5" />
+                  下一关
                 </button>
               )}
             </div>
           ) : gameResult === 'lose' ? (
-            <div className="text-xs font-bold text-rose-700">
+            <div className="text-xs font-bold text-rose-400">
               闯关失败 · {currentLevel.strategyTip}
             </div>
           ) : (
             <div className="flex flex-wrap items-center justify-center gap-2 text-xs">
-              <span className="font-black text-[#2C1E10]">
+              <span className="font-bold text-[#F3F4F6]">
                 {lastMove
-                  ? `${lastActor === 'landlord' ? '地主' : '农民'}打出【${lastMove.label}】`
+                  ? `${lastActor === 'landlord' ? '地主' : '农民'}打出 ${lastMove.label}`
                   : '桌面为空 · 请先手出牌'}
               </span>
-              <span className="text-[#5A6572]">· {solverHintText || landlordStatusText}</span>
+              <span className="text-[#9CA3AF]">· {solverHintText || landlordStatusText}</span>
             </div>
           )}
         </div>
 
         {/* Landlord Player Hand */}
-        <div className="rounded-xl border border-[#E8E1D0] bg-white p-3 shadow-2xs">
-          <div className="mb-2 flex items-center justify-between gap-2 text-xs">
+        <div className="rounded-xl border border-white/[0.07] bg-white/[0.03] p-3.5">
+          <div className="mb-2.5 flex items-center justify-between gap-2 text-xs">
             <div className="flex items-center gap-2">
               <AvatarSvg
                 avatarId="noble"
@@ -970,13 +957,10 @@ export const PuzzleChallengeModal: React.FC<PuzzleChallengeModalProps> = ({
                 isLandlord={true}
                 animState={gameResult === 'win' ? 'win' : turn === 'landlord' ? 'play' : 'idle'}
               />
-              <span className="font-black text-[#1E242B]">
+              <span className="font-bold text-[#F3F4F6]">
                 破局地主（您 · 余 {landlordHand.length} 张）
               </span>
             </div>
-            <span className="truncate text-[11px] font-medium text-[#6E5A44]">
-              {currentLevel.description}
-            </span>
           </div>
           <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
             {landlordHand.map((c) =>

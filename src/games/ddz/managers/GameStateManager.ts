@@ -1,13 +1,16 @@
 import { soundEngine } from '../../../shared/audio/SoundEngine';
 import { SocketClient } from '../../../shared/network/SocketClient';
 import { GameScene } from '../scenes/GameScene';
+import { spriteAnimationEngine } from '../scenes/SpriteAnimationEngine';
 import { DdzDebugLogger } from '../utils/DdzDebugLogger';
 import {
   CardData,
   ChatBubbleInfo,
   DdzPhase,
   DealMode,
+  evaluateHoleCardBonus,
   GameSnapshotPayload,
+  HoleCardBonusInfo,
   PropType,
   Rank,
   SeatPlayerInfo,
@@ -39,6 +42,10 @@ export interface DdzViewState {
   swapDirection?: SwapDirection;
   swappedInCardIds?: string[];
   swapSubmittedSeats?: number[];
+  holeCardBonus?: HoleCardBonusInfo | null;
+  openHandMultiplier?: number;
+  openHands?: Record<number, CardData[]>;
+  roundFairHash?: string;
 }
 
 const DEFAULT_RECORDER: Record<Rank, number> = {
@@ -74,6 +81,8 @@ export class GameStateManager {
   private cachedLandlordCards: CardData[] = [];
   private cachedBottomTag: string | null = null;
   private clockOffsetMs: number = 0;
+  private pendingDealAnimation: boolean = false;
+  private hasHydratedInitialHand: boolean = false;
 
   private state: DdzViewState = {
     roomId: '',
@@ -99,6 +108,10 @@ export class GameStateManager {
     swapDirection: 'clockwise',
     swappedInCardIds: [],
     swapSubmittedSeats: [],
+    holeCardBonus: null,
+    openHandMultiplier: 1,
+    openHands: {},
+    roundFairHash: `DDZ-${Math.random().toString(16).slice(2, 8).toUpperCase()}`,
   };
 
   constructor(socketClient: SocketClient, onStateUpdate: (state: DdzViewState) => void) {
@@ -138,7 +151,26 @@ export class GameStateManager {
     if (this.cachedMyCards.length > 0) {
       const isMeLandlord = this.state.landlordSeat === this.state.mySeat;
       this.scene.handManager.setWildRanks(this.state.wildRanks);
-      this.scene.handManager.setHand(this.cachedMyCards, isMeLandlord, false);
+      const shouldAnimateEntryDeal =
+        this.pendingDealAnimation ||
+        (!this.hasHydratedInitialHand &&
+          (this.state.phase === 'BIDDING' || this.state.phase === 'SWAPPING') &&
+          this.cachedMyCards.length === 17);
+      this.pendingDealAnimation = false;
+      this.hasHydratedInitialHand = true;
+      this.scene.handManager.setHand(
+        this.cachedMyCards,
+        isMeLandlord,
+        shouldAnimateEntryDeal
+      );
+      if (shouldAnimateEntryDeal && this.state.wildRanks.length > 0) {
+        this.scene.playLaiziRevealEffect(this.state.wildRanks);
+      }
+      if (shouldAnimateEntryDeal && this.state.phase === 'SWAPPING') {
+        setTimeout(() => {
+          this.scene?.handManager.selectOptimalSwapThree();
+        }, 420);
+      }
     }
 
     if (this.state.landlordSeat !== null && this.cachedLandlordCards.length === 3) {
@@ -173,6 +205,10 @@ export class GameStateManager {
 
   doubleScore(factor: 1 | 2 | 4): void {
     this.socketClient.emit('c2s_double_score', { factor });
+  }
+
+  declareOpenHand(factor: 3 | 5 = 3): void {
+    this.socketClient.emit('c2s_declare_open_hand', { factor });
   }
 
   playSelectedCards(): void {
@@ -327,6 +363,13 @@ export class GameStateManager {
           swapDirection: snap.swapDirection ?? this.state.swapDirection,
           swappedInCardIds: snap.swappedInCardIds ?? this.state.swappedInCardIds,
           swapSubmittedSeats: snap.swapSubmittedSeats ?? [],
+          holeCardBonus:
+            snap.holeCardBonus ??
+            (this.cachedLandlordCards.length === 3
+              ? evaluateHoleCardBonus(this.cachedLandlordCards)
+              : null),
+          openHandMultiplier: snap.openHandMultiplier ?? this.state.openHandMultiplier ?? 1,
+          openHands: snap.openHands ?? this.state.openHands ?? {},
         };
         this.emitState();
 
@@ -430,6 +473,10 @@ export class GameStateManager {
           swapDirection: data.swapDirection ?? 'clockwise',
           swappedInCardIds: [],
           swapSubmittedSeats: [],
+          holeCardBonus: null,
+          openHandMultiplier: 1,
+          openHands: {},
+          roundFairHash: `DDZ-${Date.now().toString(16).slice(-4).toUpperCase()}${Math.random().toString(16).slice(2, 4).toUpperCase()}`,
         };
         this.emitState();
 
@@ -446,8 +493,13 @@ export class GameStateManager {
           cardRecorder: this.state.cardRecorder,
         });
 
-        soundEngine.playRiffleShuffle();
-        if (!this.scene) return;
+        soundEngine.startBgm('table');
+        if (!this.scene) {
+          this.pendingDealAnimation = true;
+          return;
+        }
+        this.pendingDealAnimation = false;
+        this.hasHydratedInitialHand = true;
         this.scene.clearAllPlayedAreas();
         this.scene.resetBottomThreeCards();
         this.scene.handManager.setWildRanks(wildRanks);
@@ -503,23 +555,32 @@ export class GameStateManager {
         this.scene?.updateScoreAndMultiplier(this.state.baseScore, data.multiplier);
 
         const rel = this.getRelativePos(data.seatIndex);
+        const actorAvatarId = this.getSeatAvatarId(data.seatIndex);
         if (data.actionType === 'call') {
           this.scene?.showSeatAction(rel, {
             type: data.call ? 'call' : 'no_call',
           });
+          soundEngine.playDdzActionVoice(
+            data.call ? 'call' : 'no_call',
+            data.seatIndex,
+            this.state.mySeat,
+            actorAvatarId
+          );
           if (data.call) {
             soundEngine.playPowerChime(2);
-          } else {
-            soundEngine.playTap(480);
           }
         } else {
           this.scene?.showSeatAction(rel, {
             type: data.call ? 'grab' : 'no_grab',
           });
+          soundEngine.playDdzActionVoice(
+            data.call ? 'grab' : 'no_grab',
+            data.seatIndex,
+            this.state.mySeat,
+            actorAvatarId
+          );
           if (data.call) {
             soundEngine.playPowerChime(3);
-          } else {
-            soundEngine.playTap(480);
           }
         }
 
@@ -541,6 +602,8 @@ export class GameStateManager {
         const wildRanks = Array.isArray(data.wildRanks)
           ? (data.wildRanks as Rank[])
           : this.state.wildRanks;
+        const resolvedHoleBonus: HoleCardBonusInfo | null =
+          data.holeCardBonus ?? evaluateHoleCardBonus(this.cachedLandlordCards);
 
         this.state = {
           ...this.state,
@@ -550,8 +613,22 @@ export class GameStateManager {
           landlordSeat: data.landlordSeat,
           multiplier: data.multiplier,
           cardRecorder: data.cardRecorder ?? this.state.cardRecorder,
+          holeCardBonus: resolvedHoleBonus,
+          openHandMultiplier: data.openHandMultiplier ?? this.state.openHandMultiplier ?? 1,
+          openHands: data.openHands ?? this.state.openHands ?? {},
         };
         this.emitState();
+
+        if (resolvedHoleBonus && resolvedHoleBonus.multiplier > 1) {
+          soundEngine.playPowerChime(resolvedHoleBonus.multiplier);
+          spriteAnimationEngine.emitEffect('super_double', {
+            x: 0.5,
+            y: 0.16,
+            seat: 'center',
+            label: resolvedHoleBonus.label,
+          });
+          this.showToast(`底牌高倍暴击：${resolvedHoleBonus.label}！`);
+        }
 
         DdzDebugLogger.logDealSnapshot({
           eventTag: `地主确认(Seat#${data.landlordSeat})`,
@@ -603,16 +680,64 @@ export class GameStateManager {
           type: factor === 4 ? 'double_4' : factor === 2 ? 'double_2' : 'double_1',
         });
 
+        const actorAvatarId = this.getSeatAvatarId(data.seatIndex);
         if (factor === 4) {
           soundEngine.playPowerChime(4);
-          soundEngine.playDdzActionVoice('chaojijiabei', data.seatIndex, this.state.mySeat);
+          soundEngine.playDdzActionVoice(
+            'chaojijiabei',
+            data.seatIndex,
+            this.state.mySeat,
+            actorAvatarId
+          );
         } else if (factor === 2) {
           soundEngine.playPowerChime(2);
-          soundEngine.playDdzActionVoice('jiabei', data.seatIndex, this.state.mySeat);
+          soundEngine.playDdzActionVoice(
+            'jiabei',
+            data.seatIndex,
+            this.state.mySeat,
+            actorAvatarId
+          );
         } else {
           soundEngine.playTap(480);
-          soundEngine.playDdzActionVoice('bujiabei', data.seatIndex, this.state.mySeat);
+          soundEngine.playDdzActionVoice(
+            'bujiabei',
+            data.seatIndex,
+            this.state.mySeat,
+            actorAvatarId
+          );
         }
+      })
+    );
+
+    // 6b. Open-Hand Declared (`s2c_open_hand_declared`)
+    this.unsubscribers.push(
+      this.socketClient.on('s2c_open_hand_declared', (data) => {
+        const seatIdx = Number(data.seatIndex);
+        const factor = (Number(data.factor) === 5 ? 5 : 3) as 3 | 5;
+        const updatedPlayers = this.state.players.map((p, idx) =>
+          p && idx === seatIdx ? { ...p, openHandFactor: factor } : p
+        );
+
+        this.state = {
+          ...this.state,
+          multiplier: data.multiplier ?? this.state.multiplier,
+          openHandMultiplier: data.openHandMultiplier ?? factor,
+          openHands: data.openHands ?? this.state.openHands ?? {},
+          players: updatedPlayers,
+        };
+        this.emitState();
+        this.scene?.updateScoreAndMultiplier(this.state.baseScore, this.state.multiplier);
+
+        const rel = this.getRelativePos(seatIdx);
+        const actorAvatarId = this.getSeatAvatarId(seatIdx);
+        soundEngine.playPowerChime(4);
+        soundEngine.playDdzActionVoice('mingpai', seatIdx, this.state.mySeat, actorAvatarId);
+        spriteAnimationEngine.emitEffect('super_double', {
+          x: rel === 'left' ? 0.22 : rel === 'right' ? 0.78 : 0.5,
+          y: rel === 'bottom' ? 0.68 : 0.34,
+          seat: rel,
+          label: `明牌 ×${factor}`,
+        });
       })
     );
 
@@ -649,6 +774,7 @@ export class GameStateManager {
           ...this.state,
           multiplier: data.multiplier,
           cardRecorder: data.cardRecorder ?? this.state.cardRecorder,
+          openHands: data.openHands ?? this.state.openHands,
         };
         this.emitState();
 
@@ -660,6 +786,7 @@ export class GameStateManager {
         }
 
         const rel = this.getRelativePos(data.seatIndex);
+        const actorAvatarId = this.getSeatAvatarId(data.seatIndex);
         const isActorLandlord = data.seatIndex === this.state.landlordSeat;
         if (data.pattern === 'PASS') {
           DdzDebugLogger.logPlayAction({
@@ -678,7 +805,12 @@ export class GameStateManager {
             wildRanks: this.state.wildRanks,
           });
           this.scene.showSeatAction(rel, { type: 'pass' });
-          soundEngine.playDdzActionVoice('pass', data.seatIndex, this.state.mySeat);
+          soundEngine.playDdzActionVoice(
+            'pass',
+            data.seatIndex,
+            this.state.mySeat,
+            actorAvatarId
+          );
         } else {
           const rawCards = (data.cards as CardData[]) || [];
           const patternType = String(data.pattern);
@@ -755,6 +887,9 @@ export class GameStateManager {
 
           const isHeavySpecial = [
             'BOMB',
+            'LAIZI_BOMB',
+            'PURE_LAIZI_BOMB',
+            'SUPER_BOMB',
             'ROCKET',
             'AIRPLANE',
             'AIRPLANE_SINGLE_WINGS',
@@ -765,11 +900,40 @@ export class GameStateManager {
             soundEngine.playDdzSfx('discard', data.seatIndex, this.state.mySeat);
           }
 
-          // Play card voice first so any subsequent low-card alert (baojing1/2) queues cleanly behind it
-          soundEngine.playDdzCardVoice(patternType, mainVal, data.seatIndex, this.state.mySeat);
+          // Play card voice (or dani1..3 when beating opponent combo) with gender matching
+          soundEngine.playDdzCardVoice(
+            patternType,
+            mainVal,
+            data.seatIndex,
+            this.state.mySeat,
+            actorAvatarId,
+            !data.isNewTrick
+          );
 
           if (rel !== 'bottom') {
             this.syncOpponentCountsFromMap(data.othersCount);
+          }
+
+          // Check if the actor now has 1 or 2 cards remaining -> trigger Police Siren Alarm Lamp & baojing1/2 voice!
+          const actorPlayer = this.state.players[data.seatIndex];
+          const remainingCount =
+            rel === 'bottom'
+              ? this.cachedMyCards.length
+              : actorPlayer
+                ? (this.cachedOthersCount[actorPlayer.playerId] ?? -1)
+                : -1;
+
+          if (remainingCount === 1 || remainingCount === 2) {
+            this.scene.playSeatAlarm(rel, remainingCount);
+            soundEngine.playDdzSfx('alert', data.seatIndex, this.state.mySeat);
+            setTimeout(() => {
+              soundEngine.playDdzActionVoice(
+                remainingCount === 1 ? 'baojing1' : 'baojing2',
+                data.seatIndex,
+                this.state.mySeat,
+                actorAvatarId
+              );
+            }, 380);
           }
         }
       })
@@ -818,7 +982,12 @@ export class GameStateManager {
 
         soundEngine.playTap(860);
         if (data.text) {
-          soundEngine.speak(data.text);
+          soundEngine.speak(
+            data.text,
+            seatIdx,
+            this.state.mySeat,
+            this.getSeatAvatarId(seatIdx)
+          );
         }
 
         setTimeout(() => {
@@ -853,10 +1022,18 @@ export class GameStateManager {
     // 12. Game Settlement (`s2c_game_settlement`)
     this.unsubscribers.push(
       this.socketClient.on<SettlementData>('s2c_game_settlement', (settlement) => {
+        const showdownHands: Record<number, CardData[]> = { ...(this.state.openHands ?? {}) };
+        this.state.players.forEach((p, idx) => {
+          if (p && settlement.remainingHands?.[p.playerId]) {
+            showdownHands[idx] = settlement.remainingHands[p.playerId];
+          }
+        });
+
         this.state = {
           ...this.state,
           phase: 'SETTLEMENT',
           multiplier: settlement.totalMultiplier,
+          openHands: showdownHands,
           settlement,
         };
         this.emitState();
@@ -885,9 +1062,14 @@ export class GameStateManager {
     // 13. Action Error Toast
     this.unsubscribers.push(
       this.socketClient.on('s2c_action_error', (data) => {
+        soundEngine.playInvalidPlay();
         this.showToast(data?.message || '出牌不符合规则');
       })
     );
+  }
+
+  private getSeatAvatarId(seatIndex: number): string | undefined {
+    return this.state.players[seatIndex]?.avatarId;
   }
 
   private syncOpponentCountsFromMap(othersCount: Record<string, number>): void {

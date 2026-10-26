@@ -1,0 +1,78 @@
+{
+  "frames": {
+    "air0.png": {
+      "frame": {
+        "x": 2,
+        "y": 2,
+        "w": 425,
+        "h": 310
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 14,
+        "y": 22,
+        "w": 425,
+        "h": 310
+      },
+      "sourceSize": {
+        "w": 455,
+        "h": 332
+      }
+    },
+    "air1.png": {
+      "frame": {
+        "x": 2,
+        "y": 314,
+        "w": 421,
+        "h": 298
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 14,
+        "y": 12,
+        "w": 421,
+        "h": 298
+      },
+      "sourceSize": {
+        "w": 455,
+        "h": 332
+      }
+    },
+    "air2.png": {
+      "frame": {
+        "x": 2,
+        "y": 614,
+        "w": 421,
+        "h": 288
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 14,
+        "y": 22,
+        "w": 421,
+        "h": 288
+      },
+      "sourceSize": {
+        "w": 455,
+        "h": 332
+      }
+    }
+  },
+  "animations": {
+    "default": [
+      "air0.png",
+      "air1.png",
+      "air2.png"
+    ]
+  },
+  "meta": {
+    "app": "Commercial-TexturePacker-JSON",
+    "version": "1.0",
+    "image": "air.png",
+    "format": "RGBA8888",
+    "scale": "1"
+  }
+}

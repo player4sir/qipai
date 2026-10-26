@@ -1,0 +1,320 @@
+{
+  "frames": {
+    "DN_niu_jinniu_guang01.png": {
+      "frame": {
+        "x": 2,
+        "y": 2,
+        "w": 60,
+        "h": 32
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 60,
+        "h": 32
+      },
+      "sourceSize": {
+        "w": 60,
+        "h": 32
+      }
+    },
+    "DN_niu_jinniu_guang02.png": {
+      "frame": {
+        "x": 64,
+        "y": 2,
+        "w": 60,
+        "h": 32
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 60,
+        "h": 32
+      },
+      "sourceSize": {
+        "w": 60,
+        "h": 32
+      }
+    },
+    "DN_niu_jinniu_guang03.png": {
+      "frame": {
+        "x": 126,
+        "y": 2,
+        "w": 60,
+        "h": 32
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 60,
+        "h": 32
+      },
+      "sourceSize": {
+        "w": 60,
+        "h": 32
+      }
+    },
+    "DN_niu_jinniu_guang04.png": {
+      "frame": {
+        "x": 188,
+        "y": 2,
+        "w": 60,
+        "h": 32
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 60,
+        "h": 32
+      },
+      "sourceSize": {
+        "w": 60,
+        "h": 32
+      }
+    },
+    "DN_niu_jinniu_guang05.png": {
+      "frame": {
+        "x": 250,
+        "y": 2,
+        "w": 60,
+        "h": 32
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 60,
+        "h": 32
+      },
+      "sourceSize": {
+        "w": 60,
+        "h": 32
+      }
+    },
+    "DN_niu_jinniu_guang06.png": {
+      "frame": {
+        "x": 312,
+        "y": 2,
+        "w": 60,
+        "h": 32
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 60,
+        "h": 32
+      },
+      "sourceSize": {
+        "w": 60,
+        "h": 32
+      }
+    },
+    "DN_niu_jinniu_guang07.png": {
+      "frame": {
+        "x": 374,
+        "y": 2,
+        "w": 60,
+        "h": 32
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 60,
+        "h": 32
+      },
+      "sourceSize": {
+        "w": 60,
+        "h": 32
+      }
+    },
+    "DN_niu_yinniu_guang01.png": {
+      "frame": {
+        "x": 2,
+        "y": 36,
+        "w": 60,
+        "h": 32
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 60,
+        "h": 32
+      },
+      "sourceSize": {
+        "w": 60,
+        "h": 32
+      }
+    },
+    "DN_niu_yinniu_guang02.png": {
+      "frame": {
+        "x": 64,
+        "y": 36,
+        "w": 60,
+        "h": 32
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 60,
+        "h": 32
+      },
+      "sourceSize": {
+        "w": 60,
+        "h": 32
+      }
+    },
+    "DN_niu_yinniu_guang03.png": {
+      "frame": {
+        "x": 126,
+        "y": 36,
+        "w": 60,
+        "h": 32
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 60,
+        "h": 32
+      },
+      "sourceSize": {
+        "w": 60,
+        "h": 32
+      }
+    },
+    "DN_niu_yinniu_guang04.png": {
+      "frame": {
+        "x": 188,
+        "y": 36,
+        "w": 60,
+        "h": 32
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 60,
+        "h": 32
+      },
+      "sourceSize": {
+        "w": 60,
+        "h": 32
+      }
+    },
+    "DN_niu_yinniu_guang05.png": {
+      "frame": {
+        "x": 250,
+        "y": 36,
+        "w": 60,
+        "h": 32
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 60,
+        "h": 32
+      },
+      "sourceSize": {
+        "w": 60,
+        "h": 32
+      }
+    },
+    "DN_niu_yinniu_guang06.png": {
+      "frame": {
+        "x": 312,
+        "y": 36,
+        "w": 60,
+        "h": 32
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 60,
+        "h": 32
+      },
+      "sourceSize": {
+        "w": 60,
+        "h": 32
+      }
+    },
+    "DN_niu_yinniu_guang07.png": {
+      "frame": {
+        "x": 374,
+        "y": 36,
+        "w": 60,
+        "h": 32
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 60,
+        "h": 32
+      },
+      "sourceSize": {
+        "w": 60,
+        "h": 32
+      }
+    }
+  },
+  "animations": {
+    "default": [
+      "DN_niu_jinniu_guang01.png",
+      "DN_niu_jinniu_guang02.png",
+      "DN_niu_jinniu_guang03.png",
+      "DN_niu_jinniu_guang04.png",
+      "DN_niu_jinniu_guang05.png",
+      "DN_niu_jinniu_guang06.png",
+      "DN_niu_jinniu_guang07.png"
+    ],
+    "gold_sweep": [
+      "DN_niu_jinniu_guang01.png",
+      "DN_niu_jinniu_guang02.png",
+      "DN_niu_jinniu_guang03.png",
+      "DN_niu_jinniu_guang04.png",
+      "DN_niu_jinniu_guang05.png",
+      "DN_niu_jinniu_guang06.png",
+      "DN_niu_jinniu_guang07.png"
+    ],
+    "silver_sweep": [
+      "DN_niu_yinniu_guang01.png",
+      "DN_niu_yinniu_guang02.png",
+      "DN_niu_yinniu_guang03.png",
+      "DN_niu_yinniu_guang04.png",
+      "DN_niu_yinniu_guang05.png",
+      "DN_niu_yinniu_guang06.png",
+      "DN_niu_yinniu_guang07.png"
+    ]
+  },
+  "meta": {
+    "app": "Commercial-TexturePacker-JSON",
+    "version": "1.0",
+    "image": "guang.png",
+    "format": "RGBA8888",
+    "scale": "1"
+  }
+}

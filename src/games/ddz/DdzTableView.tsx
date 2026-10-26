@@ -2,28 +2,11 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Application } from 'pixi.js';
 import gsap from 'gsap';
 import {
-  ArrowUpDown,
-  Bot,
-  Copy,
-  Check,
-  Coffee,
-  Coins,
-  Eye,
-  Film,
-  Flame,
-  Heart,
   LogOut,
   Maximize2,
   Minimize2,
-  MessageSquare,
-  Music,
-  RotateCcw,
-  Smartphone,
-  Sparkles,
-  ThumbsUp,
   Volume2,
   VolumeX,
-  UserPlus,
   X,
 } from 'lucide-react';
 import { computeViewportMetrics, type ViewportMetrics } from '../../App';
@@ -43,10 +26,19 @@ import {
 } from '../../shared/ui/RollingScoreCounter';
 import { ReplayViewerModal } from './components/ReplayViewerModal';
 import {
+  ArenaMatchingSeatPod,
+  ArenaSeatAvatar,
+  resolvePlayerPresenceState,
+} from './components/ArenaSeatAvatar';
+import {
   DdzViewState,
   GameStateManager,
 } from './managers/GameStateManager';
 import { preloadAllCardTextures } from './assets/CardAtlasGenerator';
+import {
+  spriteSheetManager,
+  type SlicedSpriteFrame,
+} from './assets/SpriteSheetManager';
 import {
   DESIGN_HEIGHT,
   DESIGN_WIDTH,
@@ -60,6 +52,211 @@ import {
   Rank,
   SeatPlayerInfo,
 } from './types';
+import {
+  spriteAnimationEngine,
+  type DdzDynamicEffectEvent,
+} from './SpriteAnimationEngine';
+
+interface ActiveCanvasSpriteSequence {
+  id: string;
+  frames: SlicedSpriteFrame[];
+  x: number;
+  y: number;
+  scale: number;
+  fps: number;
+  startTime: number;
+  alpha: number;
+}
+
+/**
+ * Hardware-accelerated HTML5 Canvas 2D SpriteSheet VFX layer mounted in `DdzTableView`
+ * that renders parsed JSON+PNG SpriteSheet animations (`guang.json`, `baodian.json`, `zd.json`, `bomb.json`)
+ * for 叫地主, 抢地主, 地主确认, 加倍/超级加倍, 炸弹, and 王炸.
+ */
+const DdzSpriteSheetCanvasOverlay: React.FC<{ width: number; height: number }> = ({
+  width,
+  height,
+}) => {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const activeAnimsRef = useRef<ActiveCanvasSpriteSequence[]>([]);
+  const rafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    void spriteSheetManager.preloadAllAtlases();
+
+    const spawnSeq = (
+      sheetKey: string,
+      animName: string,
+      x: number,
+      y: number,
+      scale: number,
+      fps = 22,
+      alpha = 0.95,
+      delayMs = 0
+    ) => {
+      const frames = spriteSheetManager.getAnimationFrames(sheetKey, animName);
+      if (!frames || frames.length === 0) return;
+      activeAnimsRef.current.push({
+        id: `${sheetKey}_${animName}_${performance.now()}_${Math.random()}`,
+        frames,
+        x,
+        y,
+        scale,
+        fps,
+        startTime: performance.now() + delayMs,
+        alpha,
+      });
+      ensureLoop();
+    };
+
+    const ensureLoop = () => {
+      if (rafRef.current !== null) return;
+      const tick = (now: number) => {
+        const canvas = canvasRef.current;
+        if (!canvas) {
+          rafRef.current = null;
+          return;
+        }
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          rafRef.current = null;
+          return;
+        }
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const remaining: ActiveCanvasSpriteSequence[] = [];
+
+        for (const item of activeAnimsRef.current) {
+          if (now < item.startTime) {
+            remaining.push(item);
+            continue;
+          }
+          const elapsedSec = Math.max(0, (now - item.startTime) / 1000);
+          const frameIndex = Math.floor(elapsedSec * item.fps);
+          if (frameIndex >= item.frames.length) {
+            continue;
+          }
+          const frame = item.frames[frameIndex];
+          if (frame && frame.canvas && frame.width > 0 && frame.height > 0) {
+            const drawW = frame.width * item.scale;
+            const drawH = frame.height * item.scale;
+            ctx.save();
+            ctx.globalAlpha = item.alpha;
+            ctx.drawImage(
+              frame.canvas,
+              item.x - drawW / 2,
+              item.y - drawH / 2,
+              drawW,
+              drawH
+            );
+            ctx.restore();
+          }
+          remaining.push(item);
+        }
+
+        activeAnimsRef.current = remaining;
+        if (remaining.length > 0) {
+          rafRef.current = requestAnimationFrame(tick);
+        } else {
+          rafRef.current = null;
+        }
+      };
+      rafRef.current = requestAnimationFrame(tick);
+    };
+
+    const unsub = spriteAnimationEngine.subscribe((evt: DdzDynamicEffectEvent) => {
+      const px = evt.x <= 1 ? evt.x * width : evt.x;
+      const py = evt.y <= 1 ? evt.y * height : evt.y;
+
+      switch (evt.type) {
+        case 'deal_cards': {
+          // Deck origin golden sweep + staggered starlight trail across the dealing fan trajectory
+          spawnSeq('guang', 'gold_sweep', px, py, 1.18, 24, 0.92, 0);
+          spawnSeq('baodian', 'default', px, py, 0.92, 24, 0.88, 0);
+          const totalMs = evt.durationMs ?? 720;
+          const trailPoints = 5;
+          for (let i = 0; i < trailPoints; i++) {
+            const ratio = i / (trailPoints - 1);
+            const fanX = width * (0.28 + ratio * 0.44);
+            const fanY = height * 0.78;
+            const delay = Math.round(ratio * totalMs * 0.75);
+            spawnSeq('baodian', 'default', fanX, fanY, 0.78, 24, 0.85, delay);
+          }
+          spawnSeq('guang', 'gold_sweep', width * 0.5, height * 0.78, 1.25, 22, 0.9, Math.round(totalMs * 0.82));
+          break;
+        }
+        case 'call_landlord':
+          spawnSeq('guang', 'gold_sweep', px, py, 1.15, 22, 0.92);
+          spawnSeq('baodian', 'default', px, py, 0.95, 22, 0.9);
+          break;
+        case 'grab_landlord':
+          spawnSeq('zd', 'shockwave', px, py, 0.58, 24, 0.88);
+          spawnSeq('guang', 'gold_sweep', px, py, 1.25, 24, 0.95);
+          spawnSeq('baodian', 'default', px, py, 1.1, 22, 0.92);
+          break;
+        case 'landlord_confirmed':
+          spawnSeq('zd', 'shockwave', px, py, 0.72, 22, 0.9);
+          spawnSeq('guang', 'gold_sweep', px, py, 1.35, 20, 0.95);
+          spawnSeq('baodian', 'default', px - 70, py, 1.0, 22, 0.9);
+          spawnSeq('baodian', 'default', px + 70, py, 1.0, 22, 0.9);
+          break;
+        case 'double_score':
+          spawnSeq('guang', 'gold_sweep', px, py, 1.1, 22, 0.9);
+          spawnSeq('baodian', 'default', px, py, 0.95, 22, 0.88);
+          break;
+        case 'super_double':
+          spawnSeq('zd', 'shockwave', px, py, 0.68, 24, 0.92);
+          spawnSeq('guang', 'gold_sweep', px, py, 1.3, 24, 0.95);
+          spawnSeq('baodian', 'default', px, py, 1.15, 22, 0.92);
+          break;
+        case 'bomb':
+          spawnSeq('zd', 'shockwave', width * 0.5, height * 0.45, 0.95, 22, 0.88);
+          spawnSeq('baodian', 'default', width * 0.5, height * 0.45, 1.35, 20, 0.92);
+          break;
+        case 'rocket':
+          spawnSeq('zd', 'shockwave', width * 0.5, height * 0.44, 1.25, 22, 0.92);
+          spawnSeq('baodian', 'default', width * 0.5 - 85, height * 0.42, 1.3, 20, 0.9);
+          spawnSeq('baodian', 'default', width * 0.5 + 85, height * 0.42, 1.3, 20, 0.9);
+          break;
+        default: {
+          const layers = spriteAnimationEngine.getActionLayers(evt.type);
+          for (const layer of layers) {
+            spawnSeq(
+              layer.spec.sheetKey,
+              layer.spec.animationName,
+              px + (layer.spec.offsetX ?? 0),
+              py + (layer.spec.offsetY ?? 0),
+              layer.spec.scale,
+              layer.spec.fps,
+              layer.spec.alpha,
+              layer.spec.delayMs ?? 0
+            );
+          }
+          break;
+        }
+      }
+    });
+
+    return () => {
+      unsub();
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+      activeAnimsRef.current = [];
+    };
+  }, [width, height]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      width={width}
+      height={height}
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-0 z-10 h-full w-full"
+    />
+  );
+};
 
 export interface DdzTableViewProps {
   onLeaveRoom: () => void;
@@ -104,21 +301,6 @@ const INTERACTIVE_PROPS: Array<{ type: PropType; label: string }> = [
   { type: 'like', label: '点赞' },
   { type: 'ingot', label: '元宝' },
 ];
-
-const renderPropIcon = (type: PropType, className = 'h-4 w-4') => {
-  switch (type) {
-    case 'flower':
-      return <Heart className={`${className} text-rose-400`} />;
-    case 'bomb_cup':
-      return <Flame className={`${className} text-red-400`} />;
-    case 'tea':
-      return <Coffee className={`${className} text-emerald-400`} />;
-    case 'like':
-      return <ThumbsUp className={`${className} text-amber-400`} />;
-    case 'ingot':
-      return <Coins className={`${className} text-yellow-400`} />;
-  }
-};
 
 const INITIAL_VIEW_STATE: DdzViewState = {
   roomId: '',
@@ -199,6 +381,7 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
     baseScore: initialBaseScore || 100,
   }));
   const [showRecorder, setShowRecorder] = useState(false);
+  const [showMultiplierDetail, setShowMultiplierDetail] = useState(false);
   const [showChatPanel, setShowChatPanel] = useState(false);
   const [activePropTargetSeat, setActivePropTargetSeat] = useState<number | null>(null);
   const [panelPropTarget, setPanelPropTarget] = useState<'left' | 'right'>('right');
@@ -320,9 +503,17 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
       const containerEl = hostRef.current;
       if (!containerEl) return;
 
-      // Preload all 55 poker card textures into Assets cache BEFORE creating scene
-      await preloadAllCardTextures();
+      // Start background preloading of the full voice/SFX & secondary SpriteSheet catalog immediately
       soundEngine.preloadDdzAudio();
+      void spriteSheetManager.preloadAllAtlases();
+
+      // Strictly await card textures, essential dealing audio buffers, and core dealing SpriteSheets
+      // BEFORE attaching the scene and triggering the entry deal animation, preventing any audio loss or lag
+      await Promise.all([
+        preloadAllCardTextures(),
+        soundEngine.ensureDealAudioReady(),
+        spriteSheetManager.preloadCoreAtlases(),
+      ]);
 
       const app = new Application();
       await app.init({
@@ -583,30 +774,40 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
       return (
         <div
           style={posStyle}
-          className="ui-scale-smooth ui-scaled-font pointer-events-auto absolute z-20 flex items-center gap-2 rounded-xl border border-amber-400/25 bg-[#062016]/90 px-3 py-1.5 backdrop-blur-sm"
+          className="ui-scale-smooth ui-scaled-font pointer-events-auto absolute z-20"
         >
-          <button
-            type="button"
-            onClick={() => managerRef.current?.addBot()}
-            className="flex items-center gap-1.5 text-xs font-medium text-amber-300 hover:text-amber-200 whitespace-nowrap shrink-0"
-          >
-            <UserPlus className="h-3.5 w-3.5" />
-            <span>添加AI补位</span>
-          </button>
+          <ArenaMatchingSeatPod
+            side={side}
+            onAddBot={() => managerRef.current?.addBot()}
+          />
         </div>
       );
     }
 
+    const hasRoleAssigned = viewState.landlordSeat !== null;
     const isLandlord = viewState.landlordSeat === seatIdx;
+    const relation = getRelationLabel(seatIdx);
     const isCurrentTurn =
       viewState.currentSeat === seatIdx &&
       viewState.phase !== 'WAITING' &&
       viewState.phase !== 'SETTLEMENT';
     const bubble = viewState.chatBubbles[seatIdx];
     const showPropMenu = activePropTargetSeat === seatIdx;
+    const doubleVal = player.doubleFactor ?? player.doubleMultiplier ?? 1;
+    const openVal = player.openHandFactor ?? 1;
+    const presenceState = resolvePlayerPresenceState(player);
+
+    // Build clean unboxed metadata items (max 1 badge on card, rest via middot separator)
+    const metaParts: string[] = [];
+    if (relation) metaParts.push(relation.text);
+    if (doubleVal > 1) metaParts.push(`加倍×${doubleVal}`);
+    if (openVal > 1) metaParts.push(`明牌×${openVal}`);
+    if (presenceState === 'trusteeship') metaParts.push('智能代打');
+    if (presenceState === 'offline') metaParts.push('信号中断');
 
     return (
       <div
+        key={`seat-pod-${seatIdx}-${player.playerId}`}
         style={posStyle}
         className={`ui-scale-smooth ui-scaled-font pointer-events-auto absolute z-20 flex flex-col ${
           side === 'right' ? 'items-end' : 'items-start'
@@ -614,12 +815,11 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
       >
         {bubble && (
           <div
-            className={`mb-1 flex items-center gap-1.5 rounded-2xl border border-amber-300/60 bg-[#1B120C]/95 px-3 py-1 text-xs font-medium text-amber-100 shadow-xl backdrop-blur-md ${
+            className={`mb-1.5 flex items-center rounded-xl border border-[#D4AF37]/45 bg-[#0B1116]/95 px-3 py-1 text-xs font-bold text-[#F3F4F6] shadow-lg backdrop-blur-md ${
               side === 'right' ? 'self-end' : 'self-start'
             }`}
           >
-            <MessageSquare className="h-3 w-3 shrink-0 text-amber-300" />
-            <span className="max-w-[168px] truncate">{bubble.text}</span>
+            <span className="max-w-[176px] truncate">{bubble.text}</span>
           </div>
         )}
 
@@ -627,67 +827,133 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
           onClick={() => {
             setActivePropTargetSeat((prev) => (prev === seatIdx ? null : seatIdx));
           }}
-          className={`flex max-w-[224px] cursor-pointer items-center gap-2 rounded-xl border ${
+          className={`group flex max-w-[244px] cursor-pointer items-center gap-2.5 rounded-2xl border ${
             showPropMenu
-              ? 'border-amber-300 bg-[#1B120C]/95 ring-2 ring-amber-400/50'
-              : isCurrentTurn
-                ? 'border-amber-300 bg-[#1B120C]/92 shadow-[0_0_16px_rgba(251,191,36,0.3)]'
-                : isLandlord
-                  ? 'border-amber-400/65 bg-[#1B120C]/88'
-                  : 'border-emerald-400/25 bg-[#062016]/88'
-          } px-2.5 py-1.5 shadow-md backdrop-blur-sm hover:border-amber-300/70 transition-all`}
+              ? 'border-[#D4AF37] bg-[#0B1116]/96 ring-2 ring-[#D4AF37]/40'
+              : presenceState === 'offline'
+                ? 'border-rose-500/40 bg-[#090D12]/94'
+                : isCurrentTurn
+                  ? 'border-[#D4AF37] bg-gradient-to-b from-[#17222B]/96 to-[#0B1116]/96 shadow-[0_0_22px_rgba(212,175,55,0.34)]'
+                  : isLandlord
+                    ? 'border-[#D4AF37]/55 bg-gradient-to-b from-[#181612]/94 to-[#0B1116]/94'
+                    : 'border-white/14 bg-[#0B1116]/92'
+          } px-2.5 py-2 shadow-[0_10px_24px_rgba(0,0,0,0.55)] backdrop-blur-md hover:border-[#D4AF37]/75 transition-all duration-300`}
           title="点击头像向该玩家投掷互动道具"
         >
-          <div className="relative shrink-0">
-            <AvatarSvg
-              avatarId={player.avatarId}
-              size={36}
-              isLandlord={isLandlord}
-              animState={
-                viewState.phase === 'SETTLEMENT'
-                  ? (viewState.settlement?.scoreChanges[player.playerId] ?? 0) >= 0
-                    ? 'win'
-                    : 'lose'
-                  : isCurrentTurn
-                    ? 'think'
-                    : 'idle'
-              }
-            />
-          </div>
+          <ArenaSeatAvatar
+            playerId={player.playerId}
+            avatarId={player.avatarId}
+            size="md"
+            hasRoleAssigned={hasRoleAssigned}
+            isLandlord={isLandlord}
+            isCurrentTurn={isCurrentTurn}
+            presenceState={presenceState}
+            seatIndex={seatIdx}
+            animState={
+              viewState.phase === 'SETTLEMENT'
+                ? (viewState.settlement?.scoreChanges[player.playerId] ?? 0) >= 0
+                  ? 'win'
+                  : 'lose'
+                : isCurrentTurn
+                  ? 'think'
+                  : 'idle'
+            }
+          />
+
+          {/* Clean Scannable Player Identity & Bankroll Stack */}
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1 text-xs font-extrabold text-[#FAF8F5]">
-              <span className="max-w-[92px] truncate">{player.nickname}</span>
-              {viewState.landlordSeat !== null && (
+            <div className="flex items-center gap-1.5">
+              <span className="max-w-[96px] truncate text-xs font-extrabold tracking-tight text-[#F8FAFC]">
+                {player.nickname}
+              </span>
+              {hasRoleAssigned && (
                 <span
-                  className={`rounded px-1 py-0.2 text-[10px] font-black whitespace-nowrap shrink-0 ${
+                  className={`rounded px-1.5 py-0.2 text-[10px] font-extrabold whitespace-nowrap shrink-0 ${
                     isLandlord
-                      ? 'bg-amber-400 text-[#240e03]'
-                      : 'bg-emerald-500/25 text-emerald-200 border border-emerald-400/35'
+                      ? 'bg-gradient-to-b from-[#F3E5AB] to-[#D4AF37] text-[#12171B]'
+                      : 'border border-emerald-400/35 bg-emerald-500/15 text-emerald-300'
                   }`}
                 >
                   {isLandlord ? '地主' : '农民'}
                 </span>
               )}
             </div>
-            <div className="mt-0.5 flex items-center gap-1.5 text-[11px] font-mono font-bold text-amber-300 tabular-nums">
+
+            {/* Golden Bean Stack */}
+            <div className="mt-0.5 flex items-center gap-1 text-xs font-mono font-extrabold text-[#F3E5AB] tabular-nums">
+              <img
+                src="/assets/ui/icon_douzi.png"
+                alt=""
+                className="h-3.5 w-3.5 shrink-0 object-contain"
+                draggable={false}
+              />
               <span className="truncate">
                 {player.beans >= 100000
-                  ? `${(player.beans / 10000).toFixed(1)}万`
+                  ? `${(player.beans / 10000).toFixed(2)}万`
                   : player.beans.toLocaleString()}
               </span>
-              {player.trusteeship && (
-                <span className="font-sans text-[10px] text-amber-200 whitespace-nowrap shrink-0">·托管</span>
-              )}
-              {player.disconnected && (
-                <span className="font-sans text-[10px] text-rose-400 whitespace-nowrap shrink-0">·离线</span>
-              )}
             </div>
+
+            {/* Unboxed Middot Metadata Line */}
+            {metaParts.length > 0 && (
+              <div className="mt-0.5 truncate text-[10px] font-bold text-[#94A3B8]">
+                {metaParts.join(' · ')}
+              </div>
+            )}
           </div>
         </div>
 
+        {/* Live Open-Hand (明牌) or Settlement Showdown (摊牌) Mini Card Rack */}
+        {viewState.openHands?.[seatIdx] && viewState.openHands[seatIdx].length > 0 && (
+          <div
+            className={`mt-1.5 flex max-w-[236px] flex-wrap gap-0.5 rounded-xl border border-[#D4AF37]/45 bg-[#12171B]/94 p-1.5 shadow-[0_8px_20px_rgba(0,0,0,0.6)] backdrop-blur-md ${
+              side === 'right' ? 'justify-end self-end' : 'justify-start self-start'
+            }`}
+          >
+            <div className="mb-0.5 flex w-full items-center justify-between px-0.5 text-[9px] font-extrabold text-[#D4AF37]">
+              <span>{viewState.phase === 'SETTLEMENT' ? '摊牌亮底' : '明牌透视'}</span>
+              <span className="font-mono">{viewState.openHands[seatIdx].length}张</span>
+            </div>
+            {viewState.openHands[seatIdx].map((card) => {
+              const isRed =
+                card.suit === 'heart' || card.suit === 'diamond' || card.rank === 'big_joker';
+              const suitChar =
+                card.suit === 'spade'
+                  ? '♠'
+                  : card.suit === 'heart'
+                    ? '♥'
+                    : card.suit === 'club'
+                      ? '♣'
+                      : card.suit === 'diamond'
+                        ? '♦'
+                        : '';
+              const label =
+                card.rank === 'big_joker'
+                  ? '大王'
+                  : card.rank === 'small_joker'
+                    ? '小王'
+                    : `${suitChar}${card.rank}`;
+              return (
+                <span
+                  key={card.id}
+                  className={`inline-flex items-center justify-center rounded border px-1 py-0.2 font-mono text-[10px] font-extrabold leading-tight shadow-xs ${
+                    card.isWild
+                      ? 'border-amber-400/70 bg-amber-500/20 text-amber-200'
+                      : isRed
+                        ? 'border-rose-400/35 bg-[#F8FAFC] text-rose-600'
+                        : 'border-slate-300/40 bg-[#F8FAFC] text-slate-900'
+                  }`}
+                >
+                  {label}
+                </span>
+              );
+            })}
+          </div>
+        )}
+
         {showPropMenu && (
           <div
-            className={`mt-1.5 flex items-center gap-1 rounded-xl border border-amber-400/50 bg-[#062016]/95 p-1.5 shadow-2xl backdrop-blur-md ${
+            className={`mt-1.5 flex items-center gap-1 rounded-xl border border-white/12 bg-[#12171B]/95 p-1.5 text-[#F3F4F6] shadow-xl backdrop-blur-md ${
               side === 'right' ? 'self-end' : 'self-start'
             }`}
           >
@@ -699,16 +965,19 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
                   managerRef.current?.throwProp(seatIdx, prop.type);
                   setActivePropTargetSeat(null);
                 }}
-                className="flex flex-col items-center rounded-lg px-2 py-1 text-center hover:bg-emerald-800/70 active:scale-95 transition-all"
+                className="rounded-lg border border-white/[0.06] bg-white/[0.04] px-2.5 py-1 text-xs font-bold text-[#E5E7EB] hover:border-[#D4AF37]/40 hover:bg-[#D4AF37]/15 hover:text-white active:scale-95 transition-all whitespace-nowrap cursor-pointer"
               >
-                <div className="flex h-5 w-5 items-center justify-center">
-                  {renderPropIcon(prop.type)}
-                </div>
-                <span className="mt-1 text-[10px] font-medium text-emerald-100 whitespace-nowrap">
-                  {prop.label}
-                </span>
+                {prop.label}
               </button>
             ))}
+            <button
+              type="button"
+              onClick={() => setActivePropTargetSeat(null)}
+              aria-label="关闭互动菜单"
+              className="ml-0.5 flex h-6 w-6 items-center justify-center rounded-md text-[#9CA3AF] hover:bg-white/10 hover:text-white cursor-pointer"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
           </div>
         )}
       </div>
@@ -760,6 +1029,7 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
         }}
         className="pointer-events-none absolute top-1/2 left-1/2 z-20"
       >
+        <DdzSpriteSheetCanvasOverlay width={virtualWidth} height={DESIGN_HEIGHT} />
         <div className="pointer-events-none relative h-full w-full">
           {/* BAND 1A: Top-Left Wing (`topBarTopPct%`, `sideMarginPct%`) - Auto-hidden during settlement */}
           {!(viewState.phase === 'SETTLEMENT' && viewState.settlement) && (
@@ -770,7 +1040,7 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
                 transform: 'scale(var(--ui-element-scale, 1))',
                 transformOrigin: 'top left',
               }}
-              className="ui-scale-smooth ui-scaled-font pointer-events-auto absolute flex items-center gap-2.5"
+              className="ui-scale-smooth ui-scaled-font pointer-events-auto absolute flex items-center gap-2"
             >
               <button
                 type="button"
@@ -778,47 +1048,133 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
                   managerRef.current?.leaveRoom();
                   onLeaveRoom();
                 }}
-                className="flex h-9 w-9 items-center justify-center rounded-full border border-amber-300/30 bg-[#062016]/90 text-emerald-100 shadow-md hover:border-amber-300 hover:text-white active:scale-95 transition-all cursor-pointer"
+                className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/12 bg-[#12171B]/90 text-[#E5E7EB] shadow-lg backdrop-blur-md hover:border-[#D4AF37]/60 hover:text-white active:scale-95 transition-all cursor-pointer"
                 title="返回大厅"
               >
                 <LogOut className="h-4 w-4" />
               </button>
 
-              <div className="flex items-center gap-2 rounded-full border border-amber-400/25 bg-[#062016]/90 px-3.5 py-1.5 text-xs font-bold text-emerald-100 shadow-md backdrop-blur-sm">
-                <span className="text-amber-300 whitespace-nowrap shrink-0">
-                  {viewState.dealMode === 'tiandi_laizi'
-                    ? '天地癞子'
-                    : viewState.dealMode === 'laizi'
-                      ? '经典癞子'
-                      : viewState.dealMode === 'no_shuffle'
-                        ? '不洗牌'
-                        : viewState.dealMode === 'swap_three'
-                          ? '换三张'
-                          : '经典斗地主'}
-                </span>
-                <span aria-hidden="true" className="text-emerald-600">
-                  ·
-                </span>
-                <span className="font-mono text-emerald-200 tabular-nums whitespace-nowrap shrink-0">
-                  底分 {viewState.baseScore.toLocaleString()}
-                </span>
-                <span aria-hidden="true" className="text-emerald-600">
-                  ·
-                </span>
-                <span className="font-mono text-amber-300 tabular-nums whitespace-nowrap shrink-0">
-                  {viewState.multiplier}倍
-                </span>
-                {viewState.wildRanks.length > 0 && (
-                  <>
-                    <span aria-hidden="true" className="text-emerald-600">
-                      ·
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowMultiplierDetail((v) => !v)}
+                  className="flex h-9 items-center gap-2 rounded-xl border border-white/12 bg-[#12171B]/90 px-3.5 text-xs font-bold text-[#E5E7EB] shadow-lg backdrop-blur-md hover:border-[#D4AF37]/50 transition-all cursor-pointer"
+                  title="点击查看当前牌局倍率明细"
+                >
+                  <span className="text-[#D4AF37] whitespace-nowrap shrink-0">
+                    {viewState.dealMode === 'tiandi_laizi'
+                      ? '天地癞子'
+                      : viewState.dealMode === 'laizi'
+                        ? '经典癞子'
+                        : viewState.dealMode === 'no_shuffle'
+                          ? '不洗牌'
+                          : viewState.dealMode === 'swap_three'
+                            ? '换三张'
+                            : '经典斗地主'}
+                  </span>
+                  <span aria-hidden="true" className="text-white/20">
+                    |
+                  </span>
+                  <span className="font-mono text-[#9CA3AF] tabular-nums whitespace-nowrap shrink-0">
+                    底分 <strong className="text-[#F3F4F6]">{viewState.baseScore.toLocaleString()}</strong>
+                  </span>
+                  <span aria-hidden="true" className="text-white/20">
+                    |
+                  </span>
+                  <span className="font-mono text-[#D4AF37] tabular-nums whitespace-nowrap shrink-0">
+                    {viewState.multiplier}倍
+                  </span>
+                  <span aria-hidden="true" className="text-white/20">
+                    |
+                  </span>
+                  <span className="font-mono text-emerald-300 tabular-nums whitespace-nowrap shrink-0">
+                    单注 {(viewState.baseScore * viewState.multiplier).toLocaleString()}
+                  </span>
+                  {viewState.holeCardBonus && viewState.holeCardBonus.multiplier > 1 && (
+                    <span className="rounded border border-[#D4AF37]/50 bg-[#D4AF37]/20 px-1.5 py-0.5 text-[10px] font-extrabold text-[#F3E5AB] whitespace-nowrap shrink-0">
+                      {viewState.holeCardBonus.label}
                     </span>
-                    <span className="rounded bg-amber-500/20 px-1.5 py-0.5 font-mono text-[11px] font-bold text-amber-300 whitespace-nowrap shrink-0">
-                      {viewState.wildRanks
-                        .map((r, idx) => `${idx === 0 ? '天癞' : '地癞'}[${r}]`)
-                        .join(' ')}
+                  )}
+                  {(viewState.openHandMultiplier ?? 1) > 1 && (
+                    <span className="rounded border border-amber-400/50 bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-extrabold text-amber-200 whitespace-nowrap shrink-0">
+                      明牌 ×{viewState.openHandMultiplier}
                     </span>
-                  </>
+                  )}
+                  {viewState.wildRanks.length > 0 && (
+                    <>
+                      <span aria-hidden="true" className="text-white/20">
+                        |
+                      </span>
+                      <span className="rounded border border-[#D4AF37]/35 bg-[#D4AF37]/15 px-1.5 py-0.5 font-mono text-[10px] font-bold text-[#F3E5AB] tabular-nums whitespace-nowrap shrink-0">
+                        {viewState.wildRanks
+                          .map((r, idx) => `${idx === 0 ? '天癞' : '地癞'}[${r}]`)
+                          .join(' ')}
+                      </span>
+                    </>
+                  )}
+                </button>
+
+                {showMultiplierDetail && (
+                  <div className="absolute top-11 left-0 z-30 w-64 rounded-xl border border-white/12 bg-[#12171B]/95 p-3 text-xs text-[#E5E7EB] shadow-2xl backdrop-blur-md">
+                    <div className="mb-2 flex items-center justify-between border-b border-white/10 pb-1.5">
+                      <span className="font-bold text-[#F3F4F6]">竞技场实时底池与倍率</span>
+                      <span className="font-mono text-[11px] font-bold text-[#D4AF37]">
+                        总计 ×{viewState.multiplier}
+                      </span>
+                    </div>
+                    <div className="space-y-1.5 text-[11px]">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[#9CA3AF]">公平验牌局号</span>
+                        <span className="font-mono text-[10px] font-semibold text-emerald-300">
+                          #{viewState.roundFairHash ?? 'DDZ-8942A1'}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[#9CA3AF]">场次底分</span>
+                        <span className="font-mono font-bold text-[#F3F4F6]">
+                          {viewState.baseScore.toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[#9CA3AF]">底牌奇牌暴击</span>
+                        <span className="font-mono font-bold text-[#D4AF37]">
+                          {viewState.holeCardBonus && viewState.holeCardBonus.multiplier > 1
+                            ? `${viewState.holeCardBonus.label}`
+                            : '×1 (普通底牌)'}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[#9CA3AF]">明牌博弈加成</span>
+                        <span className="font-mono font-bold text-amber-300">
+                          ×{viewState.openHandMultiplier ?? 1}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[#9CA3AF]">我的加倍系数</span>
+                        <span className="font-mono font-bold text-[#F3F4F6]">
+                          ×{myPlayer?.doubleFactor ?? myPlayer?.doubleMultiplier ?? 1}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between border-t border-white/10 pt-1.5">
+                        <span className="text-[#9CA3AF]">当前单注盈亏</span>
+                        <span className="font-mono font-bold text-emerald-300">
+                          {(viewState.baseScore * viewState.multiplier).toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[#9CA3AF]">地主最高敞口</span>
+                        <span className="font-mono font-bold text-rose-300">
+                          ±{(viewState.baseScore * viewState.multiplier * 2).toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between border-t border-white/10 pt-1.5">
+                        <span className="text-[#9CA3AF]">场次封顶保护</span>
+                        <span className="font-mono font-bold text-[#D4AF37]">
+                          {currentRoomTier.maxMult}倍 ({(currentRoomTier.maxCap / 10000).toFixed(1)}万)
+                        </span>
+                      </div>
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
@@ -838,26 +1194,24 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
               <button
                 type="button"
                 onClick={() => setShowRecorder((v) => !v)}
-                className={`flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs font-bold shadow-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                className={`flex h-9 items-center rounded-xl border px-3.5 text-xs font-bold shadow-lg backdrop-blur-md transition-all whitespace-nowrap shrink-0 cursor-pointer ${
                   showRecorder
-                    ? 'border-amber-400/70 bg-amber-500/25 text-amber-200'
-                    : 'border-emerald-400/25 bg-[#062016]/90 text-emerald-100 hover:text-white'
+                    ? 'border-[#D4AF37]/80 bg-[#D4AF37]/20 text-[#F3E5AB]'
+                    : 'border-white/12 bg-[#12171B]/90 text-[#E5E7EB] hover:border-[#D4AF37]/50 hover:text-white'
                 }`}
               >
-                <Eye className="h-3.5 w-3.5" />
                 <span>记牌器</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => managerRef.current?.toggleTrusteeship()}
-                className={`flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs font-bold shadow-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                className={`flex h-9 items-center rounded-xl border px-3.5 text-xs font-bold shadow-lg backdrop-blur-md transition-all whitespace-nowrap shrink-0 cursor-pointer ${
                   myPlayer?.trusteeship
-                    ? 'border-amber-400 bg-amber-500 text-[#18181B]'
-                    : 'border-emerald-400/25 bg-[#062016]/90 text-emerald-100 hover:text-white'
+                    ? 'border-[#D4AF37] bg-[#D4AF37] text-[#12171B]'
+                    : 'border-white/12 bg-[#12171B]/90 text-[#E5E7EB] hover:border-[#D4AF37]/50 hover:text-white'
                 }`}
               >
-                <Bot className="h-3.5 w-3.5" />
                 <span>{myPlayer?.trusteeship ? '取消托管' : '托管'}</span>
               </button>
 
@@ -868,11 +1222,11 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
                   setSfxEnabled(next);
                   setBgmEnabled(soundEngine.isBgmEnabled());
                 }}
-                className="flex h-9 w-9 items-center justify-center rounded-full border border-emerald-400/25 bg-[#062016]/90 text-emerald-200 shadow-md hover:text-white cursor-pointer"
+                className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/12 bg-[#12171B]/90 text-[#E5E7EB] shadow-lg backdrop-blur-md hover:border-[#D4AF37]/50 hover:text-white cursor-pointer transition-all"
                 title={sfxEnabled ? '关闭声音' : '开启声音'}
               >
                 {sfxEnabled ? (
-                  <Volume2 className="h-4 w-4 text-amber-300" />
+                  <Volume2 className="h-4 w-4 text-[#D4AF37]" />
                 ) : (
                   <VolumeX className="h-4 w-4 text-rose-400" />
                 )}
@@ -882,77 +1236,113 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
                 <button
                   type="button"
                   onClick={onToggleFullscreen}
-                  className="flex h-9 w-9 items-center justify-center rounded-full border border-emerald-400/25 bg-[#062016]/90 text-emerald-200 shadow-md hover:text-white cursor-pointer"
+                  className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/12 bg-[#12171B]/90 text-[#E5E7EB] shadow-lg backdrop-blur-md hover:border-[#D4AF37]/50 hover:text-white cursor-pointer transition-all"
                   title={isFullscreen ? '退出全屏' : '全屏'}
                 >
                   {isFullscreen ? (
-                    <Minimize2 className="h-4 w-4 text-amber-300" />
+                    <Minimize2 className="h-4 w-4 text-[#D4AF37]" />
                   ) : (
-                    <Maximize2 className="h-4 w-4 text-emerald-200" />
+                    <Maximize2 className="h-4 w-4 text-[#E5E7EB]" />
                   )}
                 </button>
               )}
             </div>
           )}
 
-          {/* BAND 1C: Floating Card Recorder (`recorderTopPct%`, centered at 50%) - Auto-hidden during settlement */}
-          {showRecorder && viewState.phase !== 'WAITING' && !(viewState.phase === 'SETTLEMENT' && viewState.settlement) && (
-            <div
-              style={{
-                top: `${zones.recorderTopPct}%`,
-                left: '50%',
-                transform: 'translateX(-50%) scale(var(--ui-element-scale, 1))',
-                transformOrigin: 'top center',
-              }}
-              className="ui-scale-smooth ui-scaled-font pointer-events-auto absolute flex items-center overflow-hidden rounded-xl border border-amber-400/35 bg-[#062016]/95 px-2.5 py-1 shadow-lg backdrop-blur-sm"
-            >
-              <div className="flex items-center divide-x divide-emerald-800/70">
-                {RECORDER_ORDER.map((item) => {
-                  const count = viewState.cardRecorder[item.rank] ?? 0;
-                  const isWildRank = viewState.wildRanks.includes(item.rank);
-                  return (
-                    <div
-                      key={item.rank}
-                      className={`flex flex-col items-center px-1.5 text-center tabular-nums ${
-                        isWildRank ? 'bg-amber-500/20' : ''
-                      }`}
-                    >
-                      <span
-                        className={`text-[10px] font-bold leading-tight ${
+          {/* BAND 1C: Floating Card Recorder (`recorderTopPct%`, centered at 50%) with Bomb & Rocket Risk Radar */}
+          {showRecorder && viewState.phase !== 'WAITING' && !(viewState.phase === 'SETTLEMENT' && viewState.settlement) && (() => {
+            const hasDualJokerOutside =
+              (viewState.cardRecorder.big_joker ?? 0) === 1 &&
+              (viewState.cardRecorder.small_joker ?? 0) === 1;
+            const outsideQuadCount = RECORDER_ORDER.filter(
+              (item) =>
+                item.rank !== 'big_joker' &&
+                item.rank !== 'small_joker' &&
+                (viewState.cardRecorder[item.rank] ?? 0) === 4
+            ).length;
+
+            return (
+              <div
+                style={{
+                  top: `${zones.recorderTopPct}%`,
+                  left: '50%',
+                  transform: 'translateX(-50%) scale(var(--ui-element-scale, 1))',
+                  transformOrigin: 'top center',
+                }}
+                className="ui-scale-smooth ui-scaled-font pointer-events-auto absolute flex items-center gap-2 overflow-hidden rounded-xl border border-white/14 bg-[#12171B]/94 px-2.5 py-1 shadow-[0_10px_28px_rgba(0,0,0,0.55)] backdrop-blur-md"
+              >
+                {(hasDualJokerOutside || outsideQuadCount > 0) && (
+                  <div className="flex items-center gap-1 border-r border-white/12 pr-2">
+                    {hasDualJokerOutside && (
+                      <span className="rounded border border-rose-400/50 bg-rose-500/20 px-1.5 py-0.5 text-[10px] font-extrabold text-rose-300 whitespace-nowrap">
+                        王炸未出
+                      </span>
+                    )}
+                    {outsideQuadCount > 0 && (
+                      <span className="rounded border border-amber-400/50 bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-extrabold text-amber-200 whitespace-nowrap">
+                        {outsideQuadCount}暗炸风险
+                      </span>
+                    )}
+                  </div>
+                )}
+                <div className="flex items-center divide-x divide-white/10">
+                  {RECORDER_ORDER.map((item) => {
+                    const count = viewState.cardRecorder[item.rank] ?? 0;
+                    const isWildRank = viewState.wildRanks.includes(item.rank);
+                    const isBombRisk =
+                      count === 4 ||
+                      (hasDualJokerOutside &&
+                        (item.rank === 'big_joker' || item.rank === 'small_joker'));
+                    return (
+                      <div
+                        key={item.rank}
+                        className={`flex flex-col items-center px-1.5 text-center tabular-nums ${
                           isWildRank
-                            ? 'text-amber-300'
-                            : item.rank === 'big_joker'
-                              ? 'text-rose-400'
-                              : item.rank === 'small_joker'
-                                ? 'text-sky-300'
-                                : 'text-emerald-100'
+                            ? 'bg-[#D4AF37]/20'
+                            : isBombRisk
+                              ? 'bg-rose-500/15'
+                              : ''
                         }`}
                       >
-                        {isWildRank ? `[${item.label}]` : item.label}
-                      </span>
-                      <span
-                        className={`font-mono text-xs font-bold leading-tight ${
-                          count === 0
-                            ? 'text-emerald-700'
-                            : count === 4 || isWildRank
-                              ? 'text-amber-400'
-                              : 'text-white'
-                        }`}
-                      >
-                        {count}
-                      </span>
-                    </div>
-                  );
-                })}
+                        <span
+                          className={`text-[10px] font-bold leading-tight ${
+                            isWildRank
+                              ? 'text-[#F3E5AB]'
+                              : item.rank === 'big_joker'
+                                ? 'text-rose-400'
+                                : item.rank === 'small_joker'
+                                  ? 'text-sky-300'
+                                  : isBombRisk
+                                    ? 'text-amber-300'
+                                    : 'text-[#9CA3AF]'
+                          }`}
+                        >
+                          {isWildRank ? `[${item.label}]` : item.label}
+                        </span>
+                        <span
+                          className={`font-mono text-xs font-bold leading-tight ${
+                            count === 0
+                              ? 'text-white/20'
+                              : isBombRisk || isWildRank
+                                ? 'text-[#D4AF37]'
+                                : 'text-[#F3F4F6]'
+                          }`}
+                        >
+                          {count}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* BAND 2: Left & Right Opponent Seat HUDs (`avatarTopPct%`, above opponent card stacks at `opponentDeckTopPct%`) */}
           {renderOpponentSeatHud(leftPlayer, leftSeat, 'left')}
           {renderOpponentSeatHud(rightPlayer, rightSeat, 'right')}
 
-          {/* BAND 4: Dedicated Card Action Button Bar (`actionBarTopPct%`, smoothly scaled via `--ui-element-scale` & `--ui-font-scale`) */}
+          {/* BAND 4: Dedicated Card Action Button Bar (`actionBarTopPct%`, compact non-deforming tournament buttons) */}
           {viewState.phase === 'SWAPPING' && (
             <div
               style={{
@@ -961,15 +1351,15 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
                 transform: 'translateX(-50%) scale(var(--ui-element-scale, 1))',
                 transformOrigin: 'top center',
               }}
-              className="ui-scale-smooth ui-scaled-font pointer-events-auto absolute flex items-center gap-4"
+              className="ui-scale-smooth ui-scaled-font pointer-events-auto absolute flex items-center gap-3.5"
             >
-              <span className="rounded-full border border-amber-400/50 bg-[#1B120C]/92 px-4 py-1.5 text-xs font-bold text-amber-200 shadow-lg whitespace-nowrap shrink-0">
+              <span className="flex h-9 items-center rounded-xl border border-[#D4AF37]/40 bg-[#12171B]/92 px-3.5 text-xs font-bold text-[#F3E5AB] shadow-lg backdrop-blur-md whitespace-nowrap shrink-0">
                 {viewState.swapDirection === 'counter_clockwise' ? '逆时针换三张' : '顺时针换三张'}
               </span>
               <button
                 type="button"
                 onClick={() => managerRef.current?.autoSelectSwapThree()}
-                className="rounded-full border-t border-sky-200/80 bg-gradient-to-b from-sky-500 to-cyan-700 px-5 py-2 font-display text-sm font-extrabold text-white shadow-[0_4px_0_#0e7490,0_8px_16px_rgba(14,165,233,0.35)] hover:brightness-110 active:translate-y-0.5 transition-all whitespace-nowrap shrink-0"
+                className="flex h-9.5 min-w-[96px] items-center justify-center rounded-xl border border-emerald-400/45 bg-gradient-to-b from-[#174936] to-[#0D2E22] px-4 text-sm font-bold text-emerald-100 shadow-[0_4px_12px_rgba(0,0,0,0.45)] hover:border-emerald-300/70 hover:brightness-110 active:translate-y-0.5 transition-all whitespace-nowrap shrink-0 cursor-pointer"
               >
                 智能推荐
               </button>
@@ -977,7 +1367,7 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
                 type="button"
                 onClick={() => managerRef.current?.submitSwapThree()}
                 disabled={(viewState.swapSubmittedSeats ?? []).includes(viewState.mySeat)}
-                className="rounded-full border-t border-amber-100/95 bg-gradient-to-b from-amber-300 via-amber-500 to-amber-600 px-7 py-2 font-display text-base font-extrabold text-[#18181B] shadow-[0_4px_0_#92400e,0_8px_20px_rgba(245,158,11,0.45)] hover:brightness-105 active:translate-y-0.5 disabled:opacity-55 transition-all whitespace-nowrap shrink-0"
+                className="flex h-9.5 min-w-[116px] items-center justify-center rounded-xl border border-[#F3E5AB]/80 bg-gradient-to-b from-[#E5C158] via-[#D4AF37] to-[#B48A1E] px-5 text-sm font-extrabold text-[#12171B] shadow-[0_4px_14px_rgba(212,175,55,0.35)] hover:brightness-105 active:translate-y-0.5 disabled:opacity-55 transition-all whitespace-nowrap shrink-0 cursor-pointer"
               >
                 {(viewState.swapSubmittedSeats ?? []).includes(viewState.mySeat)
                   ? '等待其他玩家...'
@@ -994,22 +1384,34 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
                 transform: 'translateX(-50%) scale(var(--ui-element-scale, 1))',
                 transformOrigin: 'top center',
               }}
-              className="ui-scale-smooth ui-scaled-font pointer-events-auto absolute flex items-center gap-5"
+              className="ui-scale-smooth ui-scaled-font pointer-events-auto absolute flex items-center gap-3.5"
             >
               <button
                 type="button"
                 onClick={() => managerRef.current?.callLandlord(false)}
-                className="rounded-full border-t border-emerald-200/60 bg-gradient-to-b from-emerald-700 to-emerald-900 px-8 py-2 font-display text-base font-extrabold text-white shadow-[0_4px_0_#022c22,0_8px_16px_rgba(0,0,0,0.45)] hover:brightness-110 active:translate-y-0.5 active:shadow-[0_2px_0_#022c22] transition-all whitespace-nowrap shrink-0"
+                className="flex h-9.5 min-w-[96px] items-center justify-center rounded-xl border border-white/18 bg-[#182026]/92 px-5 text-sm font-bold text-[#E5E7EB] shadow-[0_4px_12px_rgba(0,0,0,0.45)] backdrop-blur-md hover:border-white/35 hover:text-white active:translate-y-0.5 transition-all whitespace-nowrap shrink-0 cursor-pointer"
               >
                 不 叫
               </button>
               <button
                 type="button"
                 onClick={() => managerRef.current?.callLandlord(true)}
-                className="rounded-full border-t border-amber-100/90 bg-gradient-to-b from-amber-300 via-amber-500 to-amber-600 px-8 py-2 font-display text-base font-extrabold text-[#18181B] shadow-[0_4px_0_#92400e,0_8px_18px_rgba(245,158,11,0.4)] hover:brightness-105 active:translate-y-0.5 active:shadow-[0_2px_0_#92400e] transition-all whitespace-nowrap shrink-0"
+                className="flex h-9.5 min-w-[108px] items-center justify-center rounded-xl border border-[#F3E5AB]/80 bg-gradient-to-b from-[#E5C158] via-[#D4AF37] to-[#B48A1E] px-6 text-sm font-extrabold text-[#12171B] shadow-[0_4px_14px_rgba(212,175,55,0.38)] hover:brightness-105 active:translate-y-0.5 transition-all whitespace-nowrap shrink-0 cursor-pointer"
               >
                 叫地主
               </button>
+              {!viewState.openHands?.[viewState.mySeat] && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    managerRef.current?.declareOpenHand(5);
+                    managerRef.current?.callLandlord(true);
+                  }}
+                  className="flex h-9.5 min-w-[116px] items-center justify-center rounded-xl border border-rose-300/65 bg-gradient-to-b from-[#C83E3E] to-[#8F1D1D] px-5 text-sm font-extrabold text-white shadow-[0_4px_14px_rgba(200,62,62,0.42)] hover:brightness-110 active:translate-y-0.5 transition-all whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  明牌叫 ×5
+                </button>
+              )}
             </div>
           )}
 
@@ -1021,19 +1423,19 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
                 transform: 'translateX(-50%) scale(var(--ui-element-scale, 1))',
                 transformOrigin: 'top center',
               }}
-              className="ui-scale-smooth ui-scaled-font pointer-events-auto absolute flex items-center gap-5"
+              className="ui-scale-smooth ui-scaled-font pointer-events-auto absolute flex items-center gap-4"
             >
               <button
                 type="button"
                 onClick={() => managerRef.current?.grabLandlord(false)}
-                className="rounded-full border-t border-emerald-200/60 bg-gradient-to-b from-emerald-700 to-emerald-900 px-8 py-2 font-display text-base font-extrabold text-white shadow-[0_4px_0_#022c22,0_8px_16px_rgba(0,0,0,0.45)] hover:brightness-110 active:translate-y-0.5 active:shadow-[0_2px_0_#022c22] transition-all whitespace-nowrap shrink-0"
+                className="flex h-9.5 min-w-[96px] items-center justify-center rounded-xl border border-white/18 bg-[#182026]/92 px-5 text-sm font-bold text-[#E5E7EB] shadow-[0_4px_12px_rgba(0,0,0,0.45)] backdrop-blur-md hover:border-white/35 hover:text-white active:translate-y-0.5 transition-all whitespace-nowrap shrink-0 cursor-pointer"
               >
                 不 抢
               </button>
               <button
                 type="button"
                 onClick={() => managerRef.current?.grabLandlord(true)}
-                className="rounded-full border-t border-rose-200/80 bg-gradient-to-b from-rose-500 via-rose-600 to-red-800 px-8 py-2 font-display text-base font-extrabold text-white shadow-[0_4px_0_#7f1d1d,0_8px_18px_rgba(225,29,72,0.45)] hover:brightness-110 active:translate-y-0.5 active:shadow-[0_2px_0_#7f1d1d] transition-all whitespace-nowrap shrink-0"
+                className="flex h-9.5 min-w-[116px] items-center justify-center rounded-xl border border-rose-300/60 bg-gradient-to-b from-[#C83E3E] to-[#8F1D1D] px-6 text-sm font-extrabold text-white shadow-[0_4px_14px_rgba(200,62,62,0.4)] hover:brightness-110 active:translate-y-0.5 transition-all whitespace-nowrap shrink-0 cursor-pointer"
               >
                 抢地主 ×2
               </button>
@@ -1048,29 +1450,38 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
                 transform: 'translateX(-50%) scale(var(--ui-element-scale, 1))',
                 transformOrigin: 'top center',
               }}
-              className="ui-scale-smooth ui-scaled-font pointer-events-auto absolute flex items-center gap-4"
+              className="ui-scale-smooth ui-scaled-font pointer-events-auto absolute flex items-center gap-3"
             >
               <button
                 type="button"
                 onClick={() => managerRef.current?.doubleScore(1)}
-                className="rounded-full border-t border-emerald-200/60 bg-gradient-to-b from-emerald-700 to-emerald-900 px-6 py-2 font-display text-base font-extrabold text-white shadow-[0_4px_0_#022c22,0_8px_16px_rgba(0,0,0,0.45)] hover:brightness-110 active:translate-y-0.5 active:shadow-[0_2px_0_#022c22] transition-all whitespace-nowrap shrink-0"
+                className="flex h-9.5 min-w-[92px] items-center justify-center rounded-xl border border-white/18 bg-[#182026]/92 px-4 text-sm font-bold text-[#E5E7EB] shadow-[0_4px_12px_rgba(0,0,0,0.45)] backdrop-blur-md hover:border-white/35 hover:text-white active:translate-y-0.5 transition-all whitespace-nowrap shrink-0 cursor-pointer"
               >
                 不加倍
               </button>
               <button
                 type="button"
                 onClick={() => managerRef.current?.doubleScore(2)}
-                className="rounded-full border-t border-amber-100/90 bg-gradient-to-b from-amber-300 via-amber-500 to-amber-600 px-6 py-2 font-display text-base font-extrabold text-[#18181B] shadow-[0_4px_0_#92400e,0_8px_18px_rgba(245,158,11,0.4)] hover:brightness-105 active:translate-y-0.5 active:shadow-[0_2px_0_#92400e] transition-all whitespace-nowrap shrink-0"
+                className="flex h-9.5 min-w-[104px] items-center justify-center rounded-xl border border-[#F3E5AB]/80 bg-gradient-to-b from-[#E5C158] via-[#D4AF37] to-[#B48A1E] px-5 text-sm font-extrabold text-[#12171B] shadow-[0_4px_14px_rgba(212,175,55,0.38)] hover:brightness-105 active:translate-y-0.5 transition-all whitespace-nowrap shrink-0 cursor-pointer"
               >
                 加倍 ×2
               </button>
               <button
                 type="button"
                 onClick={() => managerRef.current?.doubleScore(4)}
-                className="rounded-full border-t border-amber-200/90 bg-gradient-to-r from-rose-600 via-red-600 to-amber-500 px-7 py-2 font-display text-base font-extrabold text-white shadow-[0_4px_0_#7f1d1d,0_8px_20px_rgba(225,29,72,0.5)] hover:brightness-110 active:translate-y-0.5 active:shadow-[0_2px_0_#7f1d1d] transition-all whitespace-nowrap shrink-0"
+                className="flex h-9.5 min-w-[120px] items-center justify-center rounded-xl border border-rose-300/60 bg-gradient-to-b from-[#C83E3E] to-[#8F1D1D] px-5 text-sm font-extrabold text-white shadow-[0_4px_14px_rgba(200,62,62,0.42)] hover:brightness-110 active:translate-y-0.5 transition-all whitespace-nowrap shrink-0 cursor-pointer"
               >
                 超级加倍 ×4
               </button>
+              {!viewState.openHands?.[viewState.mySeat] && (
+                <button
+                  type="button"
+                  onClick={() => managerRef.current?.declareOpenHand(3)}
+                  className="flex h-9.5 min-w-[104px] items-center justify-center rounded-xl border border-amber-300/70 bg-gradient-to-b from-amber-500 to-amber-700 px-4 text-sm font-extrabold text-[#12171B] shadow-[0_4px_14px_rgba(245,158,11,0.38)] hover:brightness-110 active:translate-y-0.5 transition-all whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  明牌 ×3
+                </button>
+              )}
             </div>
           )}
 
@@ -1082,13 +1493,13 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
                 transform: 'translateX(-50%) scale(var(--ui-element-scale, 1))',
                 transformOrigin: 'top center',
               }}
-              className="ui-scale-smooth ui-scaled-font pointer-events-auto absolute flex items-center gap-4"
+              className="ui-scale-smooth ui-scaled-font pointer-events-auto absolute flex items-center gap-3.5"
             >
               {!viewState.isFreeLead ? (
                 <button
                   type="button"
                   onClick={() => managerRef.current?.passTurn()}
-                  className="rounded-full border-t border-slate-300/60 bg-gradient-to-b from-slate-600 to-slate-800 px-7 py-2 font-display text-base font-extrabold text-white shadow-[0_4px_0_#1e293b,0_8px_16px_rgba(0,0,0,0.4)] hover:brightness-110 active:translate-y-0.5 active:shadow-[0_2px_0_#1e293b] transition-all whitespace-nowrap shrink-0"
+                  className="flex h-9.5 min-w-[96px] items-center justify-center rounded-xl border border-white/18 bg-[#182026]/92 px-5 text-sm font-bold text-[#E5E7EB] shadow-[0_4px_12px_rgba(0,0,0,0.45)] backdrop-blur-md hover:border-white/35 hover:text-white active:translate-y-0.5 transition-all whitespace-nowrap shrink-0 cursor-pointer"
                 >
                   不 出
                 </button>
@@ -1096,7 +1507,7 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
                 <button
                   type="button"
                   onClick={() => managerRef.current?.clearSelection()}
-                  className="rounded-full border-t border-slate-300/60 bg-gradient-to-b from-slate-600 to-slate-800 px-7 py-2 font-display text-base font-extrabold text-white shadow-[0_4px_0_#1e293b,0_8px_16px_rgba(0,0,0,0.4)] hover:brightness-110 active:translate-y-0.5 active:shadow-[0_2px_0_#1e293b] transition-all whitespace-nowrap shrink-0"
+                  className="flex h-9.5 min-w-[96px] items-center justify-center rounded-xl border border-white/18 bg-[#182026]/92 px-5 text-sm font-bold text-[#E5E7EB] shadow-[0_4px_12px_rgba(0,0,0,0.45)] backdrop-blur-md hover:border-white/35 hover:text-white active:translate-y-0.5 transition-all whitespace-nowrap shrink-0 cursor-pointer"
                 >
                   重 选
                 </button>
@@ -1104,14 +1515,14 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
               <button
                 type="button"
                 onClick={() => managerRef.current?.requestHint()}
-                className="rounded-full border-t border-emerald-200/80 bg-gradient-to-b from-emerald-500 to-emerald-700 px-7 py-2 font-display text-base font-extrabold text-white shadow-[0_4px_0_#064e3b,0_8px_16px_rgba(16,185,129,0.35)] hover:brightness-110 active:translate-y-0.5 active:shadow-[0_2px_0_#064e3b] transition-all whitespace-nowrap shrink-0"
+                className="flex h-9.5 min-w-[96px] items-center justify-center rounded-xl border border-emerald-400/45 bg-gradient-to-b from-[#174936] to-[#0D2E22] px-5 text-sm font-bold text-emerald-100 shadow-[0_4px_12px_rgba(0,0,0,0.45)] hover:border-emerald-300/70 hover:brightness-110 active:translate-y-0.5 transition-all whitespace-nowrap shrink-0 cursor-pointer"
               >
                 提 示
               </button>
               <button
                 type="button"
                 onClick={() => managerRef.current?.playSelectedCards()}
-                className="rounded-full border-t border-amber-100/95 bg-gradient-to-b from-amber-300 via-amber-500 to-amber-600 px-9 py-2 font-display text-base font-extrabold text-[#18181B] shadow-[0_4px_0_#92400e,0_8px_20px_rgba(245,158,11,0.45)] hover:brightness-105 active:translate-y-0.5 active:shadow-[0_2px_0_#92400e] transition-all whitespace-nowrap shrink-0"
+                className="flex h-9.5 min-w-[108px] items-center justify-center rounded-xl border border-[#F3E5AB]/85 bg-gradient-to-b from-[#E5C158] via-[#D4AF37] to-[#B48A1E] px-6 text-sm font-extrabold text-[#12171B] shadow-[0_4px_14px_rgba(212,175,55,0.4)] hover:brightness-105 active:translate-y-0.5 transition-all whitespace-nowrap shrink-0 cursor-pointer"
               >
                 出 牌
               </button>
@@ -1137,25 +1548,34 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
                 className="ui-scale-smooth ui-scaled-font pointer-events-auto flex flex-col items-start"
               >
                 {myBubble && (
-                  <div className="mb-1.5 flex items-center gap-1.5 rounded-2xl border border-amber-300/60 bg-[#1B120C]/95 px-3 py-1 text-xs font-medium text-amber-100 shadow-xl backdrop-blur-md">
+                  <div className="mb-1.5 flex items-center gap-1.5 rounded-xl border border-[#D4AF37]/45 bg-[#12171B]/95 px-3 py-1 text-xs font-bold text-[#F3F4F6] shadow-xl backdrop-blur-md">
                     <span className="max-w-[200px] truncate">{myBubble.text}</span>
                   </div>
                 )}
 
                 {myPlayer && (
                   <div
-                    className={`flex items-center gap-2.5 rounded-full border ${
+                    className={`flex items-center gap-2.5 rounded-2xl border ${
                       isMyTurn && viewState.phase !== 'WAITING' && viewState.phase !== 'SETTLEMENT'
-                        ? 'border-amber-300 bg-[#1B120C]/95 shadow-[0_0_16px_rgba(251,191,36,0.28)]'
+                        ? 'border-[#D4AF37] bg-gradient-to-b from-[#17222B]/96 to-[#0B1116]/96 shadow-[0_0_22px_rgba(212,175,55,0.34)]'
                         : isMyLandlord
-                          ? 'border-amber-400/75 bg-[#1B120C]/92'
-                          : 'border-emerald-400/30 bg-[#062016]/92'
-                    } py-1 pr-3.5 pl-1.5 shadow-lg backdrop-blur-sm transition-all`}
+                          ? 'border-[#D4AF37]/55 bg-gradient-to-b from-[#181612]/94 to-[#0B1116]/94'
+                          : 'border-white/14 bg-[#0B1116]/92'
+                    } py-1.5 pr-4 pl-2 shadow-[0_10px_24px_rgba(0,0,0,0.55)] backdrop-blur-md transition-all duration-300`}
                   >
-                    <AvatarSvg
+                    <ArenaSeatAvatar
+                      playerId={myPlayer.playerId}
                       avatarId={myPlayer.avatarId}
-                      size={30}
+                      size="sm"
+                      hasRoleAssigned={viewState.landlordSeat !== null}
                       isLandlord={isMyLandlord}
+                      isCurrentTurn={
+                        isMyTurn &&
+                        viewState.phase !== 'WAITING' &&
+                        viewState.phase !== 'SETTLEMENT'
+                      }
+                      presenceState={resolvePlayerPresenceState(myPlayer)}
+                      seatIndex={viewState.mySeat}
                       animState={
                         viewState.phase === 'SETTLEMENT'
                           ? (viewState.settlement?.scoreChanges[myPlayer.playerId] ?? 0) >= 0
@@ -1167,25 +1587,50 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
                       }
                     />
                     <div className="flex items-center gap-2 text-xs">
-                      <span className="max-w-[110px] truncate font-extrabold text-[#FAF8F5]">
+                      <span className="max-w-[110px] truncate font-extrabold text-[#F8FAFC]">
                         {myPlayer.nickname}
                       </span>
                       {viewState.landlordSeat !== null && (
                         <span
-                          className={`rounded px-1 py-0.2 text-[10px] font-black whitespace-nowrap shrink-0 ${
+                          className={`rounded px-1.5 py-0.2 text-[10px] font-extrabold whitespace-nowrap shrink-0 ${
                             isMyLandlord
-                              ? 'bg-amber-400 text-[#240e03]'
-                              : 'bg-emerald-500/25 text-emerald-200 border border-emerald-400/35'
+                              ? 'bg-gradient-to-b from-[#F3E5AB] to-[#D4AF37] text-[#12171B]'
+                              : 'border border-emerald-400/35 bg-emerald-500/15 text-emerald-300'
                           }`}
                         >
                           {isMyLandlord ? '地主' : '农民'}
                         </span>
                       )}
-                      <span className="font-mono font-bold text-amber-300 tabular-nums whitespace-nowrap shrink-0">
+                      <span className="flex items-center gap-1 font-mono font-extrabold text-[#F3E5AB] tabular-nums whitespace-nowrap shrink-0">
+                        <img
+                          src="/assets/ui/icon_douzi.png"
+                          alt=""
+                          className="h-3.5 w-3.5 shrink-0 object-contain"
+                          draggable={false}
+                        />
                         {myPlayer.beans.toLocaleString()}
                       </span>
-                      {myPlayer.trusteeship && (
-                        <span className="text-amber-300 whitespace-nowrap shrink-0">· 托管</span>
+                      {((myPlayer.doubleFactor ?? myPlayer.doubleMultiplier ?? 1) > 1 ||
+                        (myPlayer.openHandFactor ?? 1) > 1 ||
+                        myPlayer.trusteeship ||
+                        myPlayer.disconnected) && (
+                        <span className="text-[11px] font-bold text-[#94A3B8] whitespace-nowrap shrink-0">
+                          {[
+                            (myPlayer.doubleFactor ?? myPlayer.doubleMultiplier ?? 1) > 1
+                              ? `加倍×${myPlayer.doubleFactor ?? myPlayer.doubleMultiplier}`
+                              : null,
+                            (myPlayer.openHandFactor ?? 1) > 1
+                              ? `明牌×${myPlayer.openHandFactor}`
+                              : null,
+                            myPlayer.disconnected
+                              ? '信号中断'
+                              : myPlayer.trusteeship
+                                ? '智能代打'
+                                : null,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </span>
                       )}
                     </div>
                   </div>
@@ -1201,13 +1646,13 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
                 className="ui-scale-smooth ui-scaled-font pointer-events-auto flex flex-col items-end"
               >
                 {showChatPanel && (
-                  <div className="mb-2 w-60 rounded-2xl border border-[#DFD2B8] bg-[#FAF8F3]/98 p-3 text-[#1E242B] shadow-2xl backdrop-blur-md">
-                    <div className="mb-2 flex items-center justify-between border-b border-[#E6DEC8] pb-1.5">
-                      <span className="text-xs font-black text-[#2C1E10]">牌桌快捷语</span>
+                  <div className="mb-2 w-60 rounded-2xl border border-white/12 bg-[#12171B]/95 p-3 text-[#F3F4F6] shadow-2xl backdrop-blur-md">
+                    <div className="mb-2 flex items-center justify-between border-b border-white/[0.08] pb-1.5">
+                      <span className="text-xs font-bold text-[#F3F4F6]">牌桌快捷语</span>
                       <button
                         type="button"
                         onClick={() => setShowChatPanel(false)}
-                        className="rounded-full p-0.5 text-[#5A6572] hover:bg-black/5 hover:text-[#1E242B]"
+                        className="rounded-lg p-1 text-[#9CA3AF] hover:bg-white/10 hover:text-white cursor-pointer"
                       >
                         <X className="h-3.5 w-3.5" />
                       </button>
@@ -1222,7 +1667,7 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
                             managerRef.current?.sendChat(item.text);
                             setShowChatPanel(false);
                           }}
-                          className="flex w-full items-center gap-2 rounded-xl border border-transparent bg-white px-2.5 py-1.5 text-left text-xs font-bold text-[#334155] hover:border-[#F59E0B] hover:bg-[#FFFBEB] hover:text-[#B45309] transition-colors cursor-pointer"
+                          className="flex w-full items-center gap-2 rounded-xl border border-white/[0.06] bg-white/[0.03] px-2.5 py-1.5 text-left text-xs font-medium text-[#E5E7EB] hover:border-[#D4AF37]/40 hover:bg-[#D4AF37]/10 hover:text-white transition-colors cursor-pointer"
                         >
                           <span className="truncate">{item.text}</span>
                         </button>
@@ -1239,14 +1684,13 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
                         const nextMode = managerRef.current?.toggleHandSortMode() ?? 'rank';
                         setHandSortMode(nextMode);
                       }}
-                      className={`flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs font-bold shadow-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                      className={`flex h-8.5 items-center rounded-xl border px-3 text-xs font-bold shadow-lg backdrop-blur-md transition-all whitespace-nowrap shrink-0 cursor-pointer ${
                         handSortMode === 'count'
-                          ? 'border-amber-400 bg-amber-500/25 text-amber-200'
-                          : 'border-emerald-400/35 bg-[#062016]/92 text-emerald-100 hover:border-amber-400/60'
+                          ? 'border-[#D4AF37]/80 bg-[#D4AF37]/20 text-[#F3E5AB]'
+                          : 'border-white/12 bg-[#12171B]/90 text-[#E5E7EB] hover:border-[#D4AF37]/50 hover:text-white'
                       }`}
                       title="切换理牌顺序"
                     >
-                      <ArrowUpDown className="h-3.5 w-3.5 text-amber-400" />
                       <span>{handSortMode === 'count' ? '按张数' : '按大小'}</span>
                     </button>
                   )}
@@ -1254,223 +1698,191 @@ const DdzTableStage: React.FC<DdzTableViewProps & { rotationDeg: VirtualRotation
                   <button
                     type="button"
                     onClick={() => setShowChatPanel((v) => !v)}
-                    className="flex items-center gap-1.5 rounded-full border border-amber-400/40 bg-[#062016]/92 px-3.5 py-1.5 text-xs font-bold text-amber-200 shadow-lg hover:bg-emerald-900/80 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                    className="flex h-8.5 items-center rounded-xl border border-white/12 bg-[#12171B]/90 px-3 text-xs font-bold text-[#D4AF37] shadow-lg backdrop-blur-md hover:border-[#D4AF37]/50 hover:text-[#F3E5AB] transition-all whitespace-nowrap shrink-0 cursor-pointer"
                   >
-                    <MessageSquare className="h-3.5 w-3.5 text-amber-400" />
                     <span>快捷语</span>
                   </button>
                 </div>
               </div>
             </div>
           )}
-
-          {/* Waiting For Players Overlay when in WAITING phase */}
-          {viewState.phase === 'WAITING' && (
-            <div className="pointer-events-auto absolute inset-0 z-30 flex items-center justify-center bg-slate-950/40 backdrop-blur-[2px]">
-              <div
-                style={{ transform: `scale(${uiElementScale})` }}
-                className="w-full max-w-md overflow-hidden rounded-3xl border border-[#DFD2B8] bg-gradient-to-b from-[#FAF8F3] to-[#F3EFE6] p-6 text-center text-[#1E242B] shadow-[0_24px_60px_rgba(20,16,10,0.28)]"
-              >
-                <h3 className="font-display text-xl font-black text-[#2C1E10]">
-                  正在等待牌友入座 ({viewState.players.filter(Boolean).length}/3)
-                </h3>
-                <p className="mt-1.5 text-xs font-medium text-[#5A6572]">
-                  房间号{' '}
-                  <span className="font-mono font-black text-[#D97706] tabular-nums">
-                    {viewState.roomId}
-                  </span>{' '}
-                  · 底分 <span className="font-mono font-bold tabular-nums">{viewState.baseScore}</span> 积分
-                </p>
-                <div className="mt-5 flex items-center justify-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => managerRef.current?.addBot()}
-                    className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#F59E0B] to-[#D97706] px-5 py-2.5 text-xs font-black text-white shadow-sm hover:brightness-105 transition-all whitespace-nowrap shrink-0 cursor-pointer"
-                  >
-                    <UserPlus className="h-4 w-4" />
-                    <span>一键添加 AI 机器人立即开局</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleCopyRoomId}
-                    className="flex items-center gap-1.5 rounded-xl border border-[#D8CEB8] bg-white px-4 py-2.5 text-xs font-extrabold text-[#334155] hover:bg-[#FAF8F3] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-                  >
-                    {copied ? (
-                      <Check className="h-4 w-4 text-[#0D9488]" />
-                    ) : (
-                      <Copy className="h-4 w-4 text-[#5A6572]" />
-                    )}
-                    <span>{copied ? '已复制房号' : '复制房号邀好友'}</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Toast Notification */}
-          {viewState.errorToast && (
-            <div className="pointer-events-none absolute top-1/2 left-1/2 z-40 -translate-x-1/2 -translate-y-1/2 rounded-xl border border-[#F59E0B] bg-[#FFFBEB]/95 px-5 py-2.5 text-sm font-black text-[#B45309] shadow-xl">
-              {viewState.errorToast}
-            </div>
-          )}
-
-          {/* Authoritative Settlement Modal (SETTLEMENT phase) */}
-          {viewState.phase === 'SETTLEMENT' && viewState.settlement && (
-            <CommercialModalShell
-              title={viewState.settlement.isLandlordWin ? '地主获胜 · 本局结算' : '农民合力获胜 · 本局结算'}
-              subtitle={`${currentRoomTier.name} · 底分 ${viewState.settlement.baseScore} · 抢地主 ×${viewState.settlement.grabMultiplier} · 加倍 ×${viewState.settlement.doubleMultiplier ?? 1} · 炸弹 ×${viewState.settlement.bombMultiplier}${(viewState.settlement.isSpring || viewState.settlement.isAntiSpring) ? ` · ${viewState.settlement.isSpring ? '春天' : '反春'} ×2` : ''}`}
-              size="lg"
-              portalMode="stage"
-              closeOnBackdrop={false}
-              onClose={() => {
-                managerRef.current?.leaveRoom();
-                onLeaveRoom();
-              }}
-              headerExtra={
-                <div className="rounded-xl border border-[#DEC99A] bg-white px-3 py-1 text-right shadow-2xs tabular-nums">
-                  <div className="text-[10px] font-bold text-[#6E5A44]">
-                    {viewState.settlement.isCapped
-                      ? `封顶有效倍数`
-                      : '结算有效倍数'}
-                  </div>
-                  <div className="font-mono text-base sm:text-lg font-black text-[#D97706]">
-                    ×{viewState.settlement.effectiveMultiplier ?? viewState.settlement.totalMultiplier}
-                  </div>
-                </div>
-              }
-              footer={
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    {viewState.settlement.replay && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          hapticEngine.tap();
-                          setActiveReplay(viewState.settlement!.replay!);
-                        }}
-                        className="flex items-center gap-1.5 rounded-xl border border-[#F59E0B] bg-[#FFFBEB] px-4 py-2 text-xs font-black text-[#B45309] hover:bg-[#FEF3C7] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-                      >
-                        <Film className="h-4 w-4 text-[#D97706]" />
-                        <span>回看本局（三家明牌复盘）</span>
-                      </button>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        managerRef.current?.leaveRoom();
-                        onLeaveRoom();
-                      }}
-                      className="flex h-9 min-w-[116px] items-center justify-center rounded-xl border border-[#D8CEB8] bg-white px-4 text-xs font-extrabold text-[#5A6572] hover:bg-[#FAF8F3] hover:text-[#1E242B] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-                    >
-                      返回大厅
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => managerRef.current?.readyForNextRound()}
-                      className="flex h-9 min-w-[136px] items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-[#F59E0B] to-[#D97706] px-6 text-xs font-black text-white shadow-sm hover:brightness-105 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-                    >
-                      <RotateCcw className="h-4 w-4" />
-                      <span>再来一局</span>
-                    </button>
-                  </div>
-                </div>
-              }
-            >
-              <div className="space-y-3">
-                {/* Commercial Hero Rolling Score Banner */}
-                <div className="overflow-hidden rounded-2xl border border-amber-400/40 shadow-md">
-                  <SettlementHeroHeader
-                    selfScoreDelta={
-                      viewState.settlement.scoreChanges[myPlayer?.playerId || ''] ?? 0
-                    }
-                    titleWin={
-                      viewState.settlement.isLandlordWin
-                        ? '地主获胜 · 凯旋得胜'
-                        : '农民合力 · 凯旋得胜'
-                    }
-                    titleLose={
-                      viewState.settlement.isLandlordWin
-                        ? '地主获胜 · 本局惜败'
-                        : '农民获胜 · 本局惜败'
-                    }
-                    subtitle={`底分 ${viewState.settlement.baseScore.toLocaleString()} · 有效倍数 ×${viewState.settlement.effectiveMultiplier ?? viewState.settlement.totalMultiplier}`}
-                    suffix=" 积分"
-                  />
-                </div>
-
-                {viewState.players.map((p, idx) => {
-                  if (!p) return null;
-                  const delta = viewState.settlement!.scoreChanges[p.playerId] ?? 0;
-                  const isLandlord = idx === viewState.landlordSeat;
-                  const isMe = idx === viewState.mySeat;
-                  const isProtected = (
-                    viewState.settlement!.bankruptProtectedIds ?? []
-                  ).includes(p.playerId);
-                  return (
-                    <div
-                      key={p.playerId}
-                      className={`flex items-center justify-between rounded-xl border px-4 py-2.5 ${
-                        isMe
-                          ? 'border-[#F59E0B] bg-[#FFFBEB] shadow-xs'
-                          : 'border-[#E8E1D0] bg-white'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <AvatarSvg
-                          avatarId={p.avatarId}
-                          size={36}
-                          isLandlord={isLandlord}
-                        />
-                        <div>
-                          <div className="flex items-center gap-1.5 text-sm font-black text-[#1E242B]">
-                            <span>{p.nickname}</span>
-                            <span className="text-xs font-bold text-[#B45309]">
-                              · {isLandlord ? '地主' : '农民'}
-                            </span>
-                            {isMe && (
-                              <span className="text-xs font-extrabold text-[#0D9488]">
-                                · 我
-                              </span>
-                            )}
-                            {isProtected && (
-                              <span className="text-xs font-bold text-rose-600">
-                                · 防爆保护
-                              </span>
-                            )}
-                          </div>
-                          <div className="font-mono text-[11px] font-medium text-[#5A6572] tabular-nums">
-                            剩余手牌 {(viewState.settlement!.remainingHands[p.playerId] ?? []).length} 张
-                          </div>
-                        </div>
-                      </div>
-                      <div className="rounded-xl border border-amber-400/35 bg-[#1b1209] px-3 py-1 shadow-inner">
-                        <RollingScoreCounter
-                          value={delta}
-                          suffix=" 积分"
-                          size="md"
-                          durationMs={950}
-                          playTickSound={isMe}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </CommercialModalShell>
-          )}
-
-          {/* Full-Perspective 3-Seat Open-Card Replay Viewer Modal */}
-          {activeReplay && (
-            <ReplayViewerModal
-              replay={activeReplay}
-              viewerPlayerId={myPlayer?.playerId}
-              onClose={() => setActiveReplay(null)}
-            />
-          )}
         </div>
       </div>
+
+      {/* Waiting For Players Overlay (Outside scaled stage so it never distorts) */}
+      {viewState.phase === 'WAITING' && (
+        <div className="pointer-events-auto fixed inset-0 z-30 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[3px]">
+          <div className="relative w-[310px] sm:w-[340px] overflow-hidden rounded-2xl border border-white/10 bg-[#12171B]/95 p-5 text-center text-[#F3F4F6] shadow-[0_24px_60px_rgba(0,0,0,0.72)] backdrop-blur-md">
+            <h3 className="text-[15px] font-bold tracking-wide text-[#F3F4F6]">
+              等待牌友入座 ({viewState.players.filter(Boolean).length}/3)
+            </h3>
+            <p className="mt-1.5 text-xs text-[#9CA3AF] tabular-nums">
+              房号{' '}
+              <span className="font-mono font-bold text-[#E5B85B]">
+                {viewState.roomId}
+              </span>{' '}
+              · 底分 <span className="font-mono font-semibold text-[#F3F4F6]">{viewState.baseScore}</span>
+            </p>
+            <div className="mt-4 flex items-center justify-center gap-2.5">
+              <button
+                type="button"
+                onClick={handleCopyRoomId}
+                className="flex h-8.5 min-w-[84px] items-center justify-center rounded-lg border border-white/12 bg-white/[0.06] px-3.5 text-xs font-semibold text-[#E5E7EB] hover:bg-white/[0.11] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                {copied ? '已复制房号' : '复制房号'}
+              </button>
+              <button
+                type="button"
+                onClick={() => managerRef.current?.addBot()}
+                className="flex h-8.5 min-w-[116px] items-center justify-center rounded-lg bg-[#D49B35] px-4 text-xs font-bold text-[#111315] hover:bg-[#E0A842] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                添加 AI 开局
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast Notification */}
+      {viewState.errorToast && (
+        <div className="pointer-events-none fixed top-1/2 left-1/2 z-40 -translate-x-1/2 -translate-y-1/2 rounded-xl border border-[#D4AF37]/40 bg-[#12171B]/95 px-4 py-2 text-xs font-bold text-[#E5B85B] shadow-xl backdrop-blur-md">
+          {viewState.errorToast}
+        </div>
+      )}
+
+      {/* Authoritative Settlement Modal (Outside scaled stage) */}
+      {viewState.phase === 'SETTLEMENT' && viewState.settlement && (
+        <div className="pointer-events-auto fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-[3px] animate-in fade-in duration-150">
+          <div className="relative flex max-h-[85dvh] w-full max-w-[440px] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#12171B]/95 text-[#F3F4F6] shadow-[0_24px_60px_rgba(0,0,0,0.72)] backdrop-blur-md">
+            <SettlementHeroHeader
+              selfScoreDelta={
+                viewState.settlement.scoreChanges[myPlayer?.playerId || ''] ?? 0
+              }
+              titleWin={
+                viewState.settlement.isLandlordWin ? '地主获胜' : '农民获胜'
+              }
+              titleLose={
+                viewState.settlement.isLandlordWin ? '地主获胜' : '农民获胜'
+              }
+              subtitle={`底分 ${viewState.settlement.baseScore.toLocaleString()} · 共 ${viewState.settlement.effectiveMultiplier ?? viewState.settlement.totalMultiplier} 倍${viewState.settlement.isSpring || viewState.settlement.isAntiSpring ? ` (${viewState.settlement.isSpring ? '春天' : '反春'})` : ''}`}
+              onClose={() => managerRef.current?.readyForNextRound()}
+            />
+
+            {/* Compact Rounded Player Cards */}
+            <div className="flex flex-1 min-h-0 flex-col gap-2 overflow-y-auto overscroll-contain p-3.5 sm:p-4">
+              {viewState.players.map((p, idx) => {
+                if (!p) return null;
+                const delta = viewState.settlement!.scoreChanges[p.playerId] ?? 0;
+                const isLandlord = idx === viewState.landlordSeat;
+                const isMe = idx === viewState.mySeat;
+                const isProtected = (
+                  viewState.settlement!.bankruptProtectedIds ?? []
+                ).includes(p.playerId);
+                const remainCount = (
+                  viewState.settlement!.remainingHands[p.playerId] ?? []
+                ).length;
+
+                return (
+                  <div
+                    key={p.playerId}
+                    className={`flex items-center justify-between gap-3 rounded-xl border px-3.5 py-2.5 ${
+                      isMe
+                        ? 'border-[#D4AF37]/35 bg-[#D4AF37]/[0.08]'
+                        : 'border-white/[0.07] bg-white/[0.03]'
+                    }`}
+                  >
+                    <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                      <div className="relative h-8 w-8 shrink-0 overflow-hidden rounded-full border border-white/12 bg-black/40">
+                        <AvatarSvg
+                          avatarId={p.avatarId}
+                          size={32}
+                          isLandlord={isLandlord}
+                        />
+                      </div>
+                      <div className="flex min-w-0 flex-col">
+                        <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-[#F3F4F6]">
+                          <span className="max-w-[110px] truncate">{p.nickname}</span>
+                          {isMe && (
+                            <span className="text-[11px] font-semibold text-[#E5B85B]">· 我</span>
+                          )}
+                        </div>
+                        <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-[#9CA3AF] tabular-nums">
+                          <span>{isLandlord ? '地主' : '农民'}</span>
+                          <span aria-hidden="true">·</span>
+                          <span>积分 {p.beans.toLocaleString()}</span>
+                          {isProtected && (
+                            <>
+                              <span aria-hidden="true">·</span>
+                              <span className="text-[#E5B85B]">防爆</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="shrink-0 text-xs font-medium text-[#9CA3AF] tabular-nums">
+                      {remainCount === 0 ? '出完手牌' : `余 ${remainCount} 张`}
+                    </div>
+
+                    <div className="flex w-22 shrink-0 flex-col items-end">
+                      <RollingScoreCounter
+                        value={delta}
+                        size="md"
+                        durationMs={900}
+                        playTickSound={isMe}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Compact Right-Aligned Action Footer */}
+            <div className="flex shrink-0 items-center justify-end gap-2.5 border-t border-white/[0.08] bg-white/[0.02] px-4 py-2.5">
+              {viewState.settlement.replay && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    hapticEngine.tap();
+                    setActiveReplay(viewState.settlement!.replay!);
+                  }}
+                  className="flex h-8.5 min-w-[80px] items-center justify-center rounded-lg border border-white/12 bg-white/[0.06] px-3.5 text-xs font-semibold text-[#E5E7EB] transition-colors hover:bg-white/[0.11] whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  明牌复盘
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  managerRef.current?.leaveRoom();
+                  onLeaveRoom();
+                }}
+                className="flex h-8.5 min-w-[84px] items-center justify-center rounded-lg border border-white/12 bg-white/[0.06] px-3.5 text-xs font-semibold text-[#E5E7EB] transition-colors hover:bg-white/[0.11] active:scale-98 whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                返回大厅
+              </button>
+
+              <button
+                type="button"
+                onClick={() => managerRef.current?.readyForNextRound()}
+                className="flex h-8.5 min-w-[96px] items-center justify-center rounded-lg bg-[#D49B35] px-4 text-xs font-bold text-[#111315] transition-colors hover:bg-[#E0A842] active:scale-98 whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                再来一局
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Full-Perspective 3-Seat Open-Card Replay Viewer Modal */}
+      {activeReplay && (
+        <ReplayViewerModal
+          replay={activeReplay}
+          viewerPlayerId={myPlayer?.playerId}
+          onClose={() => setActiveReplay(null)}
+        />
+      )}
     </div>
   );
 };

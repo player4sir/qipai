@@ -28,62 +28,62 @@ export const GAME_DETAILS: Record<GameKey, GameDetailMeta> = {
     id: 'niuniu',
     title: '抢庄斗牛',
     heroImg: '/assets/ui/icon_2.png',
-    accentGradient: 'from-[#6f2c1a] to-[#3f160c]',
-    borderColor: 'border-amber-300/60',
+    accentGradient: 'from-[#F5EFE4] to-[#FAF7F0]',
+    borderColor: 'border-[#E5DAC3]',
     tiers: [
-      { id: 't1', name: '新手场', baseScore: 100, minBeans: 2000, color: 'from-[#34c395] to-[#167a57]', border: 'border-[#8df5d1]' },
-      { id: 't2', name: '初级场', baseScore: 500, minBeans: 10000, color: 'from-[#4f86f7] to-[#2347b8]', border: 'border-[#9ec2ff]' },
-      { id: 't3', name: '中级场', baseScore: 2000, minBeans: 50000, color: 'from-[#9b6bf2] to-[#5e2ca5]', border: 'border-[#d2b8ff]' },
-      { id: 't4', name: '至尊场', baseScore: 10000, minBeans: 200000, color: 'from-[#f47b4b] via-[#dc4726] to-[#991b1b]', border: 'border-[#fde047]' },
+      { id: 't1', name: '新手场', baseScore: 100, minBeans: 2000, color: 'from-white to-[#FAF7F0]', border: 'border-[#E5DAC3]' },
+      { id: 't2', name: '初级场', baseScore: 500, minBeans: 10000, color: 'from-white to-[#FAF7F0]', border: 'border-[#E5DAC3]' },
+      { id: 't3', name: '中级场', baseScore: 2000, minBeans: 50000, color: 'from-white to-[#FAF7F0]', border: 'border-[#E5DAC3]' },
+      { id: 't4', name: '至尊场', baseScore: 10000, minBeans: 200000, color: 'from-[#FFFBEB] to-[#FEF3C7]', border: 'border-[#E6C675]' },
     ],
   },
   zhajinhua: {
     id: 'zhajinhua',
     title: '欢乐金花',
     heroImg: '/assets/ui/icon_3.png',
-    accentGradient: 'from-[#6f2c1a] to-[#3f160c]',
-    borderColor: 'border-amber-300/60',
+    accentGradient: 'from-[#F5EFE4] to-[#FAF7F0]',
+    borderColor: 'border-[#E5DAC3]',
     tiers: [
-      { id: 't1', name: '新手场', baseScore: 100, minBeans: 2000, color: 'from-[#34c395] to-[#167a57]', border: 'border-[#8df5d1]' },
-      { id: 't2', name: '初级场', baseScore: 500, minBeans: 10000, color: 'from-[#4f86f7] to-[#2347b8]', border: 'border-[#9ec2ff]' },
-      { id: 't3', name: '中级场', baseScore: 2000, minBeans: 50000, color: 'from-[#9b6bf2] to-[#5e2ca5]', border: 'border-[#d2b8ff]' },
-      { id: 't4', name: '至尊场', baseScore: 10000, minBeans: 200000, color: 'from-[#f47b4b] via-[#dc4726] to-[#991b1b]', border: 'border-[#fde047]' },
+      { id: 't1', name: '新手场', baseScore: 100, minBeans: 2000, color: 'from-white to-[#FAF7F0]', border: 'border-[#E5DAC3]' },
+      { id: 't2', name: '初级场', baseScore: 500, minBeans: 10000, color: 'from-white to-[#FAF7F0]', border: 'border-[#E5DAC3]' },
+      { id: 't3', name: '中级场', baseScore: 2000, minBeans: 50000, color: 'from-white to-[#FAF7F0]', border: 'border-[#E5DAC3]' },
+      { id: 't4', name: '至尊场', baseScore: 10000, minBeans: 200000, color: 'from-[#FFFBEB] to-[#FEF3C7]', border: 'border-[#E6C675]' },
     ],
   },
   laoyancai: {
     id: 'laoyancai',
     title: '滇西捞腌菜',
     heroImg: '/assets/ui/btn_laizi_role.png',
-    accentGradient: 'from-[#6f2c1a] to-[#3f160c]',
-    borderColor: 'border-amber-300/60',
+    accentGradient: 'from-[#F5EFE4] to-[#FAF7F0]',
+    borderColor: 'border-[#E5DAC3]',
     tiers: [
-      { id: 't1', name: '新手场', baseScore: 100, minBeans: 2000, color: 'from-[#34c395] to-[#167a57]', border: 'border-[#8df5d1]' },
-      { id: 't2', name: '初级场', baseScore: 500, minBeans: 10000, color: 'from-[#4f86f7] to-[#2347b8]', border: 'border-[#9ec2ff]' },
-      { id: 't3', name: '中级场', baseScore: 2000, minBeans: 50000, color: 'from-[#9b6bf2] to-[#5e2ca5]', border: 'border-[#d2b8ff]' },
-      { id: 't4', name: '至尊场', baseScore: 10000, minBeans: 200000, color: 'from-[#f47b4b] via-[#dc4726] to-[#991b1b]', border: 'border-[#fde047]' },
+      { id: 't1', name: '新手场', baseScore: 100, minBeans: 2000, color: 'from-white to-[#FAF7F0]', border: 'border-[#E5DAC3]' },
+      { id: 't2', name: '初级场', baseScore: 500, minBeans: 10000, color: 'from-white to-[#FAF7F0]', border: 'border-[#E5DAC3]' },
+      { id: 't3', name: '中级场', baseScore: 2000, minBeans: 50000, color: 'from-white to-[#FAF7F0]', border: 'border-[#E5DAC3]' },
+      { id: 't4', name: '至尊场', baseScore: 10000, minBeans: 200000, color: 'from-[#FFFBEB] to-[#FEF3C7]', border: 'border-[#E6C675]' },
     ],
   },
   shuangko: {
     id: 'shuangko',
     title: '千变双扣',
     heroImg: '/assets/ui/btn_tdlaizi_role.png',
-    accentGradient: 'from-[#6f2c1a] to-[#3f160c]',
-    borderColor: 'border-amber-300/60',
+    accentGradient: 'from-[#F5EFE4] to-[#FAF7F0]',
+    borderColor: 'border-[#E5DAC3]',
     tiers: [
-      { id: 't1', name: '新手场', baseScore: 100, minBeans: 2000, color: 'from-[#34c395] to-[#167a57]', border: 'border-[#8df5d1]' },
-      { id: 't2', name: '初级场', baseScore: 500, minBeans: 10000, color: 'from-[#4f86f7] to-[#2347b8]', border: 'border-[#9ec2ff]' },
-      { id: 't3', name: '中级场', baseScore: 2000, minBeans: 50000, color: 'from-[#9b6bf2] to-[#5e2ca5]', border: 'border-[#d2b8ff]' },
-      { id: 't4', name: '至尊场', baseScore: 10000, minBeans: 200000, color: 'from-[#f47b4b] via-[#dc4726] to-[#991b1b]', border: 'border-[#fde047]' },
+      { id: 't1', name: '新手场', baseScore: 100, minBeans: 2000, color: 'from-white to-[#FAF7F0]', border: 'border-[#E5DAC3]' },
+      { id: 't2', name: '初级场', baseScore: 500, minBeans: 10000, color: 'from-white to-[#FAF7F0]', border: 'border-[#E5DAC3]' },
+      { id: 't3', name: '中级场', baseScore: 2000, minBeans: 50000, color: 'from-white to-[#FAF7F0]', border: 'border-[#E5DAC3]' },
+      { id: 't4', name: '至尊场', baseScore: 10000, minBeans: 200000, color: 'from-[#FFFBEB] to-[#FEF3C7]', border: 'border-[#E6C675]' },
     ],
   },
   sihepai: {
     id: 'sihepai',
     title: '传统四合牌',
     heroImg: '/assets/ui/icon_cs.png',
-    accentGradient: 'from-[#6f2c1a] to-[#3f160c]',
-    borderColor: 'border-amber-300/60',
+    accentGradient: 'from-[#F5EFE4] to-[#FAF7F0]',
+    borderColor: 'border-[#E5DAC3]',
     tiers: [
-      { id: 't1', name: '新手场', baseScore: 100, minBeans: 2000, color: 'from-[#34c395] to-[#167a57]', border: 'border-[#8df5d1]' },
+      { id: 't1', name: '新手场', baseScore: 100, minBeans: 2000, color: 'from-white to-[#FAF7F0]', border: 'border-[#E5DAC3]' },
     ],
   },
 };
@@ -111,30 +111,16 @@ export const GamePreviewModal: React.FC<GamePreviewModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 select-none animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-[3px] select-none animate-in fade-in duration-150">
       <div
-        onClick={() => {
-          soundEngine.playTap(480);
-          onClose();
-        }}
-        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
-      />
-
-      <div
-        className={`relative flex flex-col w-full max-w-lg rounded-3xl border-2 ${meta.borderColor} bg-gradient-to-b from-[#2a160c] via-[#1c0e07] to-[#140a05] shadow-[0_20px_50px_rgba(0,0,0,0.85)] overflow-hidden text-white z-10`}
+        className="relative flex flex-col w-full max-w-[420px] max-h-[84dvh] rounded-2xl border border-white/10 bg-[#12171B]/95 shadow-[0_24px_60px_rgba(0,0,0,0.72)] backdrop-blur-md overflow-hidden text-[#F3F4F6]"
+        onClick={(e) => e.stopPropagation()}
       >
-        {/* Clean Header */}
-        <div className={`relative flex items-center justify-between px-4 py-3 bg-gradient-to-r ${meta.accentGradient} border-b border-amber-300/20 shrink-0`}>
-          <div className="flex items-center gap-2.5">
-            <img
-              src={meta.heroImg}
-              alt={meta.title}
-              className="h-9 w-9 object-contain drop-shadow-[0_4px_8px_rgba(0,0,0,0.5)] pointer-events-none"
-            />
-            <h3 className="font-display text-lg font-black text-amber-200 drop-shadow">
-              {meta.title}
-            </h3>
-          </div>
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 sm:px-5 py-3 bg-white/[0.02] border-b border-white/[0.08] shrink-0">
+          <h3 className="text-sm sm:text-base font-bold text-[#F3F4F6]">
+            {meta.title}
+          </h3>
 
           <button
             type="button"
@@ -142,14 +128,15 @@ export const GamePreviewModal: React.FC<GamePreviewModalProps> = ({
               soundEngine.playTap(520);
               onClose();
             }}
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-black/35 text-white/80 hover:text-white hover:bg-black/55 active:scale-95 transition-all cursor-pointer"
+            aria-label="关闭面板"
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-[#9CA3AF] hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        {/* Clean Tier Grid */}
-        <div className="p-4 grid grid-cols-2 gap-3">
+        {/* Tier Grid */}
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 grid grid-cols-2 gap-2.5">
           {meta.tiers.map((t, idx) => {
             const roomCardCost = idx === 0 ? 1 : idx === 1 ? 2 : idx === 2 ? 4 : 8;
             const canAfford = myBeans >= roomCardCost;
@@ -159,23 +146,18 @@ export const GamePreviewModal: React.FC<GamePreviewModalProps> = ({
                 key={t.id}
                 type="button"
                 onClick={() => handleStart(t)}
-                className={`group relative flex flex-col items-center justify-between rounded-2xl border-2 ${t.border} bg-gradient-to-b ${t.color} p-3.5 text-center shadow-[0_8px_20px_rgba(0,0,0,0.4),inset_0_2px_4px_rgba(255,255,255,0.3)] transition-all hover:-translate-y-0.5 active:scale-[0.98] cursor-pointer`}
+                className="flex flex-col items-center justify-between rounded-xl border border-white/[0.08] bg-white/[0.03] p-3.5 text-center transition-all hover:border-[#D4AF37]/40 hover:bg-white/[0.06] active:scale-[0.98] cursor-pointer"
               >
-                <span className="font-display text-base sm:text-lg font-black text-white drop-shadow-[0_2px_3px_rgba(0,0,0,0.5)]">
+                <span className="text-sm font-bold text-[#F3F4F6]">
                   {t.name}
                 </span>
 
-                <span className="mt-1.5 font-mono text-sm font-black text-amber-200 drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]">
+                <span className="mt-1.5 font-mono text-xs sm:text-sm font-bold text-[#FBBF24] tabular-nums">
                   底分 {t.baseScore.toLocaleString()}
                 </span>
 
-                <div className="mt-2 flex items-center justify-center gap-1 border-t border-white/20 pt-1.5 w-full">
-                  <img
-                    src="/assets/ui/icon_fangka.png"
-                    alt=""
-                    className="h-3.5 w-3.5 object-contain shrink-0"
-                  />
-                  <span className={`font-mono text-xs font-extrabold ${canAfford ? 'text-white/95' : 'text-rose-200'}`}>
+                <div className="mt-2 border-t border-white/[0.07] pt-1.5 w-full">
+                  <span className={`font-mono text-[11px] font-medium tabular-nums ${canAfford ? 'text-[#9CA3AF]' : 'text-[#F87171]'}`}>
                     {roomCardCost}卡 · {t.minBeans >= 10000 ? `${t.minBeans / 10000}万` : t.minBeans.toLocaleString()}初始分
                   </span>
                 </div>

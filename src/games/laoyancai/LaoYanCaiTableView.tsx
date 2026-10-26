@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Layers, LogOut, Maximize2, Minimize2 } from 'lucide-react';
+import { Maximize2, Minimize2 } from 'lucide-react';
 import type { ViewportMetrics } from '../../App';
 import { soundEngine } from '../../shared/audio/SoundEngine';
 import { AutoLandscapeContainer } from '../../shared/components/AutoLandscapeContainer';
@@ -88,9 +88,8 @@ export const LaoYanCaiTableView: React.FC<LaoYanCaiTableViewProps> = ({
                 soundEngine.playTap(640);
                 onLeaveRoom();
               }}
-              className="flex h-8 items-center gap-1.5 rounded-xl border border-amber-300/30 bg-black/55 px-3 text-xs font-extrabold text-amber-100 backdrop-blur-md transition-colors hover:border-amber-300/70 hover:bg-black/75 active:scale-95 cursor-pointer"
+              className="flex h-8 items-center rounded-xl border border-amber-300/30 bg-black/55 px-3 text-xs font-extrabold text-amber-100 backdrop-blur-md transition-colors hover:border-amber-300/70 hover:bg-black/75 active:scale-95 cursor-pointer"
             >
-              <LogOut className="h-3.5 w-3.5 text-amber-300" />
               <span>返回大厅</span>
             </button>
 
@@ -121,17 +120,16 @@ export const LaoYanCaiTableView: React.FC<LaoYanCaiTableViewProps> = ({
               {MODE_LABELS[snapshot.playMode] || '经典捞腌菜'}
             </span>
             <span className="text-white/25">|</span>
-            <span className="text-xs font-bold text-[#9ec2b8]">
+            <span className="text-xs font-bold text-[#9ec2b8] tabular-nums">
               底注{' '}
-              <strong className="font-mono text-white">
+              <strong className="font-sans text-white">
                 {snapshot.baseScore.toLocaleString()}
               </strong>{' '}
               积分
             </span>
             <span className="text-white/25">|</span>
-            <span className="flex items-center gap-1 text-xs font-bold text-[#9ec2b8]">
-              <Layers className="h-3.5 w-3.5 text-[#f3c86b]" />
-              余牌 <strong className="font-mono text-white">{snapshot.remainingDeckCount}</strong>
+            <span className="flex items-center gap-1 text-xs font-bold text-[#9ec2b8] tabular-nums">
+              余牌 <strong className="font-sans text-white">{snapshot.remainingDeckCount}</strong>
             </span>
           </div>
         </div>

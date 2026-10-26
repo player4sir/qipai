@@ -1,0 +1,57 @@
+{
+  "frames": {
+    "alarm0.png": {
+      "frame": {
+        "x": 2,
+        "y": 109,
+        "w": 55,
+        "h": 68
+      },
+      "rotated": true,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 27,
+        "y": 38,
+        "w": 55,
+        "h": 68
+      },
+      "sourceSize": {
+        "w": 115,
+        "h": 106
+      }
+    },
+    "alarm1.png": {
+      "frame": {
+        "x": 2,
+        "y": 2,
+        "w": 105,
+        "h": 106
+      },
+      "rotated": true,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 105,
+        "h": 106
+      },
+      "sourceSize": {
+        "w": 115,
+        "h": 106
+      }
+    }
+  },
+  "animations": {
+    "default": [
+      "alarm0.png",
+      "alarm1.png"
+    ]
+  },
+  "meta": {
+    "app": "Commercial-TexturePacker-JSON",
+    "version": "1.0",
+    "image": "alarm.png",
+    "format": "RGBA8888",
+    "scale": "1"
+  }
+}

@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { X } from 'lucide-react';
 import { soundEngine } from '../audio/SoundEngine';
 
 export interface RollingScoreCounterProps {
@@ -25,11 +26,10 @@ export interface RollingScoreCounterProps {
 }
 
 /**
- * High-precision commercial rolling score counter.
- * Strictly differentiates winners vs losers by color:
- * - Winner (value > 0): Radiant Gold (#FFD700 with golden luminance)
- * - Loser (value < 0): Warm Amber (#D97706 / amber-500)
- * - Draw (value === 0): Muted Warm Gold (amber-200/70)
+ * High-precision commercial rolling score counter for restrained dark frosted panels:
+ * - Winner (value > 0): Warm Champagne Gold (#E5B85B)
+ * - Loser (value < 0): Muted Cool Slate (#94A3B8)
+ * - Draw (value === 0): Neutral Gray (#6B7280)
  */
 export const RollingScoreCounter: React.FC<RollingScoreCounterProps> = ({
   value,
@@ -68,7 +68,6 @@ export const RollingScoreCounter: React.FC<RollingScoreCounterProps> = ({
     const step = (now: number) => {
       const elapsed = now - startTime;
       const progress = Math.min(1, elapsed / Math.max(120, durationMs));
-      // Ease-out quintic for snappy start and smooth high-score landing
       const eased = 1 - Math.pow(1 - progress, 4);
       const current = Math.round(startVal + (targetVal - startVal) * eased);
 
@@ -99,21 +98,20 @@ export const RollingScoreCounter: React.FC<RollingScoreCounterProps> = ({
   const isWinner = value > 0;
   const isLoser = value < 0;
 
-  // Winner = Radiant Gold (#FFD700); Loser = Warm Amber (#D97706)
   const colorClass = isWinner
-    ? 'text-[#FFD700] drop-shadow-[0_2px_10px_rgba(255,215,0,0.45)]'
+    ? 'text-[#E5B85B]'
     : isLoser
-    ? 'text-[#D97706] drop-shadow-[0_1px_6px_rgba(217,119,6,0.3)]'
-    : 'text-amber-200/75';
+    ? 'text-[#94A3B8]'
+    : 'text-[#6B7280]';
 
   const sizeClass =
     size === 'xl'
-      ? 'text-2xl sm:text-3xl font-black tracking-tight'
+      ? 'text-xl sm:text-2xl font-bold tracking-tight'
       : size === 'lg'
-      ? 'text-lg sm:text-xl font-black'
+      ? 'text-lg sm:text-xl font-bold tracking-tight'
       : size === 'sm'
-      ? 'text-xs sm:text-sm font-extrabold'
-      : 'text-sm sm:text-base font-black';
+      ? 'text-xs sm:text-sm font-semibold'
+      : 'text-sm sm:text-base font-bold tracking-tight';
 
   const formattedNumber =
     displayValue > 0 && showPlusSign
@@ -123,12 +121,12 @@ export const RollingScoreCounter: React.FC<RollingScoreCounterProps> = ({
   return (
     <span
       className={`inline-flex items-baseline font-mono tabular-nums transition-transform duration-150 ${sizeClass} ${colorClass} ${
-        isSettled && isWinner ? 'scale-105' : 'scale-100'
+        isSettled && isWinner ? 'scale-[1.02]' : 'scale-100'
       } ${className}`}
     >
-      {prefix && <span className="mr-0.5 text-[0.8em] opacity-85">{prefix}</span>}
+      {prefix && <span className="mr-0.5 text-[0.78em] font-normal opacity-75">{prefix}</span>}
       <span>{formattedNumber}</span>
-      {suffix && <span className="ml-0.5 text-[0.78em] font-bold opacity-90">{suffix}</span>}
+      {suffix && <span className="ml-1 text-[0.72em] font-semibold opacity-80">{suffix}</span>}
     </span>
   );
 };
@@ -143,129 +141,63 @@ export interface SettlementHeroHeaderProps {
   modeTitle?: string;
   baseScore?: number;
   extraBadgeText?: string;
+  onClose?: () => void;
 }
 
-const WIN_FLIPBOOK_FRAMES = [
-  '/assets/mahjong/effects/Zm1.png',
-  '/assets/mahjong/effects/Zm2.png',
-  '/assets/mahjong/effects/Zm3.png',
-  '/assets/mahjong/effects/Zm4.png',
-  '/assets/mahjong/effects/Zm5.png',
-  '/assets/mahjong/effects/Zm6.png',
-  '/assets/mahjong/effects/Zm7.png',
-  '/assets/mahjong/effects/Zm8.png',
-];
-
 /**
- * Clean commercial settlement header with properly sequenced flipbook burst,
- * radial golden light aura, and hero rolling score counter.
+ * Restrained dark frosted commercial settlement header.
+ * Clean typographic title and concise match metadata, with a subtle top-right close button.
  */
 export const SettlementHeroHeader: React.FC<SettlementHeroHeaderProps> = ({
   selfScoreDelta,
   isWin,
-  titleWin = '旗开得胜 · 本局结算',
-  titleLose = '再接再厉 · 本局结算',
+  titleWin = '本局胜利',
+  titleLose = '本局结算',
   subtitle,
-  suffix = ' 分',
   modeTitle,
   baseScore,
   extraBadgeText,
+  onClose,
 }) => {
-  const effectiveWin = typeof isWin === 'boolean' ? isWin : selfScoreDelta >= 0;
-  const [frameIdx, setFrameIdx] = useState<number>(0);
-  const [showBurst, setShowBurst] = useState<boolean>(effectiveWin);
-
-  useEffect(() => {
-    if (!effectiveWin) {
-      setShowBurst(false);
-      return;
-    }
-    setShowBurst(true);
-    setFrameIdx(0);
-    const interval = window.setInterval(() => {
-      setFrameIdx((prev) => {
-        if (prev < WIN_FLIPBOOK_FRAMES.length - 1) return prev + 1;
-        return prev;
-      });
-    }, 65);
-    const hideTimer = window.setTimeout(() => {
-      setShowBurst(false);
-    }, 950);
-    return () => {
-      window.clearInterval(interval);
-      window.clearTimeout(hideTimer);
-    };
-  }, [effectiveWin]);
-
-  const primaryTitle = effectiveWin ? titleWin : titleLose;
-  const resolvedSubtitle =
+  const effectiveWin = typeof isWin === 'boolean' ? isWin : selfScoreDelta > 0;
+  const primaryTitle = effectiveWin ? titleWin : selfScoreDelta === 0 ? '本局平局' : titleLose;
+  const resolvedSubtitle = [
     subtitle ||
-    (modeTitle
-      ? `${modeTitle}${typeof baseScore === 'number' ? ` · 底分 ${baseScore.toLocaleString()}` : ''}`
-      : '');
+      (modeTitle
+        ? `${modeTitle}${typeof baseScore === 'number' ? ` · 底分 ${baseScore.toLocaleString()}` : ''}`
+        : ''),
+    extraBadgeText,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
   return (
-    <div
-      className={`relative flex items-center justify-between overflow-hidden border-b px-5 py-3.5 ${
-        effectiveWin
-          ? 'border-[#FFD700]/35 bg-gradient-to-r from-[#2e1906] via-[#452408] to-[#2e1906]'
-          : 'border-amber-500/25 bg-gradient-to-r from-[#1f140b] via-[#2b1b0f] to-[#1f140b]'
-      }`}
-    >
-      {/* Subtle Radial Light Burst behind Winner Emblem */}
-      {effectiveWin && (
-        <img
-          src="/assets/mahjong/actions/hu_fangshe.png"
-          alt=""
-          className="pointer-events-none absolute -top-12 left-6 h-36 w-36 object-contain opacity-55 animate-[spin_10s_linear_infinite]"
-        />
-      )}
-
-      {/* Multi-frame Flipbook Sparkle Burst on initial open */}
-      {showBurst && (
-        <img
-          src={WIN_FLIPBOOK_FRAMES[frameIdx]}
-          alt=""
-          className="pointer-events-none absolute left-8 top-1/2 h-20 w-20 -translate-y-1/2 object-contain opacity-80"
-        />
-      )}
-
-      {/* Left: Title Emblem + Game Mode & Base Score */}
-      <div className="relative z-10 flex items-center gap-3">
-        <img
-          src={effectiveWin ? '/assets/ui/title_win_js.png' : '/assets/ui/title_lose_js.png'}
-          alt={effectiveWin ? '胜利' : '惜败'}
-          className="h-8 sm:h-9 w-auto object-contain drop-shadow-[0_4px_10px_rgba(0,0,0,0.65)]"
-        />
-        <div className="flex flex-col">
-          <div className="flex items-center gap-2 text-xs sm:text-sm font-black tracking-wide text-[#FFD700]">
-            <span>{primaryTitle}</span>
-          </div>
-          {resolvedSubtitle && (
-            <span className="font-mono text-[11px] font-bold text-amber-200/80">
-              {resolvedSubtitle}
-            </span>
-          )}
-          {extraBadgeText && (
-            <span className="text-[11px] font-bold text-amber-200/75">
-              {extraBadgeText}
-            </span>
-          )}
-        </div>
+    <div className="relative flex shrink-0 items-center justify-between border-b border-white/[0.08] bg-white/[0.02] px-4 py-3 sm:px-5">
+      <div className="min-w-0">
+        <h2
+          className={`text-sm sm:text-base font-bold tracking-wide ${
+            effectiveWin ? 'text-[#E5B85B]' : 'text-[#F3F4F6]'
+          }`}
+        >
+          {primaryTitle}
+        </h2>
+        {resolvedSubtitle && (
+          <p className="mt-0.5 truncate font-sans text-xs text-[#9CA3AF] tabular-nums">
+            {resolvedSubtitle}
+          </p>
+        )}
       </div>
 
-      {/* Right: Hero Rolling Score Counter */}
-      <div className="relative z-10 flex flex-col items-end">
-        <span className="text-[10px] font-bold text-amber-200/65">
-          {effectiveWin ? '本局净赢积分' : '本局积分变动'}
-        </span>
-        <RollingScoreCounter
-          value={selfScoreDelta}
-          size="xl"
-          suffix={suffix}
-          enableSoundTicks
-        />
-      </div>
+      {onClose && (
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="关闭结算面板"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[#9CA3AF] transition-colors hover:bg-white/10 hover:text-white cursor-pointer"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      )}
     </div>
   );
 };

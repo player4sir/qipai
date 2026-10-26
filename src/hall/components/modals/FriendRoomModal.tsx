@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Delete, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { soundEngine } from '../../../shared/audio/SoundEngine';
 import { hapticEngine } from '../../../shared/haptics/HapticEngine';
 import {
   CUSTOM_STAKES_LIMITS,
   RoomCardPayMode,
   RoomRoundCount,
+  calculateRoomCardCost,
   validateCustomStakes,
 } from '../../../shared/roomcard/RoomCardSystem';
 
@@ -54,9 +55,9 @@ const HOST_GAME_SPECS: HostGameConfigSpec[] = [
     capRowLabel: '番数封顶',
     capOptions: ['32番封顶', '64番封顶', '不设封顶'],
     rounds: [
-      { count: 4, label: '4局 (1房卡)', cards: 1 },
-      { count: 8, label: '8局 (2房卡)', cards: 2 },
-      { count: 16, label: '16局 (4房卡)', cards: 4 },
+      { count: 4, label: '4局 (1卡)', cards: 1 },
+      { count: 8, label: '8局 (2卡)', cards: 2 },
+      { count: 16, label: '16局 (4卡)', cards: 4 },
     ],
   },
   {
@@ -71,9 +72,9 @@ const HOST_GAME_SPECS: HostGameConfigSpec[] = [
     capRowLabel: '炸弹封顶',
     capOptions: ['3炸封顶', '4炸封顶', '不设封顶'],
     rounds: [
-      { count: 4, label: '4局 (1房卡)', cards: 1 },
-      { count: 8, label: '8局 (2房卡)', cards: 2 },
-      { count: 16, label: '16局 (4房卡)', cards: 4 },
+      { count: 4, label: '4局 (1卡)', cards: 1 },
+      { count: 8, label: '8局 (2卡)', cards: 2 },
+      { count: 16, label: '16局 (4卡)', cards: 4 },
     ],
   },
   {
@@ -88,9 +89,9 @@ const HOST_GAME_SPECS: HostGameConfigSpec[] = [
     capRowLabel: '翻倍规则',
     capOptions: ['牛牛3倍', '牛牛4倍', '至尊10倍'],
     rounds: [
-      { count: 4, label: '4局 (1房卡)', cards: 1 },
-      { count: 8, label: '8局 (2房卡)', cards: 2 },
-      { count: 16, label: '16局 (4房卡)', cards: 4 },
+      { count: 4, label: '4局 (1卡)', cards: 1 },
+      { count: 8, label: '8局 (2卡)', cards: 2 },
+      { count: 16, label: '16局 (4卡)', cards: 4 },
     ],
   },
   {
@@ -105,9 +106,9 @@ const HOST_GAME_SPECS: HostGameConfigSpec[] = [
     capRowLabel: '必闷规则',
     capOptions: ['不闷牌', '必闷1轮', '必闷3轮'],
     rounds: [
-      { count: 4, label: '4局 (1房卡)', cards: 1 },
-      { count: 8, label: '8局 (2房卡)', cards: 2 },
-      { count: 16, label: '16局 (4房卡)', cards: 4 },
+      { count: 4, label: '4局 (1卡)', cards: 1 },
+      { count: 8, label: '8局 (2卡)', cards: 2 },
+      { count: 16, label: '16局 (4卡)', cards: 4 },
     ],
   },
   {
@@ -122,9 +123,9 @@ const HOST_GAME_SPECS: HostGameConfigSpec[] = [
     capRowLabel: '倍数规则',
     capOptions: ['双腌2倍', '三公5倍', '豹子8倍'],
     rounds: [
-      { count: 4, label: '4局 (1房卡)', cards: 1 },
-      { count: 8, label: '8局 (2房卡)', cards: 2 },
-      { count: 16, label: '16局 (4房卡)', cards: 4 },
+      { count: 4, label: '4局 (1卡)', cards: 1 },
+      { count: 8, label: '8局 (2卡)', cards: 2 },
+      { count: 16, label: '16局 (4卡)', cards: 4 },
     ],
   },
 ];
@@ -177,11 +178,19 @@ export const FriendRoomModal: React.FC<FriendRoomModalProps> = ({
   const rawInitial = Number(initialScoreInput) || 0;
   const validation = validateCustomStakes(rawBase, rawInitial);
 
-  const estimatedCardCost = useMemo(() => {
-    const roundBase = totalRounds === 4 ? 1 : totalRounds === 8 ? 2 : 4;
-    const total = Math.max(roundBase, validation.roomCardCost);
-    return payMode === 'aa' ? Math.max(1, Math.ceil(total / 3)) : total;
-  }, [totalRounds, validation.roomCardCost, payMode]);
+  const costEval = useMemo(
+    () =>
+      calculateRoomCardCost(
+        totalRounds,
+        payMode,
+        3,
+        validation.normalizedBaseScore,
+        validation.normalizedInitialScore,
+        'create_room'
+      ),
+    [totalRounds, payMode, validation.normalizedBaseScore, validation.normalizedInitialScore]
+  );
+  const estimatedCardCost = costEval.perPlayerCost;
 
   const handleKeyPress = (num: string) => {
     soundEngine.playTap(750);
@@ -234,27 +243,24 @@ export const FriendRoomModal: React.FC<FriendRoomModalProps> = ({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 backdrop-blur-xs animate-in fade-in duration-150 select-none"
-      onClick={onClose}
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-[3px] animate-in fade-in duration-150 select-none">
       <div
-        className="flex w-full max-w-[480px] flex-col overflow-hidden rounded-2xl border border-amber-200/35 bg-gradient-to-b from-[#2a180d] to-[#1a0f08] text-amber-50 shadow-[0_20px_48px_rgba(0,0,0,0.8)]"
+        className="flex w-full max-w-[460px] max-h-[84dvh] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#12171B]/95 text-[#F3F4F6] shadow-[0_24px_60px_rgba(0,0,0,0.72)] backdrop-blur-md"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header with Segmented Tabs */}
-        <div className="flex items-center justify-between border-b border-amber-200/15 bg-black/25 px-5 py-2.5">
-          <div className="grid grid-cols-2 gap-1 rounded-xl bg-black/35 p-1">
+        <div className="flex shrink-0 items-center justify-between border-b border-white/[0.08] bg-white/[0.02] px-4 sm:px-5 py-2.5">
+          <div className="grid grid-cols-2 gap-1 rounded-lg border border-white/[0.08] bg-black/35 p-1">
             <button
               type="button"
               onClick={() => {
                 soundEngine.playTap(740);
                 setActiveTab('create');
               }}
-              className={`rounded-lg px-4 py-1 text-xs font-bold transition-all cursor-pointer ${
+              className={`rounded-md px-3.5 py-1 text-xs font-bold transition-colors cursor-pointer ${
                 activeTab === 'create'
-                  ? 'bg-gradient-to-b from-[#ffe28a] to-[#f59e0b] text-[#241104] font-black shadow-xs'
-                  : 'text-amber-100/75 hover:text-white'
+                  ? 'bg-[#D49B35] text-[#111315]'
+                  : 'text-[#9CA3AF] hover:text-[#F3F4F6]'
               }`}
             >
               开设房间
@@ -265,10 +271,10 @@ export const FriendRoomModal: React.FC<FriendRoomModalProps> = ({
                 soundEngine.playTap(740);
                 setActiveTab('join');
               }}
-              className={`rounded-lg px-4 py-1 text-xs font-bold transition-all cursor-pointer ${
+              className={`rounded-md px-3.5 py-1 text-xs font-bold transition-colors cursor-pointer ${
                 activeTab === 'join'
-                  ? 'bg-gradient-to-b from-[#ffe28a] to-[#f59e0b] text-[#241104] font-black shadow-xs'
-                  : 'text-amber-100/75 hover:text-white'
+                  ? 'bg-[#D49B35] text-[#111315]'
+                  : 'text-[#9CA3AF] hover:text-[#F3F4F6]'
               }`}
             >
               加入房间
@@ -278,7 +284,8 @@ export const FriendRoomModal: React.FC<FriendRoomModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="flex h-7 w-7 items-center justify-center rounded-full bg-white/8 text-amber-100/70 hover:bg-white/15 hover:text-white cursor-pointer"
+            aria-label="关闭面板"
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-[#9CA3AF] hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
           >
             <X className="h-4 w-4" />
           </button>
@@ -286,11 +293,11 @@ export const FriendRoomModal: React.FC<FriendRoomModalProps> = ({
 
         {activeTab === 'create' ? (
           <>
-            <div className="space-y-3 px-5 py-4">
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain space-y-2.5 px-4 sm:px-5 py-3.5">
               {/* Row 0: Select Game */}
-              <div className="grid grid-cols-[68px_1fr] items-center gap-3">
-                <span className="text-xs font-bold text-amber-100/80">选择游戏</span>
-                <div className="grid grid-cols-5 gap-1 rounded-xl bg-black/35 p-1">
+              <div className="grid grid-cols-[60px_1fr] items-center gap-2.5">
+                <span className="text-xs font-medium text-[#9CA3AF]">选择游戏</span>
+                <div className="grid grid-cols-5 gap-1 rounded-lg border border-white/[0.08] bg-black/35 p-1">
                   {HOST_GAME_SPECS.map((g) => {
                     const active = selectedGameType === g.id;
                     return (
@@ -301,10 +308,10 @@ export const FriendRoomModal: React.FC<FriendRoomModalProps> = ({
                           soundEngine.playTap(740);
                           setSelectedGameType(g.id);
                         }}
-                        className={`h-8 rounded-lg text-xs font-bold transition-all cursor-pointer truncate px-1 ${
+                        className={`h-7 rounded-md text-xs font-semibold transition-colors cursor-pointer truncate px-1 ${
                           active
-                            ? 'bg-gradient-to-b from-[#ffe28a] to-[#f59e0b] text-[#241104] font-black shadow-xs'
-                            : 'text-amber-100/75 hover:text-white'
+                            ? 'bg-[#D49B35] text-[#111315] font-bold'
+                            : 'text-[#9CA3AF] hover:text-[#F3F4F6]'
                         }`}
                       >
                         {g.label}
@@ -315,10 +322,10 @@ export const FriendRoomModal: React.FC<FriendRoomModalProps> = ({
               </div>
 
               {/* Row 1: Game Mode */}
-              <div className="grid grid-cols-[68px_1fr] items-center gap-3">
-                <span className="text-xs font-bold text-amber-100/80">{currentSpec.modeRowLabel}</span>
+              <div className="grid grid-cols-[60px_1fr] items-center gap-2.5">
+                <span className="text-xs font-medium text-[#9CA3AF]">{currentSpec.modeRowLabel}</span>
                 <div
-                  className={`grid gap-1 rounded-xl bg-black/35 p-1 ${
+                  className={`grid gap-1 rounded-lg border border-white/[0.08] bg-black/35 p-1 ${
                     currentSpec.modes.length === 4 ? 'grid-cols-4' : 'grid-cols-3'
                   }`}
                 >
@@ -332,10 +339,10 @@ export const FriendRoomModal: React.FC<FriendRoomModalProps> = ({
                           soundEngine.playTap(750);
                           setSelectedMode(m.id);
                         }}
-                        className={`h-8 rounded-lg text-xs font-bold transition-all cursor-pointer truncate px-1 ${
+                        className={`h-7 rounded-md text-xs font-semibold transition-colors cursor-pointer truncate px-1 ${
                           active
-                            ? 'bg-gradient-to-b from-[#ffe28a] to-[#f59e0b] text-[#241104] font-black shadow-xs'
-                            : 'text-amber-100/75 hover:text-white'
+                            ? 'bg-[#D49B35] text-[#111315] font-bold'
+                            : 'text-[#9CA3AF] hover:text-[#F3F4F6]'
                         }`}
                       >
                         {m.label}
@@ -346,9 +353,9 @@ export const FriendRoomModal: React.FC<FriendRoomModalProps> = ({
               </div>
 
               {/* Row 2: Round Count */}
-              <div className="grid grid-cols-[68px_1fr] items-center gap-3">
-                <span className="text-xs font-bold text-amber-100/80">牌局局数</span>
-                <div className="grid grid-cols-3 gap-1 rounded-xl bg-black/35 p-1">
+              <div className="grid grid-cols-[60px_1fr] items-center gap-2.5">
+                <span className="text-xs font-medium text-[#9CA3AF]">牌局局数</span>
+                <div className="grid grid-cols-3 gap-1 rounded-lg border border-white/[0.08] bg-black/35 p-1">
                   {currentSpec.rounds.map((r) => {
                     const active = totalRounds === r.count;
                     return (
@@ -359,10 +366,10 @@ export const FriendRoomModal: React.FC<FriendRoomModalProps> = ({
                           soundEngine.playTap(740);
                           setTotalRounds(r.count);
                         }}
-                        className={`h-8 rounded-lg text-xs font-bold transition-all cursor-pointer truncate px-1 ${
+                        className={`h-7 rounded-md text-xs font-semibold transition-colors cursor-pointer truncate px-1 ${
                           active
-                            ? 'bg-gradient-to-b from-[#ffe28a] to-[#f59e0b] text-[#241104] font-black shadow-xs'
-                            : 'text-amber-100/75 hover:text-white'
+                            ? 'bg-[#D49B35] text-[#111315] font-bold'
+                            : 'text-[#9CA3AF] hover:text-[#F3F4F6]'
                         }`}
                       >
                         {r.label}
@@ -373,9 +380,9 @@ export const FriendRoomModal: React.FC<FriendRoomModalProps> = ({
               </div>
 
               {/* Row 3: Cap Rule */}
-              <div className="grid grid-cols-[68px_1fr] items-center gap-3">
-                <span className="text-xs font-bold text-amber-100/80">{currentSpec.capRowLabel}</span>
-                <div className="grid grid-cols-3 gap-1 rounded-xl bg-black/35 p-1">
+              <div className="grid grid-cols-[60px_1fr] items-center gap-2.5">
+                <span className="text-xs font-medium text-[#9CA3AF]">{currentSpec.capRowLabel}</span>
+                <div className="grid grid-cols-3 gap-1 rounded-lg border border-white/[0.08] bg-black/35 p-1">
                   {currentSpec.capOptions.map((opt, idx) => {
                     const active = capIdx === idx;
                     return (
@@ -386,10 +393,10 @@ export const FriendRoomModal: React.FC<FriendRoomModalProps> = ({
                           soundEngine.playTap(740);
                           setCapIdx(idx);
                         }}
-                        className={`h-8 rounded-lg text-xs font-bold transition-all cursor-pointer truncate px-1 ${
+                        className={`h-7 rounded-md text-xs font-semibold transition-colors cursor-pointer truncate px-1 ${
                           active
-                            ? 'bg-gradient-to-b from-[#ffe28a] to-[#f59e0b] text-[#241104] font-black shadow-xs'
-                            : 'text-amber-100/75 hover:text-white'
+                            ? 'bg-[#D49B35] text-[#111315] font-bold'
+                            : 'text-[#9CA3AF] hover:text-[#F3F4F6]'
                         }`}
                       >
                         {opt}
@@ -400,9 +407,9 @@ export const FriendRoomModal: React.FC<FriendRoomModalProps> = ({
               </div>
 
               {/* Row 4: Pay Mode */}
-              <div className="grid grid-cols-[68px_1fr] items-center gap-3">
-                <span className="text-xs font-bold text-amber-100/80">房费支付</span>
-                <div className="grid grid-cols-3 gap-1 rounded-xl bg-black/35 p-1">
+              <div className="grid grid-cols-[60px_1fr] items-center gap-2.5">
+                <span className="text-xs font-medium text-[#9CA3AF]">房费支付</span>
+                <div className="grid grid-cols-3 gap-1 rounded-lg border border-white/[0.08] bg-black/35 p-1">
                   {PAY_MODES.map((p) => {
                     const active = payMode === p.id;
                     return (
@@ -413,10 +420,10 @@ export const FriendRoomModal: React.FC<FriendRoomModalProps> = ({
                           soundEngine.playTap(740);
                           setPayMode(p.id);
                         }}
-                        className={`h-8 rounded-lg text-xs font-bold transition-all cursor-pointer truncate px-1 ${
+                        className={`h-7 rounded-md text-xs font-semibold transition-colors cursor-pointer truncate px-1 ${
                           active
-                            ? 'bg-gradient-to-b from-[#ffe28a] to-[#f59e0b] text-[#241104] font-black shadow-xs'
-                            : 'text-amber-100/75 hover:text-white'
+                            ? 'bg-[#D49B35] text-[#111315] font-bold'
+                            : 'text-[#9CA3AF] hover:text-[#F3F4F6]'
                         }`}
                       >
                         {p.label}
@@ -426,11 +433,11 @@ export const FriendRoomModal: React.FC<FriendRoomModalProps> = ({
                 </div>
               </div>
 
-              {/* Row 5: Symmetrical 2-Column Stakes */}
-              <div className="grid grid-cols-2 gap-3 pt-1">
-                <div className="rounded-xl border border-amber-200/15 bg-black/30 p-2.5">
+              {/* Row 5: Stakes */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-0.5">
+                <div className="rounded-xl border border-white/[0.07] bg-white/[0.03] p-2.5">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-bold text-amber-100/85">房间底分</span>
+                    <span className="text-xs font-medium text-[#9CA3AF]">房间底分</span>
                     <input
                       type="number"
                       min={CUSTOM_STAKES_LIMITS.MIN_BASE_SCORE}
@@ -438,7 +445,7 @@ export const FriendRoomModal: React.FC<FriendRoomModalProps> = ({
                       step={10}
                       value={baseScoreInput}
                       onChange={(e) => setBaseScoreInput(e.target.value)}
-                      className="h-7 w-22 rounded-lg border border-amber-200/25 bg-black/50 px-2 text-right font-mono text-xs font-black text-amber-300 tabular-nums focus:border-amber-300 focus:outline-none"
+                      className="h-7 w-22 rounded-lg border border-white/12 bg-black/40 px-2 text-right font-mono text-xs font-bold text-[#F3F4F6] tabular-nums focus:border-[#D49B35] focus:outline-none"
                     />
                   </div>
                   <div className="mt-2 grid grid-cols-4 gap-1">
@@ -453,10 +460,10 @@ export const FriendRoomModal: React.FC<FriendRoomModalProps> = ({
                             setBaseScoreInput(String(preset));
                             setInitialScoreInput(String(preset * 20));
                           }}
-                          className={`h-6.5 rounded-md font-mono text-[11px] font-bold tabular-nums transition-colors cursor-pointer ${
+                          className={`h-6.5 rounded-md font-mono text-[11px] font-semibold tabular-nums transition-colors cursor-pointer ${
                             active
-                              ? 'bg-amber-400 text-[#241104] font-black'
-                              : 'bg-white/6 text-amber-100/70 hover:bg-white/12'
+                              ? 'bg-[#D49B35] text-[#111315] font-bold'
+                              : 'border border-white/[0.08] bg-white/[0.04] text-[#9CA3AF] hover:text-[#F3F4F6]'
                           }`}
                         >
                           {preset >= 10000 ? '1万' : preset}
@@ -466,9 +473,9 @@ export const FriendRoomModal: React.FC<FriendRoomModalProps> = ({
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-amber-200/15 bg-black/30 p-2.5">
+                <div className="rounded-xl border border-white/[0.07] bg-white/[0.03] p-2.5">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-bold text-amber-100/85">初始积分</span>
+                    <span className="text-xs font-medium text-[#9CA3AF]">初始积分</span>
                     <input
                       type="number"
                       min={CUSTOM_STAKES_LIMITS.MIN_INITIAL_SCORE}
@@ -476,7 +483,7 @@ export const FriendRoomModal: React.FC<FriendRoomModalProps> = ({
                       step={100}
                       value={initialScoreInput}
                       onChange={(e) => setInitialScoreInput(e.target.value)}
-                      className="h-7 w-22 rounded-lg border border-amber-200/25 bg-black/50 px-2 text-right font-mono text-xs font-black text-emerald-300 tabular-nums focus:border-amber-300 focus:outline-none"
+                      className="h-7 w-22 rounded-lg border border-white/12 bg-black/40 px-2 text-right font-mono text-xs font-bold text-[#F3F4F6] tabular-nums focus:border-[#D49B35] focus:outline-none"
                     />
                   </div>
                   <div className="mt-2 grid grid-cols-4 gap-1">
@@ -490,10 +497,10 @@ export const FriendRoomModal: React.FC<FriendRoomModalProps> = ({
                             soundEngine.playTap(750);
                             setInitialScoreInput(String(preset));
                           }}
-                          className={`h-6.5 rounded-md font-mono text-[11px] font-bold tabular-nums transition-colors cursor-pointer ${
+                          className={`h-6.5 rounded-md font-mono text-[11px] font-semibold tabular-nums transition-colors cursor-pointer ${
                             active
-                              ? 'bg-amber-400 text-[#241104] font-black'
-                              : 'bg-white/6 text-amber-100/70 hover:bg-white/12'
+                              ? 'bg-[#D49B35] text-[#111315] font-bold'
+                              : 'border border-white/[0.08] bg-white/[0.04] text-[#9CA3AF] hover:text-[#F3F4F6]'
                           }`}
                         >
                           {preset >= 10000 ? `${preset / 10000}万` : preset}
@@ -506,21 +513,17 @@ export const FriendRoomModal: React.FC<FriendRoomModalProps> = ({
             </div>
 
             {/* Footer */}
-            <div className="flex items-center justify-between gap-3 border-t border-amber-200/15 bg-black/30 px-5 py-3">
+            <div className="flex shrink-0 items-center justify-between gap-3 border-t border-white/[0.08] bg-white/[0.02] px-4 sm:px-5 py-3">
               {!validation.valid ? (
-                <span className="text-xs text-rose-300">{validation.errorMessage}</span>
+                <span className="text-xs text-[#F87171]">{validation.errorMessage}</span>
               ) : (
-                <div className="flex items-center gap-2 text-xs text-amber-100/80">
+                <div className="flex items-center gap-2 text-xs text-[#9CA3AF] tabular-nums">
                   <span>
-                    消耗房卡 <strong className="font-mono text-amber-300">{estimatedCardCost}</strong> 张
+                    消耗房卡 <strong className="font-mono text-[#FBBF24]">{estimatedCardCost}</strong> 张
                   </span>
-                  <span className="text-white/25">·</span>
+                  <span className="text-white/20">·</span>
                   <span>
-                    底分 <strong className="font-mono text-white">{validation.normalizedBaseScore.toLocaleString()}</strong>
-                  </span>
-                  <span className="text-white/25">·</span>
-                  <span>
-                    初始积分 <strong className="font-mono text-emerald-300">{validation.normalizedInitialScore.toLocaleString()}</strong>
+                    底分 <strong className="font-mono text-[#F3F4F6]">{validation.normalizedBaseScore.toLocaleString()}</strong>
                   </span>
                 </div>
               )}
@@ -529,10 +532,10 @@ export const FriendRoomModal: React.FC<FriendRoomModalProps> = ({
                 type="button"
                 disabled={!validation.valid}
                 onClick={handleCreate}
-                className={`shrink-0 rounded-xl px-6 py-2 font-display text-sm font-black transition-all whitespace-nowrap ${
+                className={`h-8.5 min-w-[96px] shrink-0 rounded-lg px-5 text-xs font-bold transition-colors whitespace-nowrap ${
                   validation.valid
-                    ? 'bg-gradient-to-b from-[#ffe28a] via-[#f59e0b] to-[#d97706] text-[#241104] shadow-md hover:brightness-105 active:scale-95 cursor-pointer'
-                    : 'bg-white/10 text-white/35 cursor-not-allowed'
+                    ? 'bg-[#D49B35] hover:bg-[#E0A842] text-[#111315] active:scale-98 cursor-pointer'
+                    : 'bg-white/[0.06] text-[#6B7280] cursor-not-allowed'
                 }`}
               >
                 创建房间
@@ -541,22 +544,22 @@ export const FriendRoomModal: React.FC<FriendRoomModalProps> = ({
           </>
         ) : (
           /* Tab 2: Clean 6-Digit Room ID Keypad */
-          <div className="flex flex-col items-center p-5">
-            <div className="mb-3 flex h-12 w-full max-w-xs items-center justify-center rounded-xl border border-amber-200/30 bg-black/45 px-4 font-mono text-2xl font-black tracking-[0.35em] text-amber-300 tabular-nums">
+          <div className="flex flex-1 min-h-0 flex-col items-center justify-center overflow-y-auto overscroll-contain p-5">
+            <div className="mb-3 flex h-11 w-full max-w-[260px] items-center justify-center rounded-xl border border-white/12 bg-black/40 px-4 font-mono text-xl font-bold tracking-[0.35em] text-[#F3F4F6] tabular-nums">
               {roomCode || (
-                <span className="font-sans text-xs font-normal tracking-normal text-white/35">
+                <span className="font-sans text-xs font-normal tracking-normal text-[#6B7280]">
                   请输入 6 位房间号
                 </span>
               )}
             </div>
 
-            <div className="grid w-full max-w-xs grid-cols-3 gap-2">
+            <div className="grid w-full max-w-[260px] grid-cols-3 gap-2">
               {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((digit) => (
                 <button
                   key={digit}
                   type="button"
                   onClick={() => handleKeyPress(digit)}
-                  className="flex h-11 items-center justify-center rounded-xl bg-black/35 font-mono text-base font-black text-amber-50 hover:bg-amber-400/25 active:scale-95 tabular-nums cursor-pointer"
+                  className="flex h-10 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] font-mono text-sm font-bold text-[#F3F4F6] hover:bg-white/[0.09] active:scale-98 tabular-nums cursor-pointer"
                 >
                   {digit}
                 </button>
@@ -564,38 +567,40 @@ export const FriendRoomModal: React.FC<FriendRoomModalProps> = ({
               <button
                 type="button"
                 onClick={handleClear}
-                className="flex h-11 items-center justify-center rounded-xl bg-rose-950/60 text-xs font-bold text-rose-300 hover:bg-rose-900 active:scale-95 cursor-pointer"
+                className="flex h-10 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.02] text-xs font-semibold text-[#9CA3AF] hover:bg-white/[0.07] hover:text-white active:scale-98 cursor-pointer"
               >
                 清空
               </button>
               <button
                 type="button"
                 onClick={() => handleKeyPress('0')}
-                className="flex h-11 items-center justify-center rounded-xl bg-black/35 font-mono text-base font-black text-amber-50 hover:bg-amber-400/25 active:scale-95 tabular-nums cursor-pointer"
+                className="flex h-10 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] font-mono text-sm font-bold text-[#F3F4F6] hover:bg-white/[0.09] active:scale-98 tabular-nums cursor-pointer"
               >
                 0
               </button>
               <button
                 type="button"
                 onClick={handleBackspace}
-                className="flex h-11 items-center justify-center rounded-xl bg-amber-950/60 text-amber-300 hover:bg-amber-900 active:scale-95 cursor-pointer"
+                className="flex h-10 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.02] text-xs font-semibold text-[#9CA3AF] hover:bg-white/[0.07] hover:text-white active:scale-98 cursor-pointer"
               >
-                <Delete className="h-4 w-4" />
+                退格
               </button>
             </div>
 
-            <button
-              type="button"
-              disabled={!roomCode.trim()}
-              onClick={handleJoin}
-              className={`mt-4 w-full max-w-xs rounded-xl py-2.5 font-display text-sm font-black transition-all ${
-                roomCode.trim()
-                  ? 'bg-gradient-to-b from-[#ffe28a] via-[#f59e0b] to-[#d97706] text-[#241104] shadow-md hover:brightness-105 active:scale-95 cursor-pointer'
-                  : 'bg-white/10 text-white/35 cursor-not-allowed'
-              }`}
-            >
-              加入房间
-            </button>
+            <div className="mt-4 flex w-full max-w-[260px] justify-end">
+              <button
+                type="button"
+                disabled={!roomCode.trim()}
+                onClick={handleJoin}
+                className={`h-8.5 min-w-[112px] rounded-lg px-5 text-xs font-bold transition-colors ${
+                  roomCode.trim()
+                    ? 'bg-[#D49B35] hover:bg-[#E0A842] text-[#111315] active:scale-98 cursor-pointer'
+                    : 'bg-white/[0.06] text-[#6B7280] cursor-not-allowed'
+                }`}
+              >
+                加入房间
+              </button>
+            </div>
           </div>
         )}
       </div>

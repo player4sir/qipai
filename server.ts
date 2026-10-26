@@ -175,13 +175,20 @@ async function startServer() {
     const body = (req.body || {}) as Record<string, unknown>;
     const roomId = String(body.roomId || '').trim();
     const playerId = String(body.playerId || '').trim();
-    const result = roomCardEngine.disbandOrSettleSession(roomId, playerId);
+    const isIdleTimeout = Boolean(body.isIdleTimeout);
+    const result = roomCardEngine.disbandOrSettleSession(roomId, playerId, isIdleTimeout);
     res.json({
       ok: result.action !== 'none',
       ...result,
       profile: playerId ? storageService.getUser(playerId) : undefined,
     });
   });
+
+  // Periodic background sweep for idle rooms that timed out with no human joiners (15 min threshold)
+  const idleRoomSweepInterval = setInterval(() => {
+    roomCardEngine.sweepExpiredIdleSessions();
+  }, 60_000);
+  idleRoomSweepInterval.unref?.();
 
   app.post('/api/room-cards/rebuy', (req, res) => {
     const body = (req.body || {}) as Record<string, unknown>;
@@ -831,7 +838,7 @@ async function startServer() {
           tierInitialScore
         );
 
-        // Two-Phase Escrow: Pre-freeze room cards on room entry; formally capture when Round 1 deals!
+        // Quick Match: Immediate lightweight stake-tier deduction upon entry
         let rcSession = roomCardEngine.getSession(room.roomId);
         if (!rcSession) {
           const rcCreate = roomCardEngine.createSession({
@@ -845,11 +852,12 @@ async function startServer() {
             payMode,
             fillBots,
             hostProfile: profile,
+            isQuickMatch: true,
           });
           if (!rcCreate.ok || !rcCreate.session) {
             roomManager.leaveRoom(profile.playerId);
             socket.emit('s2c_action_error', {
-              message: rcCreate.message || '房卡准入预冻结失败，请先补充房卡',
+              message: rcCreate.message || '房卡准入实扣失败，请先补充房卡',
             });
             return;
           }

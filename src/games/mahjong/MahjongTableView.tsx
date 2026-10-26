@@ -45,7 +45,10 @@ import { DingQueOverlay } from './components/DingQueOverlay';
 import { DiceThrowAnimation } from './components/DiceThrowAnimation';
 import { ActionGlowEffect } from './components/ActionGlowEffect';
 import { FullscreenGuideModal } from '../../shared/ui/FullscreenGuideModal';
-import { RollingScoreCounter } from '../../shared/ui/RollingScoreCounter';
+import {
+  RollingScoreCounter,
+  SettlementHeroHeader,
+} from '../../shared/ui/RollingScoreCounter';
 import { detectFullscreenCapabilities } from '../../shared/utils/fullscreenHelper';
 import { generateSharePoster } from './utils/sharePosterGenerator';
 
@@ -715,7 +718,7 @@ export const MahjongTableView: React.FC<MahjongTableViewProps> = ({
                     />
                   </div>
                   {propTargetAbsSeat === (mySeatId + 3) % 4 && (
-                    <div className="mt-1 flex items-center gap-1 rounded-xl border border-amber-300/60 bg-black/85 p-1 shadow-xl backdrop-blur-md">
+                    <div className="mt-1 flex items-center gap-1 rounded-xl border border-white/12 bg-[#12171B]/95 p-1 text-[#F3F4F6] shadow-xl backdrop-blur-md">
                       {[
                         { type: 'flower', label: '鲜花' },
                         { type: 'tea', label: '敬茶' },
@@ -732,7 +735,7 @@ export const MahjongTableView: React.FC<MahjongTableViewProps> = ({
                             });
                             setPropTargetAbsSeat(null);
                           }}
-                          className="rounded-lg px-2 py-1 text-[10px] font-bold text-amber-200 hover:bg-amber-500/25 active:scale-95 cursor-pointer"
+                          className="rounded-lg border border-white/[0.06] bg-white/[0.04] px-2 py-1 text-[10px] font-bold text-[#E5E7EB] hover:border-[#D4AF37]/40 hover:bg-[#D4AF37]/15 hover:text-white active:scale-95 cursor-pointer"
                         >
                           {item.label}
                         </button>
@@ -765,7 +768,7 @@ export const MahjongTableView: React.FC<MahjongTableViewProps> = ({
                     />
                   </div>
                   {propTargetAbsSeat === (mySeatId + 2) % 4 && (
-                    <div className="mt-1 flex items-center gap-1 rounded-xl border border-amber-300/60 bg-black/85 p-1 shadow-xl backdrop-blur-md">
+                    <div className="mt-1 flex items-center gap-1 rounded-xl border border-white/12 bg-[#12171B]/95 p-1 text-[#F3F4F6] shadow-xl backdrop-blur-md">
                       {[
                         { type: 'flower', label: '鲜花' },
                         { type: 'tea', label: '敬茶' },
@@ -782,7 +785,7 @@ export const MahjongTableView: React.FC<MahjongTableViewProps> = ({
                             });
                             setPropTargetAbsSeat(null);
                           }}
-                          className="rounded-lg px-2 py-1 text-[10px] font-bold text-amber-200 hover:bg-amber-500/25 active:scale-95 cursor-pointer"
+                          className="rounded-lg border border-white/[0.06] bg-white/[0.04] px-2 py-1 text-[10px] font-bold text-[#E5E7EB] hover:border-[#D4AF37]/40 hover:bg-[#D4AF37]/15 hover:text-white active:scale-95 cursor-pointer"
                         >
                           {item.label}
                         </button>
@@ -815,7 +818,7 @@ export const MahjongTableView: React.FC<MahjongTableViewProps> = ({
                     />
                   </div>
                   {propTargetAbsSeat === (mySeatId + 1) % 4 && (
-                    <div className="mt-1 flex items-center gap-1 rounded-xl border border-amber-300/60 bg-black/85 p-1 shadow-xl backdrop-blur-md">
+                    <div className="mt-1 flex items-center gap-1 rounded-xl border border-white/12 bg-[#12171B]/95 p-1 text-[#F3F4F6] shadow-xl backdrop-blur-md">
                       {[
                         { type: 'flower', label: '鲜花' },
                         { type: 'tea', label: '敬茶' },
@@ -832,7 +835,7 @@ export const MahjongTableView: React.FC<MahjongTableViewProps> = ({
                             });
                             setPropTargetAbsSeat(null);
                           }}
-                          className="rounded-lg px-2 py-1 text-[10px] font-bold text-amber-200 hover:bg-amber-500/25 active:scale-95 cursor-pointer"
+                          className="rounded-lg border border-white/[0.06] bg-white/[0.04] px-2 py-1 text-[10px] font-bold text-[#E5E7EB] hover:border-[#D4AF37]/40 hover:bg-[#D4AF37]/15 hover:text-white active:scale-95 cursor-pointer"
                         >
                           {item.label}
                         </button>
@@ -946,87 +949,46 @@ export const MahjongTableView: React.FC<MahjongTableViewProps> = ({
             )}
 
             {/* ===================================================================
-                5. SETTLEMENT / CHA DA JIAO MODAL (Phase: SETTLEMENT / CHA_DA_JIAO)
+                5. SETTLEMENT / CHA DA JIAO MODAL
                =================================================================== */}
             {(snapshot?.phase === 'SETTLEMENT' || snapshot?.phase === 'CHA_DA_JIAO') && (
-              <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/80 p-2 sm:p-4 backdrop-blur-sm animate-in fade-in duration-300 select-none">
-                <div className="relative w-full max-w-[980px] lg:max-w-[1060px] flex flex-col items-center">
-                  {/* Authentic Parchment Game Board (1158x544) */}
-                  <div
-                    className="relative w-full aspect-[1158/544] rounded-2xl shadow-[0_25px_60px_rgba(0,0,0,0.95)] overflow-visible"
-                    style={{
-                      backgroundImage: "url('/assets/mahjong/settlement/im_over_bg.png')",
-                      backgroundSize: '100% 100%',
-                      backgroundRepeat: 'no-repeat',
-                    }}
-                  >
-                    {/* Top Banner Ribbon */}
-                    {(() => {
-                      const myPlayerView = snapshot.players[mySeatId];
-                      const myHuCount = myPlayerView?.huCount ?? 0;
-                      const myDelta =
-                        snapshot.settlement?.scoreDeltas?.[mySeatId] ??
-                        myPlayerView?.scoreDelta ??
-                        0;
-                      const isDraw =
-                        snapshot.settlement?.endedReason === 'draw' ||
-                        (!snapshot.settlement?.winners?.length &&
-                          !snapshot.players.some((p) => (p.huCount ?? 0) > 0));
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-[3px] animate-in fade-in duration-150 select-none">
+                <div className="relative flex max-h-[85dvh] w-full max-w-[580px] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#12171B]/95 text-[#F3F4F6] shadow-[0_24px_60px_rgba(0,0,0,0.72)] backdrop-blur-md">
+                  <SettlementHeroHeader
+                    selfScoreDelta={
+                      snapshot.settlement?.scoreDeltas?.[mySeatId] ??
+                      snapshot.players[mySeatId]?.scoreDelta ??
+                      0
+                    }
+                    titleWin="本局胜利"
+                    titleLose="本局结算"
+                    subtitle={`${getModeLabel(snapshot?.mode)} · 底分 ${(snapshot?.baseScore ?? 100).toLocaleString()} · 余牌 ${snapshot?.remainWallCount ?? 0} 张`}
+                    onClose={handlePlayAgain}
+                  />
 
-                      const bannerSrc = isDraw
-                        ? '/assets/mahjong/settlement/result_draw.png'
-                        : myDelta > 0 || myHuCount > 0
-                        ? '/assets/mahjong/settlement/result_win.png'
-                        : '/assets/mahjong/settlement/result_lose.png';
+                  {/* 4 Player Rounded Cards */}
+                  <div className="flex flex-1 min-h-0 flex-col gap-2 overflow-y-auto overscroll-contain p-3.5 sm:p-4">
+                    {snapshot.players.map((p, idx) => {
+                      const isWinner =
+                        snapshot.settlement?.winners?.some((w) => w.seatId === idx) ||
+                        ((p.huCount ?? 0) > 0 &&
+                          (p.huCount ?? 0) ===
+                            Math.max(...snapshot.players.map((x) => x.huCount ?? 0)));
+                      const delta =
+                        snapshot.settlement?.scoreDeltas?.[idx] ?? p.scoreDelta ?? 0;
+                      const isDealer = snapshot.dealerSeatId === idx;
+                      const isMe = p.playerId === myPlayerId;
 
-                      return (
-                        <div className="absolute -top-7 sm:-top-11 md:-top-14 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center pointer-events-none">
-                          <img
-                            src={bannerSrc}
-                            alt="结算结果"
-                            className="h-16 sm:h-22 md:h-28 w-auto object-contain drop-shadow-[0_10px_20px_rgba(0,0,0,0.85)] animate-in zoom-in-95 duration-200"
-                          />
-                        </div>
-                      );
-                    })()}
+                      const rawHand =
+                        snapshot.settlement?.revealHands?.[idx] || p.handTiles || [];
+                      const playerMelds =
+                        snapshot.settlement?.melds?.[idx] || p.melds || [];
+                      const winCard =
+                        snapshot.settlement?.winners?.find((w) => w.seatId === idx)
+                          ?.winCard ?? p.drawnTile;
 
-                    {/* Top Right Close Button */}
-                    <button
-                      type="button"
-                      onClick={handleLeaveRoom}
-                      title="关闭"
-                      className="absolute -top-2 -right-2 sm:-top-3 sm:-right-3 z-30 transition-transform hover:scale-110 active:scale-95 cursor-pointer drop-shadow-md"
-                    >
-                      <img
-                        src="/assets/mahjong/settlement/im_close_btn.png"
-                        alt="关闭"
-                        className="h-8 w-8 sm:h-11 sm:w-11 object-contain"
-                      />
-                    </button>
-
-                    {/* 4 Player Rows - Aligned with im_over_bg.png's 4 pre-drawn rows */}
-                    <div className="grid grid-rows-4 h-full w-full py-[1.8%]">
-                      {snapshot.players.map((p, idx) => {
-                        const isWinner =
-                          snapshot.settlement?.winners?.some((w) => w.seatId === idx) ||
-                          ((p.huCount ?? 0) > 0 &&
-                            (p.huCount ?? 0) ===
-                              Math.max(...snapshot.players.map((x) => x.huCount ?? 0)));
-                        const delta =
-                          snapshot.settlement?.scoreDeltas?.[idx] ?? p.scoreDelta ?? 0;
-                        const isDealer = snapshot.dealerSeatId === idx;
-                        const isMe = p.playerId === myPlayerId;
-
-                        // Hand tiles
-                        const rawHand =
-                          snapshot.settlement?.revealHands?.[idx] || p.handTiles || [];
-                        const playerMelds =
-                          snapshot.settlement?.melds?.[idx] || p.melds || [];
-                        const winCard =
-                          snapshot.settlement?.winners?.find((w) => w.seatId === idx)
-                            ?.winCard ?? p.drawnTile;
-
-                        const displayHand = isWinner && winCard
+                      const displayHand =
+                        isWinner && winCard
                           ? (() => {
                               const copy = [...rawHand];
                               const foundIdx = copy.lastIndexOf(winCard);
@@ -1035,152 +997,122 @@ export const MahjongTableView: React.FC<MahjongTableViewProps> = ({
                             })()
                           : rawHand;
 
-                        return (
-                          <div key={idx} className="flex items-center h-full w-full">
-                            {/* Left Tan Section (approx 23.7% width) */}
-                            <div className="w-[23.7%] h-full flex items-center justify-center px-1 sm:px-3">
-                              <div className="flex items-center gap-1.5 sm:gap-2.5">
-                                {/* Golden Avatar Box */}
-                                <div className="relative h-9 w-9 sm:h-12 sm:w-12 md:h-14 md:w-14 shrink-0 flex items-center justify-center">
-                                  <img
-                                    src="/assets/mahjong/settlement/avatar_bg.png"
-                                    alt="头像框"
-                                    className="absolute inset-0 h-full w-full object-contain pointer-events-none drop-shadow-sm"
-                                  />
-                                  <div className="h-[76%] w-[76%] rounded-sm overflow-hidden">
-                                    <AvatarSvg avatarId={p.avatarId} />
-                                  </div>
-                                  {/* Dealer Round Badge on Avatar Bottom-Left (Aligned with Reference) */}
-                                  {isDealer && (
-                                    <img
-                                      src="/assets/mahjong/settlement/over_banker.png"
-                                      alt="庄"
-                                      className="absolute -bottom-0.5 -left-0.5 sm:-bottom-1 sm:-left-1 h-3.5 w-3.5 sm:h-5 sm:w-5 md:h-6 md:w-6 object-contain z-10 drop-shadow"
-                                    />
-                                  )}
-                                </div>
-
-                                {/* Player Name & Me Badge */}
-                                <div className="flex flex-col min-w-0">
-                                  <div className="flex items-center gap-1">
-                                    <span className="font-bold text-[11px] sm:text-xs md:text-sm text-[#4a2608] truncate max-w-[55px] sm:max-w-[80px]">
-                                      {p.nickname}
-                                    </span>
-                                    {isMe && (
-                                      <span className="shrink-0 rounded bg-amber-600 px-1 py-0.2 text-[8px] sm:text-[9px] font-black text-white">
-                                        我
-                                      </span>
-                                    )}
-                                  </div>
-                                  <span className="text-[9px] sm:text-[11px] text-[#7a481c] font-mono truncate">
-                                    {p.beans.toLocaleString()} 豆
-                                  </span>
-                                </div>
-                              </div>
+                      return (
+                        <div
+                          key={idx}
+                          className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-2 ${
+                            isMe
+                              ? 'border-[#D4AF37]/35 bg-[#D4AF37]/[0.08]'
+                              : 'border-white/[0.07] bg-white/[0.03]'
+                          }`}
+                        >
+                          {/* Column 1: Player Identity */}
+                          <div className="flex w-36 shrink-0 items-center gap-2.5">
+                            <div className="relative h-8 w-8 shrink-0 overflow-hidden rounded-full border border-white/12 bg-black/40">
+                              <AvatarSvg avatarId={p.avatarId} size={32} />
                             </div>
-
-                            {/* Right Cream Section (approx 76.3% width) */}
-                            <div className="w-[76.3%] h-full flex items-center justify-between pl-2 sm:pl-4 md:pl-6 pr-3 sm:pr-6 md:pr-8">
-                              {/* Exposed Hand & Melds Display */}
-                              <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto py-0.5">
-                                {/* Melds */}
-                                {playerMelds.map((m, mIdx) => (
-                                  <div
-                                    key={mIdx}
-                                    className="flex items-center gap-0.5 bg-black/10 px-1 py-0.5 rounded border border-amber-800/15"
-                                  >
-                                    {m.tiles.map((t, tIdx) => (
-                                      <MahjongTileView
-                                        key={tIdx}
-                                        tileId={t}
-                                        isSmall
-                                        perspective={2}
-                                        kind="ming"
-                                      />
-                                    ))}
-                                  </div>
-                                ))}
-
-                                {/* Hand Tiles */}
-                                <div className="flex items-center gap-0.5 sm:gap-1">
-                                  {displayHand.map((t, tIdx) => (
-                                    <MahjongTileView
-                                      key={tIdx}
-                                      tileId={t}
-                                      isSmall
-                                      perspective={2}
-                                      kind="ming"
-                                    />
-                                  ))}
-                                </div>
-
-                                {/* Winning Tile (Isolated on Right with Space) */}
-                                {isWinner && winCard && (
-                                  <div className="ml-2 sm:ml-4 md:ml-6 flex items-center pl-1 sm:pl-2 border-l border-amber-800/30">
-                                    <MahjongTileView
-                                      tileId={winCard}
-                                      isSmall
-                                      perspective={2}
-                                      kind="ming"
-                                    />
-                                  </div>
+                            <div className="flex min-w-0 flex-col">
+                              <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-[#F3F4F6]">
+                                <span className="max-w-[78px] truncate">{p.nickname}</span>
+                                {isMe && (
+                                  <span className="text-[11px] font-semibold text-[#E5B85B]">· 我</span>
                                 )}
                               </div>
-
-                              {/* Rolling Score (Winner Gold #FFD700 / Loser Amber #D97706) & 3D "胡" Winner Emblem */}
-                              <div className="flex items-center gap-2 sm:gap-3 shrink-0 pl-1.5 sm:pl-3">
-                                <div className="rounded-xl border border-amber-400/35 bg-[#1b1008]/92 px-2.5 sm:px-3.5 py-0.5 sm:py-1 text-right shadow-md">
-                                  <RollingScoreCounter
-                                    value={delta}
-                                    size="md"
-                                    durationMs={950}
-                                    playTickSound={isMe}
-                                  />
-                                </div>
-                                {isWinner && (
-                                  <img
-                                    src="/assets/mahjong/settlement/winner.png"
-                                    alt="胡"
-                                    className="h-5 sm:h-7 md:h-9 w-auto object-contain drop-shadow"
-                                  />
-                                )}
+                              <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-[#9CA3AF] tabular-nums">
+                                <span>{isDealer ? '庄家' : '闲家'}</span>
+                                <span aria-hidden="true">·</span>
+                                <span>{p.beans.toLocaleString()}</span>
                               </div>
                             </div>
                           </div>
-                        );
-                      })}
-                    </div>
+
+                          {/* Column 2: Exposed Melds & Hand Tiles */}
+                          <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto py-0.5">
+                            {playerMelds.map((m, mIdx) => (
+                              <div
+                                key={mIdx}
+                                className="flex items-center gap-0.5 rounded bg-black/35 px-1.5 py-0.5 border border-white/[0.06]"
+                              >
+                                {m.tiles.map((t, tIdx) => (
+                                  <MahjongTileView
+                                    key={tIdx}
+                                    tileId={t}
+                                    isSmall
+                                    perspective={2}
+                                    kind="ming"
+                                  />
+                                ))}
+                              </div>
+                            ))}
+
+                            <div className="flex items-center gap-0.5">
+                              {displayHand.map((t, tIdx) => (
+                                <MahjongTileView
+                                  key={tIdx}
+                                  tileId={t}
+                                  isSmall
+                                  perspective={2}
+                                  kind="ming"
+                                />
+                              ))}
+                            </div>
+
+                            {isWinner && winCard && (
+                              <div className="ml-1.5 flex items-center border-l border-white/15 pl-1.5">
+                                <MahjongTileView
+                                  tileId={winCard}
+                                  isSmall
+                                  perspective={2}
+                                  kind="ming"
+                                />
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Column 3: Rolling Score & Winner Tag */}
+                          <div className="flex w-24 shrink-0 flex-col items-end">
+                            <RollingScoreCounter
+                              value={delta}
+                              size="md"
+                              durationMs={900}
+                              playTickSound={isMe}
+                            />
+                            {isWinner && (
+                              <span className="text-[10px] font-semibold text-[#E5B85B]">
+                                胡牌赢家
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
 
-                  {/* Clean Action Buttons (Floating Elegantly Below the Parchment Board) */}
-                  <div className="mt-3 sm:mt-5 flex items-center justify-center gap-3 sm:gap-6">
-                    <button
-                      type="button"
-                      onClick={handleLeaveRoom}
-                      className="rounded-xl border border-amber-600/50 bg-gradient-to-b from-[#3a1a0c] to-[#1e0d05] px-5 sm:px-7 py-2 sm:py-2.5 text-xs sm:text-sm font-bold text-amber-200 hover:brightness-110 active:scale-95 shadow-lg cursor-pointer"
-                    >
-                      返回大厅
-                    </button>
+                  {/* Compact Right-Aligned Action Footer */}
+                  <div className="flex shrink-0 items-center justify-end gap-2.5 border-t border-white/[0.08] bg-white/[0.02] px-4 py-2.5">
                     <button
                       type="button"
                       onClick={handleGenerateSharePoster}
                       disabled={isGeneratingPoster}
-                      className="flex items-center gap-1.5 rounded-xl border border-amber-500/70 bg-gradient-to-b from-amber-600 via-amber-700 to-amber-900 px-5 sm:px-7 py-2 sm:py-2.5 font-display text-xs sm:text-sm font-bold text-amber-100 hover:brightness-110 active:scale-95 shadow-lg cursor-pointer disabled:opacity-60"
+                      className="flex h-8.5 min-w-[84px] items-center justify-center rounded-lg border border-white/12 bg-white/[0.06] px-3.5 text-xs font-semibold text-[#E5E7EB] transition-colors hover:bg-white/[0.11] active:scale-98 disabled:opacity-50 whitespace-nowrap shrink-0 cursor-pointer"
                     >
-                      {isGeneratingPoster ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Share2 className="h-4 w-4" />
-                      )}
-                      <span>分享战绩</span>
+                      {isGeneratingPoster ? '生成中...' : '分享战绩'}
                     </button>
+
+                    <button
+                      type="button"
+                      onClick={handleLeaveRoom}
+                      className="flex h-8.5 min-w-[84px] items-center justify-center rounded-lg border border-white/12 bg-white/[0.06] px-3.5 text-xs font-semibold text-[#E5E7EB] transition-colors hover:bg-white/[0.11] active:scale-98 whitespace-nowrap shrink-0 cursor-pointer"
+                    >
+                      返回大厅
+                    </button>
+
                     <button
                       type="button"
                       onClick={handlePlayAgain}
-                      className="flex items-center gap-1.5 rounded-xl border-2 border-amber-300 bg-gradient-to-b from-amber-300 via-amber-400 to-amber-500 px-6 sm:px-8 py-2 sm:py-2.5 font-display text-xs sm:text-sm font-black text-[#261300] shadow-[0_4px_16px_rgba(245,158,11,0.5)] hover:brightness-110 active:scale-95 cursor-pointer"
+                      className="flex h-8.5 min-w-[96px] items-center justify-center rounded-lg bg-[#D49B35] px-4 text-xs font-bold text-[#111315] transition-colors hover:bg-[#E0A842] active:scale-98 whitespace-nowrap shrink-0 cursor-pointer"
                     >
-                      <RotateCcw className="h-4 w-4 stroke-[3]" />
-                      <span>再来一局</span>
+                      再来一局
                     </button>
                   </div>
                 </div>
@@ -1188,35 +1120,32 @@ export const MahjongTableView: React.FC<MahjongTableViewProps> = ({
             )}
 
             {/* ===================================================================
-                6. LEAVE CONFIRMATION MODAL
+                6. LEAVE CONFIRMATION MODAL (Lightweight Headerless Compact Dialog)
                =================================================================== */}
             {showLeaveConfirm && (
-              <div
-                className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-xs"
-                onClick={() => setShowLeaveConfirm(false)}
-              >
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-[3px] animate-in fade-in duration-150">
                 <div
-                  className="w-full max-w-sm rounded-3xl border border-amber-400/40 bg-[#1e0e07] p-5 text-center text-white shadow-2xl"
+                  className="w-[300px] sm:w-[320px] rounded-2xl border border-white/10 bg-[#12171B]/95 p-5 text-center text-[#F3F4F6] shadow-[0_24px_60px_rgba(0,0,0,0.72)] backdrop-blur-md"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <h3 className="font-display text-lg font-black text-amber-200">
-                    确认退出当前房间？
+                  <h3 className="text-[15px] font-bold text-[#F3F4F6]">
+                    确认退出当前房间
                   </h3>
-                  <p className="mt-2 text-xs leading-relaxed text-white/70">
-                    对局中途退出将由智能托管接管，直至本局结束结算。
+                  <p className="mt-2 text-xs leading-relaxed text-[#9CA3AF]">
+                    对局中途退出将由托管接管直至本局结算。
                   </p>
-                  <div className="mt-5 flex gap-3">
+                  <div className="mt-4 flex items-center justify-center gap-2.5">
                     <button
                       type="button"
                       onClick={() => setShowLeaveConfirm(false)}
-                      className="flex-1 rounded-2xl border border-white/20 bg-white/10 py-2.5 text-xs font-bold text-white hover:bg-white/15"
+                      className="h-8.5 min-w-[92px] rounded-lg border border-white/12 bg-white/[0.06] px-4 text-xs font-semibold text-[#E5E7EB] hover:bg-white/[0.11] transition-colors active:scale-98 cursor-pointer"
                     >
                       继续游戏
                     </button>
                     <button
                       type="button"
                       onClick={handleLeaveRoom}
-                      className="flex-1 rounded-2xl border border-rose-500/50 bg-rose-600/90 py-2.5 text-xs font-bold text-white hover:bg-rose-500"
+                      className="h-8.5 min-w-[92px] rounded-lg bg-[#B93838] px-4 text-xs font-bold text-white hover:bg-[#C84343] transition-colors active:scale-98 cursor-pointer"
                     >
                       确认离开
                     </button>
@@ -1229,41 +1158,39 @@ export const MahjongTableView: React.FC<MahjongTableViewProps> = ({
                 7. RULES GUIDE MODAL
                =================================================================== */}
             {showRuleModal && (
-              <div
-                className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-xs"
-                onClick={() => setShowRuleModal(false)}
-              >
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-[3px] animate-in fade-in duration-150">
                 <div
-                  className="w-full max-w-md rounded-3xl border border-amber-400/40 bg-[#1c0f08] p-5 text-white shadow-2xl"
+                  className="flex max-h-[82dvh] w-full max-w-[400px] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#12171B]/95 text-[#F3F4F6] shadow-[0_24px_60px_rgba(0,0,0,0.72)] backdrop-blur-md"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <div className="flex items-center justify-between border-b border-white/10 pb-3">
-                    <h3 className="font-display text-lg font-black text-amber-200">
-                      四川红中血流成河 · 核心规则
+                  <div className="flex shrink-0 items-center justify-between border-b border-white/[0.08] bg-white/[0.02] px-4 sm:px-5 py-3">
+                    <h3 className="text-[15px] font-bold text-[#F3F4F6]">
+                      四川红中血流成河 · 规则
                     </h3>
                     <button
                       type="button"
                       onClick={() => setShowRuleModal(false)}
-                      className="rounded-full bg-white/10 p-1 text-white/80 hover:bg-white/20"
+                      aria-label="关闭"
+                      className="flex h-7 w-7 items-center justify-center rounded-lg text-[#9CA3AF] hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
                     >
                       <X className="h-4 w-4" />
                     </button>
                   </div>
-                  <div className="mt-3 space-y-2.5 text-xs text-white/80 leading-relaxed max-h-[60vh] overflow-y-auto pr-1">
-                    <div className="rounded-xl bg-amber-500/10 p-2.5 border border-amber-400/20 text-amber-200">
-                      <strong>红中百搭</strong>：红中牌可作为万能牌替代任意花色组成顺子或刻子；亦可摸齐4张红中直接胡牌！
+                  <div className="flex-1 min-h-0 space-y-2.5 overflow-y-auto overscroll-contain p-4 sm:p-5 text-xs leading-relaxed text-[#9CA3AF]">
+                    <div className="rounded-xl border border-[#D4AF37]/30 bg-[#D4AF37]/[0.08] p-3 text-[#E5B85B]">
+                      <strong className="font-bold">红中百搭</strong>：红中牌可替代任意花色组成顺子或刻子，摸齐 4 张红中可直接胡牌。
                     </div>
                     <div>
-                      1. <strong>定缺门</strong>：开局必须在万、条、筒中选定一门缺色。必须打光该门手牌方可胡牌，手存缺牌不可胡。
+                      <strong className="font-bold text-[#F3F4F6]">1. 定缺门</strong>：开局在万、条、筒中选定一门缺色，打光该门手牌方可胡牌。
                     </div>
                     <div>
-                      2. <strong>血流不倒牌</strong>：一人胡牌后，游戏不结束，不亮倒手牌；继续摸牌、打牌、继续胡，直至牌墙摸尽！
+                      <strong className="font-bold text-[#F3F4F6]">2. 血流不倒牌</strong>：一人胡牌后对局继续，直至牌墙摸尽。
                     </div>
                     <div>
-                      3. <strong>刮风下雨</strong>：明杠为刮风收取1家底分，暗杠为下雨收取3家底分，即时转账到账。
+                      <strong className="font-bold text-[#F3F4F6]">3. 刮风下雨</strong>：明杠收取 1 家底分，暗杠收取 3 家底分。
                     </div>
                     <div>
-                      4. <strong>查大叫与查花猪</strong>：牌墙耗尽后，未听牌玩家赔偿听牌玩家最大可能番数；手中仍残留定缺牌的（花猪）赔偿全场16番封顶。
+                      <strong className="font-bold text-[#F3F4F6]">4. 查大叫与查花猪</strong>：牌墙耗尽后，未听牌玩家赔付听牌玩家最大番数，手存缺牌赔付 16 番封顶。
                     </div>
                   </div>
                 </div>
@@ -1304,43 +1231,38 @@ export const MahjongTableView: React.FC<MahjongTableViewProps> = ({
                 10. SHARE POSTER MODAL (P3)
                =================================================================== */}
             {sharePosterUrl && (
-              <div
-                className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-3 sm:p-5 backdrop-blur-xs"
-                onClick={() => setSharePosterUrl(null)}
-              >
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-[3px] animate-in fade-in duration-150">
                 <div
-                  className="relative flex flex-col items-center max-w-2xl w-full bg-[#1e0e07] border border-amber-500/40 rounded-2xl p-4 shadow-2xl"
+                  className="relative flex max-h-[85dvh] w-full max-w-[460px] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#12171B]/95 text-[#F3F4F6] shadow-[0_24px_60px_rgba(0,0,0,0.72)] backdrop-blur-md"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <div className="w-full flex items-center justify-between pb-2 border-b border-amber-900/40">
-                    <div className="flex items-center gap-2">
-                      <Share2 className="h-4 w-4 text-amber-300" />
-                      <span className="font-display text-sm font-bold text-amber-200">对局战绩海报</span>
-                    </div>
+                  <div className="flex w-full shrink-0 items-center justify-between border-b border-white/[0.08] bg-white/[0.02] px-4 sm:px-5 py-3">
+                    <span className="text-[15px] font-bold text-[#F3F4F6]">对局战绩海报</span>
                     <button
                       type="button"
                       onClick={() => setSharePosterUrl(null)}
-                      className="rounded-full bg-white/10 p-1 text-white/80 hover:bg-white/20 cursor-pointer"
+                      aria-label="关闭"
+                      className="flex h-7 w-7 items-center justify-center rounded-lg text-[#9CA3AF] hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
                     >
                       <X className="h-4 w-4" />
                     </button>
                   </div>
 
                   {/* Poster Image Preview */}
-                  <div className="my-3 overflow-hidden rounded-xl border border-amber-500/30 shadow-lg max-h-[60vh] flex items-center justify-center bg-black/40">
+                  <div className="flex flex-1 min-h-0 items-center justify-center overflow-y-auto overscroll-contain p-4">
                     <img
                       src={sharePosterUrl}
                       alt="战绩海报"
-                      className="max-h-[60vh] w-auto object-contain select-none"
+                      className="max-h-[54dvh] w-auto rounded-xl border border-white/10 object-contain shadow-sm select-none"
                     />
                   </div>
 
                   {/* Action Buttons */}
-                  <div className="flex items-center gap-3 w-full justify-end pt-2 border-t border-amber-900/40">
+                  <div className="flex w-full shrink-0 items-center justify-end gap-2.5 border-t border-white/[0.08] bg-white/[0.02] px-4 sm:px-5 py-2.5">
                     <button
                       type="button"
                       onClick={() => setSharePosterUrl(null)}
-                      className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-xs font-bold text-white hover:bg-white/15 cursor-pointer"
+                      className="h-8.5 min-w-[76px] rounded-lg border border-white/12 bg-white/[0.06] px-3.5 text-xs font-semibold text-[#E5E7EB] hover:bg-white/[0.11] cursor-pointer"
                     >
                       关闭
                     </button>
@@ -1348,10 +1270,9 @@ export const MahjongTableView: React.FC<MahjongTableViewProps> = ({
                       href={sharePosterUrl}
                       download={`mahjong_record_${Date.now()}.png`}
                       onClick={() => soundEngine.playTap()}
-                      className="flex items-center gap-1.5 rounded-xl border border-amber-300 bg-gradient-to-b from-amber-400 via-amber-500 to-orange-500 px-5 py-2 font-display text-xs font-black text-[#18181B] shadow-lg hover:brightness-110 active:scale-95 cursor-pointer"
+                      className="flex h-8.5 min-w-[92px] items-center justify-center rounded-lg bg-[#D49B35] px-4 text-xs font-bold text-[#111315] hover:bg-[#E0A842] active:scale-98 cursor-pointer"
                     >
-                      <Download className="h-4 w-4" />
-                      <span>保存图片</span>
+                      保存图片
                     </a>
                   </div>
                 </div>

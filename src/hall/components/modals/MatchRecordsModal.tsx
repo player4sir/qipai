@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { BarChart3, Coins, Film, History, RefreshCw, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { MatchRecord } from '../../HallView';
 import { soundEngine } from '../../../shared/audio/SoundEngine';
 
@@ -41,7 +41,7 @@ const LEDGER_REASON_MAP: Record<string, string> = {
   FREE_SUPPLY: '大厅免费补给',
   ROOM_CREATE: '创建好友房间',
   ROUND_SETTLEMENT: '牌局终局结算',
-  REALTIME_TRANSFER: '牌局实时刮风下雨/积分结算',
+  REALTIME_TRANSFER: '牌局实时积分结算',
 };
 
 const modeShortLabel = (gameType?: string, mode?: string) => {
@@ -142,38 +142,31 @@ export const MatchRecordsModal: React.FC<MatchRecordsModalProps> = ({
   }, [matches, myPlayerId]);
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-2.5 sm:p-4 backdrop-blur-xs animate-in fade-in duration-200"
-      onClick={onClose}
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-[3px] animate-in fade-in duration-150 select-none">
       <div
-        className="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-white/15 bg-gradient-to-b from-[#232838] to-[#171a24] shadow-2xl"
+        className="flex max-h-[84dvh] w-full max-w-[580px] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#12171B]/95 text-[#F3F4F6] shadow-[0_24px_60px_rgba(0,0,0,0.72)] backdrop-blur-md"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header + 3-in-1 Segmented Tabs */}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-4 py-2.5 sm:px-5 sm:py-3">
-          <div className="flex items-center gap-2">
-            <History className="h-5 w-5 text-amber-300" />
-            <h3 className="font-display text-base font-extrabold text-amber-200 sm:text-lg whitespace-nowrap">
-              战绩中心与房卡积分账本
-            </h3>
-          </div>
+        {/* Header + Pure Text Tabs */}
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-white/[0.08] bg-white/[0.02] px-4 py-3 sm:px-5">
+          <h3 className="text-sm sm:text-base font-bold text-[#F3F4F6] whitespace-nowrap">
+            战绩与账本
+          </h3>
 
-          <div className="flex items-center gap-1 rounded-xl bg-black/40 p-1">
+          <div className="flex items-center gap-1 rounded-lg border border-white/[0.08] bg-black/35 p-1">
             <button
               type="button"
               onClick={() => {
                 soundEngine.playTap(740);
                 setActiveTab('matches');
               }}
-              className={`flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-bold transition-colors whitespace-nowrap cursor-pointer ${
+              className={`rounded-md px-3 py-1 text-xs font-bold transition-colors whitespace-nowrap cursor-pointer ${
                 activeTab === 'matches'
-                  ? 'bg-amber-500 text-[#18181B]'
-                  : 'text-white/70 hover:text-white'
+                  ? 'bg-[#D49B35] text-[#111315]'
+                  : 'text-[#9CA3AF] hover:text-[#F3F4F6]'
               }`}
             >
-              <Film className="h-3.5 w-3.5" />
-              <span>对局战绩</span>
+              对局战绩
             </button>
             <button
               type="button"
@@ -182,14 +175,13 @@ export const MatchRecordsModal: React.FC<MatchRecordsModalProps> = ({
                 setActiveTab('ledger');
                 void fetchLedger();
               }}
-              className={`flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-bold transition-colors whitespace-nowrap cursor-pointer ${
+              className={`rounded-md px-3 py-1 text-xs font-bold transition-colors whitespace-nowrap cursor-pointer ${
                 activeTab === 'ledger'
-                  ? 'bg-amber-500 text-[#18181B]'
-                  : 'text-white/70 hover:text-white'
+                  ? 'bg-[#D49B35] text-[#111315]'
+                  : 'text-[#9CA3AF] hover:text-[#F3F4F6]'
               }`}
             >
-              <Coins className="h-3.5 w-3.5" />
-              <span>账本流水</span>
+              账本流水
             </button>
             <button
               type="button"
@@ -197,34 +189,34 @@ export const MatchRecordsModal: React.FC<MatchRecordsModalProps> = ({
                 soundEngine.playTap(780);
                 setActiveTab('stats');
               }}
-              className={`flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-bold transition-colors whitespace-nowrap cursor-pointer ${
+              className={`rounded-md px-3 py-1 text-xs font-bold transition-colors whitespace-nowrap cursor-pointer ${
                 activeTab === 'stats'
-                  ? 'bg-amber-500 text-[#18181B]'
-                  : 'text-white/70 hover:text-white'
+                  ? 'bg-[#D49B35] text-[#111315]'
+                  : 'text-[#9CA3AF] hover:text-[#F3F4F6]'
               }`}
             >
-              <BarChart3 className="h-3.5 w-3.5" />
-              <span>生涯统计</span>
+              生涯统计
             </button>
           </div>
 
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg p-1 text-white/60 hover:text-white cursor-pointer"
+            aria-label="关闭面板"
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-[#9CA3AF] hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        {/* TAB 1: MATCH RECORDS WITH GAME FILTER */}
+        {/* TAB 1: MATCH RECORDS */}
         {activeTab === 'matches' && (
-          <div className="flex flex-1 flex-col overflow-hidden">
+          <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
             {/* Game Filter Strip */}
-            <div className="flex items-center gap-1.5 overflow-x-auto border-b border-white/8 bg-black/20 px-4 py-2">
+            <div className="flex shrink-0 items-center gap-1.5 overflow-x-auto border-b border-white/[0.06] bg-black/25 px-4 py-2">
               {(
                 [
-                  { id: 'all', label: '全部游戏' },
+                  { id: 'all', label: '全部' },
                   { id: 'ddz', label: '斗地主' },
                   { id: 'mahjong', label: '麻将' },
                   { id: 'niuniu', label: '抢庄牛牛' },
@@ -239,10 +231,10 @@ export const MatchRecordsModal: React.FC<MatchRecordsModalProps> = ({
                     soundEngine.playTap(720);
                     setGameFilter(f.id);
                   }}
-                  className={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                  className={`rounded-md px-2.5 py-1 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                     gameFilter === f.id
-                      ? 'bg-amber-500/25 text-amber-200 border border-amber-400/50'
-                      : 'bg-white/5 text-white/60 hover:text-white'
+                      ? 'bg-[#D49B35] text-[#111315] font-bold'
+                      : 'border border-white/[0.08] bg-white/[0.04] text-[#9CA3AF] hover:text-[#F3F4F6]'
                   }`}
                 >
                   {f.label}
@@ -250,10 +242,10 @@ export const MatchRecordsModal: React.FC<MatchRecordsModalProps> = ({
               ))}
             </div>
 
-            <div className="flex-1 overflow-y-auto p-3.5 sm:p-4">
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4">
               {filteredMatches.length === 0 ? (
-                <p className="py-10 text-center text-xs text-white/60 sm:text-sm">
-                  暂无该分类下的对局记录，完成任意一局牌局后即可在此处查看明细与斗地主三家明牌复盘！
+                <p className="py-10 text-center text-xs text-[#9CA3AF]">
+                  暂无对局记录
                 </p>
               ) : (
                 <div className="space-y-2">
@@ -268,50 +260,53 @@ export const MatchRecordsModal: React.FC<MatchRecordsModalProps> = ({
                     return (
                       <div
                         key={m.id}
-                        className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-white/8 bg-[#12151f] px-3.5 py-2.5 transition-colors hover:border-white/15"
+                        className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/[0.07] bg-white/[0.03] px-3.5 py-2.5"
                       >
                         <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-1.5 text-xs text-white/85">
-                            <span className="font-bold text-amber-300">
+                          <div className="flex flex-wrap items-center gap-1.5 text-xs text-[#F3F4F6]">
+                            <span className="font-bold text-[#FBBF24]">
                               {modeShortLabel(m.gameType, m.dealMode)}
                             </span>
-                            <span aria-hidden="true" className="text-white/30">
+                            <span aria-hidden="true" className="text-white/20">
                               ·
                             </span>
-                            <span className="font-mono tabular-nums text-white/75">
+                            <span className="font-mono tabular-nums text-[#D1D5DB]">
                               底分 {m.baseScore} · ×{m.multiplier}
                             </span>
                             {myEntry?.role && (
                               <>
-                                <span aria-hidden="true" className="text-white/30">
+                                <span aria-hidden="true" className="text-white/20">
                                   ·
                                 </span>
-                                <span className="text-white/65">{myEntry.role}</span>
+                                <span className="text-[#9CA3AF]">{myEntry.role}</span>
                               </>
                             )}
                           </div>
-                          <p className="mt-0.5 font-mono text-[10px] text-white/45 tabular-nums">
+                          <p className="mt-0.5 font-mono text-[11px] text-[#6B7280] tabular-nums">
                             房号 {m.roomId} · {new Date(m.timestamp).toLocaleString()}
                           </p>
                         </div>
 
                         <div className="flex items-center gap-2.5">
                           <span
-                            className={`font-mono text-xs font-extrabold tabular-nums sm:text-sm ${
-                              delta >= 0 ? 'text-amber-300' : 'text-rose-400'
+                            className={`font-mono text-xs font-bold tabular-nums sm:text-sm ${
+                              delta > 0
+                                ? 'text-[#FBBF24]'
+                                : delta < 0
+                                ? 'text-[#F87171]'
+                                : 'text-[#9CA3AF]'
                             }`}
                           >
-                            {delta >= 0 ? `+${delta.toLocaleString()}` : delta.toLocaleString()} 分
+                            {delta > 0 ? `+${delta.toLocaleString()}` : delta.toLocaleString()} 分
                           </span>
                           {isDdz && (
                             <button
                               type="button"
                               onClick={() => onOpenReplay(m)}
                               disabled={loadingReplayId === m.id}
-                              className="flex items-center gap-1 rounded-xl border border-amber-400/50 bg-amber-500/20 px-2.5 py-1 text-xs font-bold text-amber-200 hover:bg-amber-500/30 active:scale-95 disabled:opacity-50 whitespace-nowrap cursor-pointer"
+                              className="h-7 rounded-lg border border-white/12 bg-white/[0.06] hover:bg-white/[0.11] px-2.5 text-xs font-semibold text-[#E5E7EB] active:scale-98 disabled:opacity-50 whitespace-nowrap cursor-pointer"
                             >
-                              <Film className="h-3 w-3" />
-                              <span>{loadingReplayId === m.id ? '加载中' : '明牌复盘'}</span>
+                              {loadingReplayId === m.id ? '加载中' : '明牌复盘'}
                             </button>
                           )}
                         </div>
@@ -324,25 +319,24 @@ export const MatchRecordsModal: React.FC<MatchRecordsModalProps> = ({
           </div>
         )}
 
-        {/* TAB 2: BEAN & ROOM CARD AUDIT LEDGER */}
+        {/* TAB 2: LEDGER */}
         {activeTab === 'ledger' && (
-          <div className="flex flex-1 flex-col overflow-hidden">
-            <div className="flex items-center justify-between border-b border-white/8 bg-black/20 px-4 py-2 text-xs text-white/65">
-              <span>实时记录房卡与对局积分增减流水（服务端原子落盘审计）</span>
+          <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
+            <div className="flex shrink-0 items-center justify-end border-b border-white/[0.06] bg-black/25 px-4 py-2">
               <button
                 type="button"
                 onClick={() => void fetchLedger()}
-                className="flex items-center gap-1 rounded-lg bg-white/8 px-2 py-1 text-[11px] font-bold text-amber-200 hover:bg-white/15 whitespace-nowrap cursor-pointer"
+                disabled={loadingLedger}
+                className="h-7 rounded-lg border border-white/12 bg-white/[0.06] hover:bg-white/[0.11] px-3 text-xs font-semibold text-[#E5E7EB] whitespace-nowrap cursor-pointer"
               >
-                <RefreshCw className={`h-3 w-3 ${loadingLedger ? 'animate-spin' : ''}`} />
-                <span>刷新流水</span>
+                {loadingLedger ? '刷新中...' : '刷新流水'}
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-3.5 sm:p-4">
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4">
               {ledger.length === 0 ? (
-                <p className="py-10 text-center text-xs text-white/60 sm:text-sm">
-                  暂无账本流水记录
+                <p className="py-10 text-center text-xs text-[#9CA3AF]">
+                  暂无流水记录
                 </p>
               ) : (
                 <div className="space-y-2">
@@ -353,41 +347,41 @@ export const MatchRecordsModal: React.FC<MatchRecordsModalProps> = ({
                     return (
                       <div
                         key={item.id}
-                        className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-white/8 bg-[#12151f] px-3.5 py-2"
+                        className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/[0.07] bg-white/[0.03] px-3.5 py-2.5"
                       >
                         <div>
                           <div className="flex items-center gap-1.5 text-xs">
-                            <span className="font-bold text-amber-200">{reasonText}</span>
+                            <span className="font-bold text-[#F3F4F6]">{reasonText}</span>
                             {gameLabel && (
                               <>
-                                <span aria-hidden="true" className="text-white/30">
+                                <span aria-hidden="true" className="text-white/20">
                                   ·
                                 </span>
-                                <span className="text-white/75">{gameLabel}</span>
+                                <span className="text-[#D1D5DB]">{gameLabel}</span>
                               </>
                             )}
                             {item.roomId && (
                               <>
-                                <span aria-hidden="true" className="text-white/30">
+                                <span aria-hidden="true" className="text-white/20">
                                   ·
                                 </span>
-                                <span className="font-mono text-white/55 tabular-nums">
+                                <span className="font-mono text-[#9CA3AF] tabular-nums">
                                   房号 {item.roomId}
                                 </span>
                               </>
                             )}
                           </div>
-                          <p className="mt-0.5 font-mono text-[10px] text-white/45 tabular-nums">
+                          <p className="mt-0.5 font-mono text-[11px] text-[#6B7280] tabular-nums">
                             {new Date(item.timestamp).toLocaleString()}
                           </p>
                         </div>
 
                         <div className="flex flex-col items-end font-mono tabular-nums">
-                          <div className="flex items-center gap-2 text-xs font-extrabold">
+                          <div className="flex items-center gap-2 text-xs font-bold">
                             {item.deltaBeans !== 0 && (
                               <span
                                 className={
-                                  item.deltaBeans > 0 ? 'text-emerald-400' : 'text-rose-400'
+                                  item.deltaBeans > 0 ? 'text-[#FBBF24]' : 'text-[#F87171]'
                                 }
                               >
                                 {item.deltaBeans > 0
@@ -399,7 +393,7 @@ export const MatchRecordsModal: React.FC<MatchRecordsModalProps> = ({
                             {item.deltaRoomCards !== undefined && item.deltaRoomCards !== 0 && (
                               <span
                                 className={
-                                  item.deltaRoomCards > 0 ? 'text-amber-300' : 'text-sky-300'
+                                  item.deltaRoomCards > 0 ? 'text-[#FBBF24]' : 'text-[#9CA3AF]'
                                 }
                               >
                                 {item.deltaRoomCards > 0
@@ -409,7 +403,7 @@ export const MatchRecordsModal: React.FC<MatchRecordsModalProps> = ({
                               </span>
                             )}
                           </div>
-                          <span className="text-[10px] text-white/50">
+                          <span className="text-[11px] text-[#9CA3AF]">
                             结余 {item.balanceAfter.toLocaleString()} 分
                             {item.roomCardsAfter !== undefined
                               ? ` · ${item.roomCardsAfter} 房卡`
@@ -425,28 +419,27 @@ export const MatchRecordsModal: React.FC<MatchRecordsModalProps> = ({
           </div>
         )}
 
-        {/* TAB 3: PER-GAME CAREER ANALYTICS */}
+        {/* TAB 3: CAREER STATS */}
         {activeTab === 'stats' && (
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            {/* Top Summary Strip */}
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 space-y-3.5">
             <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-              <div className="rounded-2xl border border-white/10 bg-[#12151f] p-3">
-                <div className="text-[11px] text-white/55">累计对局场次</div>
-                <div className="mt-1 font-mono text-lg font-black text-white tabular-nums">
+              <div className="rounded-xl border border-white/[0.07] bg-white/[0.03] p-3">
+                <div className="text-[11px] font-medium text-[#9CA3AF]">累计对局</div>
+                <div className="mt-1 font-mono text-base font-bold text-[#F3F4F6] tabular-nums">
                   {careerStats.totalPlayed} 局
                 </div>
               </div>
-              <div className="rounded-2xl border border-white/10 bg-[#12151f] p-3">
-                <div className="text-[11px] text-white/55">综合胜率</div>
-                <div className="mt-1 font-mono text-lg font-black text-emerald-400 tabular-nums">
+              <div className="rounded-xl border border-white/[0.07] bg-white/[0.03] p-3">
+                <div className="text-[11px] font-medium text-[#9CA3AF]">综合胜率</div>
+                <div className="mt-1 font-mono text-base font-bold text-[#F3F4F6] tabular-nums">
                   {careerStats.overallWinRate}%
                 </div>
               </div>
-              <div className="rounded-2xl border border-white/10 bg-[#12151f] p-3">
-                <div className="text-[11px] text-white/55">近期净赢总积分</div>
+              <div className="rounded-xl border border-white/[0.07] bg-white/[0.03] p-3">
+                <div className="text-[11px] font-medium text-[#9CA3AF]">净赢总积分</div>
                 <div
-                  className={`mt-1 font-mono text-lg font-black tabular-nums ${
-                    careerStats.totalNetBeans >= 0 ? 'text-amber-300' : 'text-rose-400'
+                  className={`mt-1 font-mono text-base font-bold tabular-nums ${
+                    careerStats.totalNetBeans >= 0 ? 'text-[#FBBF24]' : 'text-[#F87171]'
                   }`}
                 >
                   {careerStats.totalNetBeans >= 0
@@ -454,24 +447,23 @@ export const MatchRecordsModal: React.FC<MatchRecordsModalProps> = ({
                     : careerStats.totalNetBeans.toLocaleString()}
                 </div>
               </div>
-              <div className="rounded-2xl border border-white/10 bg-[#12151f] p-3">
-                <div className="text-[11px] text-white/55">单局最高得分</div>
-                <div className="mt-1 font-mono text-lg font-black text-amber-300 tabular-nums">
+              <div className="rounded-xl border border-white/[0.07] bg-white/[0.03] p-3">
+                <div className="text-[11px] font-medium text-[#9CA3AF]">单局最高分</div>
+                <div className="mt-1 font-mono text-base font-bold text-[#FBBF24] tabular-nums">
                   +{careerStats.bestSingleWin.toLocaleString()}
                 </div>
               </div>
             </div>
 
-            {/* Per-Game Breakdown Table */}
-            <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#12151f]">
-              <div className="grid grid-cols-5 border-b border-white/10 bg-white/5 px-3.5 py-2 text-[11px] font-bold text-white/65">
+            <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-white/[0.03]">
+              <div className="grid grid-cols-5 border-b border-white/[0.07] bg-white/[0.02] px-3.5 py-2 text-[11px] font-semibold text-[#9CA3AF]">
                 <span>游戏品类</span>
                 <span className="text-right">对局数</span>
                 <span className="text-right">胜场</span>
                 <span className="text-right">胜率</span>
                 <span className="text-right">净盈亏分</span>
               </div>
-              <div className="divide-y divide-white/6">
+              <div className="divide-y divide-white/[0.05]">
                 {careerStats.gamesList.map((g) => {
                   const winRate = g.played > 0 ? Math.round((g.won / g.played) * 100) : 0;
                   return (
@@ -479,19 +471,19 @@ export const MatchRecordsModal: React.FC<MatchRecordsModalProps> = ({
                       key={g.gameType}
                       className="grid grid-cols-5 items-center px-3.5 py-2.5 text-xs"
                     >
-                      <span className="font-bold text-amber-200">{g.label}</span>
-                      <span className="text-right font-mono text-white/85 tabular-nums">
+                      <span className="font-semibold text-[#F3F4F6]">{g.label}</span>
+                      <span className="text-right font-mono text-[#9CA3AF] tabular-nums">
                         {g.played}
                       </span>
-                      <span className="text-right font-mono text-white/85 tabular-nums">
+                      <span className="text-right font-mono text-[#9CA3AF] tabular-nums">
                         {g.won}
                       </span>
-                      <span className="text-right font-mono text-emerald-400 tabular-nums">
+                      <span className="text-right font-mono text-[#F3F4F6] tabular-nums">
                         {winRate}%
                       </span>
                       <span
                         className={`text-right font-mono font-bold tabular-nums ${
-                          g.netBeans >= 0 ? 'text-amber-300' : 'text-rose-400'
+                          g.netBeans >= 0 ? 'text-[#FBBF24]' : 'text-[#F87171]'
                         }`}
                       >
                         {g.netBeans >= 0

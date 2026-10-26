@@ -1,0 +1,283 @@
+{
+  "frames": {
+    "bomb0.png": {
+      "frame": {
+        "x": 902,
+        "y": 738,
+        "w": 198,
+        "h": 202
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 233,
+        "y": 25,
+        "w": 198,
+        "h": 202
+      },
+      "sourceSize": {
+        "w": 666,
+        "h": 478
+      }
+    },
+    "bomb1.png": {
+      "frame": {
+        "x": 1030,
+        "y": 494,
+        "w": 182,
+        "h": 148
+      },
+      "rotated": true,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 216,
+        "y": 176,
+        "w": 182,
+        "h": 148
+      },
+      "sourceSize": {
+        "w": 666,
+        "h": 478
+      }
+    },
+    "bomb10.png": {
+      "frame": {
+        "x": 594,
+        "y": 2,
+        "w": 538,
+        "h": 292
+      },
+      "rotated": true,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 75,
+        "y": 114,
+        "w": 538,
+        "h": 292
+      },
+      "sourceSize": {
+        "w": 666,
+        "h": 478
+      }
+    },
+    "bomb11.png": {
+      "frame": {
+        "x": 2,
+        "y": 2,
+        "w": 576,
+        "h": 300
+      },
+      "rotated": true,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 56,
+        "y": 106,
+        "w": 576,
+        "h": 300
+      },
+      "sourceSize": {
+        "w": 666,
+        "h": 478
+      }
+    },
+    "bomb2.png": {
+      "frame": {
+        "x": 1102,
+        "y": 678,
+        "w": 158,
+        "h": 144
+      },
+      "rotated": true,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 170,
+        "y": 249,
+        "w": 158,
+        "h": 144
+      },
+      "sourceSize": {
+        "w": 666,
+        "h": 478
+      }
+    },
+    "bomb3.png": {
+      "frame": {
+        "x": 1180,
+        "y": 494,
+        "w": 130,
+        "h": 134
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 249,
+        "y": 304,
+        "w": 130,
+        "h": 134
+      },
+      "sourceSize": {
+        "w": 666,
+        "h": 478
+      }
+    },
+    "bomb4.png": {
+      "frame": {
+        "x": 902,
+        "y": 494,
+        "w": 242,
+        "h": 126
+      },
+      "rotated": true,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 195,
+        "y": 313,
+        "w": 242,
+        "h": 126
+      },
+      "sourceSize": {
+        "w": 666,
+        "h": 478
+      }
+    },
+    "bomb5.png": {
+      "frame": {
+        "x": 286,
+        "y": 580,
+        "w": 400,
+        "h": 308
+      },
+      "rotated": true,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 107,
+        "y": 113,
+        "w": 400,
+        "h": 308
+      },
+      "sourceSize": {
+        "w": 666,
+        "h": 478
+      }
+    },
+    "bomb6.png": {
+      "frame": {
+        "x": 2,
+        "y": 580,
+        "w": 416,
+        "h": 282
+      },
+      "rotated": true,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 91,
+        "y": 126,
+        "w": 416,
+        "h": 282
+      },
+      "sourceSize": {
+        "w": 666,
+        "h": 478
+      }
+    },
+    "bomb7.png": {
+      "frame": {
+        "x": 596,
+        "y": 542,
+        "w": 458,
+        "h": 304
+      },
+      "rotated": true,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 91,
+        "y": 117,
+        "w": 458,
+        "h": 304
+      },
+      "sourceSize": {
+        "w": 666,
+        "h": 478
+      }
+    },
+    "bomb8.png": {
+      "frame": {
+        "x": 888,
+        "y": 2,
+        "w": 490,
+        "h": 302
+      },
+      "rotated": true,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 74,
+        "y": 119,
+        "w": 490,
+        "h": 302
+      },
+      "sourceSize": {
+        "w": 666,
+        "h": 478
+      }
+    },
+    "bomb9.png": {
+      "frame": {
+        "x": 304,
+        "y": 2,
+        "w": 540,
+        "h": 288
+      },
+      "rotated": true,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 73,
+        "y": 118,
+        "w": 540,
+        "h": 288
+      },
+      "sourceSize": {
+        "w": 666,
+        "h": 478
+      }
+    }
+  },
+  "animations": {
+    "default": [
+      "bomb0.png",
+      "bomb1.png",
+      "bomb2.png",
+      "bomb3.png",
+      "bomb4.png",
+      "bomb5.png",
+      "bomb6.png",
+      "bomb7.png",
+      "bomb8.png",
+      "bomb9.png",
+      "bomb10.png",
+      "bomb11.png"
+    ],
+    "fuse": [
+      "bomb0.png",
+      "bomb1.png",
+      "bomb2.png",
+      "bomb3.png"
+    ],
+    "smoke": [
+      "bomb4.png",
+      "bomb5.png",
+      "bomb6.png",
+      "bomb7.png",
+      "bomb8.png",
+      "bomb9.png",
+      "bomb10.png",
+      "bomb11.png"
+    ]
+  },
+  "meta": {
+    "app": "Commercial-TexturePacker-JSON",
+    "version": "1.0",
+    "image": "bomb.png",
+    "format": "RGBA8888",
+    "scale": "1"
+  }
+}

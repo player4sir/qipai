@@ -1,5 +1,4 @@
 import React from 'react';
-import { AlertTriangle, RotateCcw } from 'lucide-react';
 
 interface GameErrorBoundaryProps {
   onResetToHall?: () => void;
@@ -11,11 +10,6 @@ interface GameErrorBoundaryState {
   errorMessage: string;
 }
 
-/**
- * Global Error Boundary (/src/shared/ui/GameErrorBoundary.tsx).
- * Protects all 5 game tables and sub-halls from unexpected runtime rendering exceptions
- * and provides a one-click self-healing recovery back to the game hall.
- */
 export class GameErrorBoundary extends React.Component<
   GameErrorBoundaryProps,
   GameErrorBoundaryState
@@ -30,7 +24,7 @@ export class GameErrorBoundary extends React.Component<
 
   static getDerivedStateFromError(error: unknown): GameErrorBoundaryState {
     const message =
-      error instanceof Error ? error.message : '未知渲染异常，已为您保留当前账号与房卡数据';
+      error instanceof Error ? error.message : '页面渲染异常';
     return {
       hasError: true,
       errorMessage: message,
@@ -49,32 +43,28 @@ export class GameErrorBoundary extends React.Component<
   render(): React.ReactNode {
     if (this.state.hasError) {
       return (
-        <div className="flex h-[100dvh] w-[100dvw] flex-col items-center justify-center bg-[#07150e] px-6 text-amber-100 select-none">
-          <div className="flex w-full max-w-md flex-col items-center gap-4 rounded-2xl border border-amber-400/25 bg-[#141822]/95 p-6 text-center shadow-2xl">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-500/20 text-amber-300">
-              <AlertTriangle className="h-6 w-6" />
-            </div>
-            <div className="space-y-1">
-              <h2 className="font-display text-base font-extrabold text-amber-200 sm:text-lg">
-                牌桌视图遇到临时波动
-              </h2>
-              <p className="text-xs text-white/65">
-                您的欢乐豆、房卡与对局进度均已在服务端安全保存，点击下方按钮即可一键恢复。
+        <div className="flex h-[100dvh] w-[100dvw] flex-col items-center justify-center bg-black/65 px-4 select-none backdrop-blur-[3px]">
+          <div className="flex w-[300px] sm:w-[320px] flex-col overflow-hidden rounded-xl border border-white/10 bg-[#12171B]/95 p-5 text-center text-[#F3F4F6] shadow-[0_24px_60px_rgba(0,0,0,0.72)] backdrop-blur-md">
+            <h2 className="text-sm sm:text-[15px] font-bold text-[#F3F4F6]">
+              界面恢复提示
+            </h2>
+            <p className="mt-1.5 text-xs leading-relaxed text-[#9CA3AF]">
+              当前视图出现临时异常，点击下方按钮返回大厅。
+            </p>
+            {this.state.errorMessage && (
+              <p className="mt-1 truncate font-sans text-[11px] text-[#6B7280]">
+                {this.state.errorMessage}
               </p>
-              {this.state.errorMessage && (
-                <p className="mt-1 truncate font-mono text-[11px] text-amber-300/60">
-                  {this.state.errorMessage}
-                </p>
-              )}
+            )}
+            <div className="mt-4 flex justify-center">
+              <button
+                type="button"
+                onClick={this.handleRecover}
+                className="h-8.5 min-w-[104px] rounded-lg bg-[#D49B35] px-4 text-xs font-bold text-[#111315] hover:bg-[#E0A842] active:scale-98 whitespace-nowrap cursor-pointer"
+              >
+                返回游戏大厅
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={this.handleRecover}
-              className="flex items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-amber-300 via-amber-500 to-orange-500 px-5 py-2 font-display text-xs font-black text-[#18181B] shadow hover:brightness-105 active:scale-95 whitespace-nowrap cursor-pointer"
-            >
-              <RotateCcw className="h-4 w-4" />
-              <span>一键恢复至游戏大厅</span>
-            </button>
           </div>
         </div>
       );

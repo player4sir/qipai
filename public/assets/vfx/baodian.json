@@ -1,0 +1,225 @@
+{
+  "frames": {
+    "DN_niu_baodian01.png": {
+      "frame": {
+        "x": 2,
+        "y": 2,
+        "w": 189,
+        "h": 145
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 189,
+        "h": 145
+      },
+      "sourceSize": {
+        "w": 189,
+        "h": 145
+      }
+    },
+    "DN_niu_baodian02.png": {
+      "frame": {
+        "x": 193,
+        "y": 2,
+        "w": 189,
+        "h": 145
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 189,
+        "h": 145
+      },
+      "sourceSize": {
+        "w": 189,
+        "h": 145
+      }
+    },
+    "DN_niu_baodian03.png": {
+      "frame": {
+        "x": 384,
+        "y": 2,
+        "w": 189,
+        "h": 145
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 189,
+        "h": 145
+      },
+      "sourceSize": {
+        "w": 189,
+        "h": 145
+      }
+    },
+    "DN_niu_baodian04.png": {
+      "frame": {
+        "x": 575,
+        "y": 2,
+        "w": 189,
+        "h": 145
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 189,
+        "h": 145
+      },
+      "sourceSize": {
+        "w": 189,
+        "h": 145
+      }
+    },
+    "DN_niu_baodian05.png": {
+      "frame": {
+        "x": 766,
+        "y": 2,
+        "w": 189,
+        "h": 145
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 189,
+        "h": 145
+      },
+      "sourceSize": {
+        "w": 189,
+        "h": 145
+      }
+    },
+    "DN_niu_baodian06.png": {
+      "frame": {
+        "x": 2,
+        "y": 149,
+        "w": 189,
+        "h": 145
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 189,
+        "h": 145
+      },
+      "sourceSize": {
+        "w": 189,
+        "h": 145
+      }
+    },
+    "DN_niu_baodian07.png": {
+      "frame": {
+        "x": 193,
+        "y": 149,
+        "w": 189,
+        "h": 145
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 189,
+        "h": 145
+      },
+      "sourceSize": {
+        "w": 189,
+        "h": 145
+      }
+    },
+    "DN_niu_baodian08.png": {
+      "frame": {
+        "x": 384,
+        "y": 149,
+        "w": 189,
+        "h": 145
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 189,
+        "h": 145
+      },
+      "sourceSize": {
+        "w": 189,
+        "h": 145
+      }
+    },
+    "DN_niu_baodian09.png": {
+      "frame": {
+        "x": 575,
+        "y": 149,
+        "w": 189,
+        "h": 145
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 189,
+        "h": 145
+      },
+      "sourceSize": {
+        "w": 189,
+        "h": 145
+      }
+    },
+    "DN_niu_baodian10.png": {
+      "frame": {
+        "x": 766,
+        "y": 149,
+        "w": 189,
+        "h": 145
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 189,
+        "h": 145
+      },
+      "sourceSize": {
+        "w": 189,
+        "h": 145
+      }
+    }
+  },
+  "animations": {
+    "default": [
+      "DN_niu_baodian01.png",
+      "DN_niu_baodian02.png",
+      "DN_niu_baodian03.png",
+      "DN_niu_baodian04.png",
+      "DN_niu_baodian05.png",
+      "DN_niu_baodian06.png",
+      "DN_niu_baodian07.png",
+      "DN_niu_baodian08.png",
+      "DN_niu_baodian09.png",
+      "DN_niu_baodian10.png"
+    ]
+  },
+  "meta": {
+    "app": "Commercial-TexturePacker-JSON",
+    "version": "1.0",
+    "image": "baodian.png",
+    "format": "RGBA8888",
+    "scale": "1"
+  }
+}

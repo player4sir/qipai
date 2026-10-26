@@ -2,10 +2,11 @@ import React from 'react';
 import { X } from 'lucide-react';
 
 export interface CommercialModalShellProps {
-  title: string;
+  title?: string;
   subtitle?: string;
   icon?: React.ReactNode;
-  size?: 'sm' | 'md' | 'lg' | 'xl';
+  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
+  variant?: 'standard' | 'compact';
   portalMode?: 'stage' | 'screen';
   closeOnBackdrop?: boolean;
   onClose: () => void;
@@ -15,72 +16,83 @@ export interface CommercialModalShellProps {
 }
 
 const SIZE_CLASSES: Record<NonNullable<CommercialModalShellProps['size']>, string> = {
-  sm: 'max-w-[440px]',
-  md: 'max-w-[560px]',
-  lg: 'max-w-[740px]',
-  xl: 'max-w-[920px]',
+  xs: 'w-[300px] sm:w-[320px]',
+  sm: 'w-[90vw] max-w-[380px]',
+  md: 'w-[90vw] max-w-[440px]',
+  lg: 'w-[92vw] max-w-[540px]',
+  xl: 'w-[94vw] max-w-[680px]',
 };
 
+/**
+ * Unified Commercial Restrained Dark Frosted Modal Shell.
+ * - Strictly disables backdrop-click-to-close (only explicit close/cancel button dismisses).
+ * - Supports lightweight `compact` confirm dialogs (no heavy header bar) and `standard` panels.
+ * - Never stretches buttons or containers out of proportion.
+ */
 export const CommercialModalShell: React.FC<CommercialModalShellProps> = ({
   title,
   subtitle,
-  icon,
   size = 'md',
-  closeOnBackdrop = true,
+  variant = 'standard',
   onClose,
   headerExtra,
   footer,
   children,
 }) => {
+  const isCompact = variant === 'compact' || size === 'xs';
+
   return (
-    <div
-      className="fixed inset-0 z-[120] flex items-center justify-center bg-black/75 backdrop-blur-md p-4 select-none"
-      onClick={closeOnBackdrop ? onClose : undefined}
-    >
+    <div className="pointer-events-auto fixed inset-0 z-[120] flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-[3px] select-none animate-in fade-in duration-150">
       <div
-        className={`relative w-full ${SIZE_CLASSES[size]} max-h-[88vh] flex flex-col rounded-2xl bg-gradient-to-b from-[#172234] to-[#0d1522] border border-[#f3c86b]/25 shadow-[0_24px_64px_rgba(0,0,0,0.85)] overflow-hidden text-[#f5efe2]`}
+        className={`relative flex max-h-[82dvh] flex-col overflow-hidden ${
+          isCompact ? 'rounded-xl' : 'rounded-2xl'
+        } ${SIZE_CLASSES[size]} border border-white/10 bg-[#12171B]/95 text-[#F3F4F6] shadow-[0_24px_60px_rgba(0,0,0,0.72)] backdrop-blur-md`}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Top gold hairline */}
-        <div className="h-[2px] w-full bg-gradient-to-r from-transparent via-[#f3c86b]/70 to-transparent" />
-
-        {/* Header */}
-        <div className="px-5 py-3.5 border-b border-white/10 flex items-center justify-between gap-3 shrink-0 bg-white/[0.02]">
-          <div className="flex items-center gap-3 min-w-0">
-            {icon && (
-              <div className="w-9 h-9 rounded-xl bg-[#f3c86b]/12 border border-[#f3c86b]/30 flex items-center justify-center shrink-0">
-                {icon}
-              </div>
-            )}
+        {/* Header: only rendered in standard mode */}
+        {!isCompact && title && (
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-white/[0.08] bg-white/[0.02] px-4 py-3 sm:px-5">
             <div className="min-w-0">
-              <h3 className="text-base sm:text-lg font-black tracking-wide text-[#f5efe2] truncate">
+              <h3 className="truncate text-sm sm:text-base font-bold tracking-wide text-[#F3F4F6]">
                 {title}
               </h3>
               {subtitle && (
-                <p className="text-[11px] text-[#9ec2b8]/85 truncate mt-0.5">{subtitle}</p>
+                <p className="mt-0.5 truncate text-xs text-[#9CA3AF] tabular-nums">{subtitle}</p>
               )}
             </div>
-          </div>
 
-          <div className="flex items-center gap-2 shrink-0">
-            {headerExtra}
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="关闭弹窗"
-              className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/15 border border-white/10 flex items-center justify-center text-white/70 hover:text-white transition-colors cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              {headerExtra}
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="关闭面板"
+                className="flex h-7 w-7 items-center justify-center rounded-lg text-[#9CA3AF] transition-colors hover:bg-white/10 hover:text-white cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Scrollable Content */}
-        <div className="p-5 overflow-y-auto flex-1 min-h-0">{children}</div>
+        <div
+          className={`flex-1 min-h-0 overflow-y-auto overscroll-contain ${
+            isCompact ? 'p-5' : 'p-4 sm:p-5'
+          }`}
+        >
+          {children}
+        </div>
 
         {/* Optional Footer */}
         {footer && (
-          <div className="px-5 py-3 border-t border-white/10 bg-black/30 shrink-0">
+          <div
+            className={`shrink-0 ${
+              isCompact
+                ? 'px-5 pb-5 pt-0'
+                : 'border-t border-white/[0.08] bg-white/[0.02] px-4 py-2.5 sm:px-5'
+            }`}
+          >
             {footer}
           </div>
         )}

@@ -1,0 +1,876 @@
+{
+  "frames": {
+    "expression101.png": {
+      "frame": {
+        "x": 2,
+        "y": 2,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression102.png": {
+      "frame": {
+        "x": 169,
+        "y": 2,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression201.png": {
+      "frame": {
+        "x": 336,
+        "y": 2,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression202.png": {
+      "frame": {
+        "x": 503,
+        "y": 2,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression203.png": {
+      "frame": {
+        "x": 670,
+        "y": 2,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression301.png": {
+      "frame": {
+        "x": 837,
+        "y": 2,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression302.png": {
+      "frame": {
+        "x": 2,
+        "y": 169,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression303.png": {
+      "frame": {
+        "x": 169,
+        "y": 169,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression401.png": {
+      "frame": {
+        "x": 336,
+        "y": 169,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression402.png": {
+      "frame": {
+        "x": 503,
+        "y": 169,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression501.png": {
+      "frame": {
+        "x": 670,
+        "y": 169,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression502.png": {
+      "frame": {
+        "x": 837,
+        "y": 169,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression503.png": {
+      "frame": {
+        "x": 2,
+        "y": 336,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression504.png": {
+      "frame": {
+        "x": 169,
+        "y": 336,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression601.png": {
+      "frame": {
+        "x": 336,
+        "y": 336,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression602.png": {
+      "frame": {
+        "x": 336,
+        "y": 336,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression603.png": {
+      "frame": {
+        "x": 503,
+        "y": 336,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression604.png": {
+      "frame": {
+        "x": 670,
+        "y": 336,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression605.png": {
+      "frame": {
+        "x": 837,
+        "y": 336,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression606.png": {
+      "frame": {
+        "x": 2,
+        "y": 503,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression607.png": {
+      "frame": {
+        "x": 169,
+        "y": 503,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression608.png": {
+      "frame": {
+        "x": 336,
+        "y": 503,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression701.png": {
+      "frame": {
+        "x": 503,
+        "y": 503,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression702.png": {
+      "frame": {
+        "x": 503,
+        "y": 503,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression703.png": {
+      "frame": {
+        "x": 670,
+        "y": 503,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression704.png": {
+      "frame": {
+        "x": 837,
+        "y": 503,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression705.png": {
+      "frame": {
+        "x": 2,
+        "y": 670,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression706.png": {
+      "frame": {
+        "x": 169,
+        "y": 670,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression707.png": {
+      "frame": {
+        "x": 336,
+        "y": 670,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression708.png": {
+      "frame": {
+        "x": 503,
+        "y": 670,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression709.png": {
+      "frame": {
+        "x": 670,
+        "y": 670,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression801.png": {
+      "frame": {
+        "x": 837,
+        "y": 670,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression802.png": {
+      "frame": {
+        "x": 2,
+        "y": 837,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression901.png": {
+      "frame": {
+        "x": 169,
+        "y": 837,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression902.png": {
+      "frame": {
+        "x": 336,
+        "y": 837,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression903.png": {
+      "frame": {
+        "x": 169,
+        "y": 837,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression904.png": {
+      "frame": {
+        "x": 503,
+        "y": 837,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression905.png": {
+      "frame": {
+        "x": 670,
+        "y": 837,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression906.png": {
+      "frame": {
+        "x": 837,
+        "y": 837,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression907.png": {
+      "frame": {
+        "x": 670,
+        "y": 837,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    },
+    "expression908.png": {
+      "frame": {
+        "x": 503,
+        "y": 837,
+        "w": 165,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 165,
+        "h": 165
+      }
+    }
+  },
+  "animations": {
+    "default": [
+      "expression101.png",
+      "expression102.png",
+      "expression201.png",
+      "expression202.png",
+      "expression203.png",
+      "expression301.png",
+      "expression302.png",
+      "expression303.png",
+      "expression401.png",
+      "expression402.png",
+      "expression501.png",
+      "expression502.png",
+      "expression503.png",
+      "expression504.png",
+      "expression601.png",
+      "expression602.png",
+      "expression603.png",
+      "expression604.png",
+      "expression605.png",
+      "expression606.png",
+      "expression607.png",
+      "expression608.png",
+      "expression701.png",
+      "expression702.png",
+      "expression703.png",
+      "expression704.png",
+      "expression705.png",
+      "expression706.png",
+      "expression707.png",
+      "expression708.png",
+      "expression709.png",
+      "expression801.png",
+      "expression802.png",
+      "expression901.png",
+      "expression902.png",
+      "expression903.png",
+      "expression904.png",
+      "expression905.png",
+      "expression906.png",
+      "expression907.png",
+      "expression908.png"
+    ]
+  },
+  "meta": {
+    "app": "Commercial-TexturePacker-JSON",
+    "version": "1.0",
+    "image": "expression.png",
+    "format": "RGBA8888",
+    "scale": "1"
+  }
+}

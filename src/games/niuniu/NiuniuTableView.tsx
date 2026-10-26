@@ -719,70 +719,68 @@ export const NiuniuTableView: React.FC<NiuniuTableViewProps> = ({
                 />
               </footer>
             )}
+          </div>
 
-            {/* ================= Settlement Modal ================= */}
-            {phase === 'ROUND_RESULT' && activeSnapshot?.settlement && (
-              <NiuniuSettlementModal
-                settlement={activeSnapshot.settlement}
-                countdown={countdown}
-                selfPlayerId={selfPlayer?.playerId || ''}
-                onReadyNext={handleReady}
-                onLeaveRoom={() => {
-                  socketClient.emit('c2s_leave_room');
-                  onLeaveRoom();
-                }}
-              />
-            )}
+          {/* ================= Settlement Modal (Outside scaled stage) ================= */}
+          {phase === 'ROUND_RESULT' && activeSnapshot?.settlement && (
+            <NiuniuSettlementModal
+              settlement={activeSnapshot.settlement}
+              countdown={countdown}
+              selfPlayerId={selfPlayer?.playerId || ''}
+              onReadyNext={handleReady}
+              onLeaveRoom={() => {
+                socketClient.emit('c2s_leave_room');
+                onLeaveRoom();
+              }}
+            />
+          )}
 
-            {/* ================= Rule Explanation Modal ================= */}
-            {showRuleModal && (
+          {/* ================= Rule Explanation Modal (Outside scaled stage) ================= */}
+          {showRuleModal && (
+            <div className="pointer-events-auto fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-[3px] animate-in fade-in duration-150">
               <div
-                className="pointer-events-auto absolute inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-xs"
-                onClick={() => setShowRuleModal(false)}
+                className="relative flex max-h-[82dvh] w-full max-w-[420px] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#12171B]/95 text-[#F3F4F6] shadow-[0_24px_60px_rgba(0,0,0,0.72)] backdrop-blur-md"
+                onClick={(e) => e.stopPropagation()}
               >
-                <div
-                  className="relative flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-3xl border-2 border-amber-300/70 bg-gradient-to-b from-[#26160c] via-[#190e07] to-[#110904] p-5 text-white shadow-2xl"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div className="flex items-center justify-between border-b border-white/10 pb-3">
-                    <h3 className="font-display text-lg font-black text-amber-300">
-                      抢庄牛牛 · 规则与牌型倍率
-                    </h3>
-                    <button
-                      type="button"
-                      onClick={() => setShowRuleModal(false)}
-                      className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-amber-200 hover:bg-white/20 cursor-pointer"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
+                <div className="flex shrink-0 items-center justify-between border-b border-white/[0.08] bg-white/[0.02] px-4 sm:px-5 py-3">
+                  <h3 className="text-[15px] font-bold text-[#F3F4F6]">
+                    抢庄牛牛 · 规则与倍率
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => setShowRuleModal(false)}
+                    aria-label="关闭"
+                    className="flex h-7 w-7 items-center justify-center rounded-lg text-[#9CA3AF] hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
 
-                  <div className="mt-3 flex-1 space-y-2.5 overflow-y-auto pr-1 text-xs sm:text-sm text-amber-100/90">
-                    <p>
-                      <strong className="text-amber-300">1. 看牌抢庄（4明1暗）：</strong>
-                      开局先发 4 张明牌与 1 张暗牌，玩家根据前 4 张牌选择抢庄倍数（不抢/1~4倍）；定庄后闲家选注（5/10/15/20倍），随后揭晓第 5 张牌算牛比大小。
-                    </p>
-                    <p>
-                      <strong className="text-amber-300">2. 结算公式：</strong>
-                      输赢豆数 = 房间底分 × 庄家抢庄倍数 × 闲家下注倍数 × 胜方牌型倍数（支持以小博大与庄家赔付封顶保护）。
-                    </p>
-                    <p>
-                      <strong className="text-amber-300">3. 经典牌型倍率：</strong>
-                      五小牛(10倍) &gt; 炸弹牛(8倍) &gt; 五花牛(6倍) &gt; 四花/葫芦/同花/顺子牛(5倍) &gt; 牛牛(4倍) &gt; 牛九(3倍) &gt; 牛八/牛七(2倍) &gt; 牛六~无牛(1倍)。
-                    </p>
-                    <p>
-                      <strong className="text-amber-300">4. 疯狂加倍倍率：</strong>
-                      五小牛(10倍) &gt; 炸弹牛(9倍) &gt; 五花牛(8倍) &gt; 四花/葫芦/同花/顺子牛(7倍) &gt; 牛牛(6倍) &gt; 牛九(5倍) &gt; 牛八(4倍) &gt; 牛七(3倍) &gt; 牛六/牛五(2倍) &gt; 牛四~无牛(1倍)。
-                    </p>
-                    <p>
-                      <strong className="text-amber-300">5. 同牌型比大小：</strong>
-                      牌型相同时比单张最大牌点数（K &gt; Q &gt; ... &gt; A），点数相同比花色（黑桃 &gt; 红桃 &gt; 梅花 &gt; 方块），严格全序无平局。
-                    </p>
-                  </div>
+                <div className="flex-1 min-h-0 space-y-2.5 overflow-y-auto overscroll-contain p-4 sm:p-5 text-xs leading-relaxed text-[#9CA3AF]">
+                  <p>
+                    <strong className="font-bold text-[#F3F4F6]">1. 看牌抢庄（4明1暗）：</strong>
+                    开局先发 4 张明牌与 1 张暗牌，玩家根据前 4 张牌选择抢庄倍数（不抢/1~4倍）；定庄后闲家选注（5/10/15/20倍），随后揭晓第 5 张牌算牛比大小。
+                  </p>
+                  <p>
+                    <strong className="font-bold text-[#F3F4F6]">2. 结算公式：</strong>
+                    输赢豆数 = 房间底分 × 庄家抢庄倍数 × 闲家下注倍数 × 胜方牌型倍数（支持以小博大与庄家赔付封顶保护）。
+                  </p>
+                  <p>
+                    <strong className="font-bold text-[#F3F4F6]">3. 经典牌型倍率：</strong>
+                    五小牛(10倍) &gt; 炸弹牛(8倍) &gt; 五花牛(6倍) &gt; 四花/葫芦/同花/顺子牛(5倍) &gt; 牛牛(4倍) &gt; 牛九(3倍) &gt; 牛八/牛七(2倍) &gt; 牛六~无牛(1倍)。
+                  </p>
+                  <p>
+                    <strong className="font-bold text-[#F3F4F6]">4. 疯狂加倍倍率：</strong>
+                    五小牛(10倍) &gt; 炸弹牛(9倍) &gt; 五花牛(8倍) &gt; 四花/葫芦/同花/顺子牛(7倍) &gt; 牛牛(6倍) &gt; 牛九(5倍) &gt; 牛八(4倍) &gt; 牛七(3倍) &gt; 牛六/牛五(2倍) &gt; 牛四~无牛(1倍)。
+                  </p>
+                  <p>
+                    <strong className="font-bold text-[#F3F4F6]">5. 同牌型比大小：</strong>
+                    牌型相同时比单张最大牌点数（K &gt; Q &gt; ... &gt; A），点数相同比花色（黑桃 &gt; 红桃 &gt; 梅花 &gt; 方块），严格全序无平局。
+                  </p>
                 </div>
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       )}
     </AutoLandscapeContainer>

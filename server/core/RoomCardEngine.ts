@@ -102,7 +102,6 @@ export function computeStakeTierCardCost(baseScore = 100, initialScore = 2000): 
   const cleanBase = Math.max(10, Math.round(Number(baseScore) || 100));
   const cleanInit = Math.max(500, Math.round(Number(initialScore) || cleanBase * 20));
   if (cleanBase >= 10000 || cleanInit >= 200000) return 8;
-  if (cleanBase >= 5000 || cleanInit >= 100000) return 6;
   if (cleanBase >= 2000 || cleanInit >= 40000) return 4;
   if (cleanBase >= 500 || cleanInit >= 10000) return 2;
   return 1;
@@ -160,6 +159,12 @@ export function validateAndNormalizeServerStakes(
   };
 }
 
+/**
+ * Commercial Room Card Cost Formula:
+ * - Quick Match (`isQuickMatch === true`): Lightweight single-match tier fee (1 / 2 / 4 / 8 cards).
+ * - Friend Room (`!isQuickMatch`): Strictly fixed by round count (4局=1卡, 8局=2卡, 16局=4卡; AA平摊: 4/8局=1卡, 16局=2卡),
+ *   independent of baseScore tier or seat count.
+ */
 export function computeCommercialRoomCardCost(
   totalRounds: ServerRoomCardRoundCap,
   payMode: ServerRoomCardPayMode,
@@ -170,18 +175,10 @@ export function computeCommercialRoomCardCost(
   if (isQuickMatch) {
     return computeStakeTierCardCost(baseScore, initialScore);
   }
-  const stakeScale =
-    baseScore >= 10000 || initialScore >= 200000
-      ? 3
-      : baseScore >= 2000 || initialScore >= 50000
-      ? 2
-      : 1;
   if (payMode === 'aa') {
-    const baseAa = totalRounds === 16 ? 2 : 1;
-    return baseAa * stakeScale;
+    return totalRounds === 16 ? 2 : 1;
   }
-  const baseRoundCost = totalRounds === 4 ? 1 : totalRounds === 8 ? 2 : 4;
-  return baseRoundCost * stakeScale;
+  return totalRounds === 4 ? 1 : totalRounds === 8 ? 2 : 4;
 }
 
 /**
@@ -390,33 +387,34 @@ export class RoomCardEngine {
       return {
         ok: false,
         message:
-          params.payMode === 'winner'
+          params.payMode === 'winner' && !params.isQuickMatch
             ? `大赢家扣卡模式要求至少持有 ${cost} 张可用房卡方可建房`
-            : `可用房卡不足（本场准入需预冻结 ${cost} 张房卡，当前可用 ${hostProfile.roomCards} 张）`,
+            : `可用房卡不足（本场准入需扣除 ${cost} 张房卡，当前可用 ${hostProfile.roomCards} 张）`,
       };
     }
 
     let escrowStatus: ServerEscrowStatus = 'ELIGIBILITY_LOCKED';
-    let frozenCards = 0;
+    let capturedCards = 0;
     let updatedProfile: UserProfile | null = hostProfile;
 
-    if (params.payMode === 'host' || params.payMode === 'aa') {
-      const freezeRes = storageService.freezeRoomCard(
+    if (params.isQuickMatch || params.payMode === 'host' || params.payMode === 'aa') {
+      const deductReason = params.payMode === 'aa' ? 'ROOM_AA_PAY' : 'ROOM_CREATE';
+      const deductOk = storageService.consumeRoomCard(
         hostProfile.playerId,
         cost,
         params.roomId,
         params.gameType,
-        `包间 #${params.roomId} 入场预冻结 ${cost} 张房卡 (${SERVER_PAY_LABELS[params.payMode]} · 初始分 ${resolvedInitialScore.toLocaleString()})`
+        deductReason
       );
-      if (!freezeRes.ok) {
+      if (!deductOk) {
         return {
           ok: false,
-          message: `房卡预冻结失败，请检查房卡余额`,
+          message: `房卡实扣失败，请检查房卡余额`,
         };
       }
-      escrowStatus = 'FROZEN';
-      frozenCards = cost;
-      updatedProfile = freezeRes.profile;
+      escrowStatus = 'CAPTURED';
+      capturedCards = cost;
+      updatedProfile = storageService.getUser(hostProfile.playerId);
     }
 
     const config: ServerRoomCardConfig = {
@@ -427,7 +425,7 @@ export class RoomCardEngine {
       baseScore: resolvedBaseScore,
       initialScore: resolvedInitialScore,
       totalRounds: params.totalRounds,
-      payMode: params.payMode,
+      payMode: params.isQuickMatch ? 'host' : params.payMode,
       fillBots: params.fillBots,
       hostId: hostProfile.playerId,
       hostName: hostProfile.nickname,
@@ -439,8 +437,8 @@ export class RoomCardEngine {
       [hostProfile.playerId]: {
         playerId: hostProfile.playerId,
         playerName: hostProfile.nickname,
-        frozenCards,
-        capturedCards: 0,
+        frozenCards: 0,
+        capturedCards,
         releasedCards: 0,
         status: escrowStatus,
         updatedAt: Date.now(),
@@ -454,8 +452,8 @@ export class RoomCardEngine {
       cardCostTotal: cost,
       escrowState: escrowStatus,
       escrowMap,
-      deductedFromPlayerId: frozenCards > 0 ? hostProfile.playerId : null,
-      deductedAmount: frozenCards,
+      deductedFromPlayerId: capturedCards > 0 ? hostProfile.playerId : null,
+      deductedAmount: capturedCards,
       refunded: false,
       players,
       roundHistory: [],
@@ -469,9 +467,9 @@ export class RoomCardEngine {
     return {
       ok: true,
       message:
-        escrowStatus === 'FROZEN'
-          ? `已预冻结 ${frozenCards} 张房卡 · 初始积分 ${resolvedInitialScore.toLocaleString()}（首局发牌后正式扣除，未开牌退房全额退还）`
-          : `已通过大赢家房卡准入 · 初始积分 ${resolvedInitialScore.toLocaleString()}（终局由最高分大赢家扣减 ${cost} 张）`,
+        escrowStatus === 'CAPTURED'
+          ? `入场已实扣 ${capturedCards} 张房卡 · 初始积分 ${resolvedInitialScore.toLocaleString()}（仅超时无人加入自动退还）`
+          : `已通过大赢家房卡准入 · 初始积分 ${resolvedInitialScore.toLocaleString()}（终局由真人最高分大赢家实扣 ${cost} 张）`,
       session,
       updatedProfile,
     };
@@ -479,7 +477,7 @@ export class RoomCardEngine {
 
   /**
    * Handles a player joining a Room Card session by 6-digit code,
-   * including seat preservation on reconnect and AA / Winner-Pay escrow checks.
+   * including seat preservation on reconnect and AA / Winner-Pay checks.
    */
   public joinSession(params: {
     roomId: string;
@@ -562,22 +560,22 @@ export class RoomCardEngine {
 
     let updatedProfile: UserProfile | null = playerProfile;
     let escrowStatus: ServerEscrowStatus = 'ELIGIBILITY_LOCKED';
-    let frozenCards = 0;
+    let capturedCards = 0;
 
     if (config.payMode === 'aa' && neededCost > 0) {
-      const freezeRes = storageService.freezeRoomCard(
+      const deductOk = storageService.consumeRoomCard(
         playerProfile.playerId,
         neededCost,
         roomId,
         config.gameType,
-        `加入包间 #${roomId} 预冻结托管 (AA平摊)`
+        'ROOM_AA_PAY'
       );
-      if (!freezeRes.ok) {
-        return { ok: false, message: 'AA平摊房卡预冻结失败，请检查余额' };
+      if (!deductOk) {
+        return { ok: false, message: 'AA平摊房卡实扣失败，请检查余额' };
       }
-      escrowStatus = 'FROZEN';
-      frozenCards = neededCost;
-      updatedProfile = freezeRes.profile;
+      escrowStatus = 'CAPTURED';
+      capturedCards = neededCost;
+      updatedProfile = storageService.getUser(playerProfile.playerId);
       session.deductedAmount += neededCost;
     }
 
@@ -610,8 +608,8 @@ export class RoomCardEngine {
     session.escrowMap[playerProfile.playerId] = {
       playerId: playerProfile.playerId,
       playerName: playerProfile.nickname,
-      frozenCards,
-      capturedCards: 0,
+      frozenCards: 0,
+      capturedCards,
       releasedCards: 0,
       status: escrowStatus,
       updatedAt: Date.now(),
@@ -623,8 +621,8 @@ export class RoomCardEngine {
     return {
       ok: true,
       message:
-        frozenCards > 0
-          ? `加入 #${roomId} 成功，已预冻结 ${frozenCards} 张AA房卡 · 初始积分 ${config.initialScore.toLocaleString()}`
+        capturedCards > 0
+          ? `加入 #${roomId} 成功，已实扣 ${capturedCards} 张AA房卡 · 初始积分 ${config.initialScore.toLocaleString()}`
           : `加入 #${roomId} 成功 · 初始积分 ${config.initialScore.toLocaleString()}`,
       session,
       updatedProfile,
@@ -868,6 +866,11 @@ export class RoomCardEngine {
    * Applies the commercial Winner-Pay tie-breaker (`totalDelta > bestSingleRound > winCount > seatIndex`)
    * and signs the scorecard with HMAC-SHA256.
    */
+  /**
+   * Finalizes Grand Settlement (either at round cap or mid-match disband after >=1 completed round).
+   * Applies the commercial Human-Only Winner-Pay tie-breaker (`totalDelta > bestSingleRound > winCount > seatIndex`)
+   * with host fallback when all human players have net score <= 0, and signs the scorecard with HMAC-SHA256.
+   */
   private finalizeGrandSettlement(
     session: ServerRoomCardSessionState,
     isEarlyMidMatchSettle: boolean
@@ -881,16 +884,21 @@ export class RoomCardEngine {
     session.settledAt = Date.now();
     session.currentRound = Math.max(1, session.roundHistory.length);
 
-    const sortedPlayers = Object.values(session.players).sort(comparePlayersForWinnerPay);
-    const topCandidate = sortedPlayers[0];
+    // Filter strictly to human players (!p.isBot) for Winner-Pay adjudication
+    const sortedHumans = Object.values(session.players)
+      .filter((p) => !p.isBot)
+      .sort(comparePlayersForWinnerPay);
+    const topHumanCandidate = sortedHumans[0];
+    const hostHumanPlayer =
+      session.players[session.config.hostId] || sortedHumans[0];
 
     if (session.config.payMode === 'winner') {
-      // If someone has a positive net score, they are the adjudicated Big Winner;
-      // if all players are <= 0, fallback to room host
+      // Strictly adjudicate among human players: if top human has totalDelta > 0, they pay;
+      // if all human players are <= 0, fallback to room host
       const adjudicatedWinner =
-        topCandidate && topCandidate.totalDelta > 0
-          ? topCandidate
-          : session.players[session.config.hostId] || topCandidate;
+        topHumanCandidate && topHumanCandidate.totalDelta > 0
+          ? topHumanCandidate
+          : hostHumanPlayer;
 
       const cost = session.cardCostTotal;
       if (adjudicatedWinner) {
@@ -898,17 +906,15 @@ export class RoomCardEngine {
         session.deductedAmount = cost;
         session.escrowState = 'CAPTURED';
 
-        if (!adjudicatedWinner.isBot) {
-          storageService.settleWinnerRoomCard(
-            adjudicatedWinner.id,
-            cost,
-            session.config.roomId,
-            session.config.gameType,
-            `包间 #${session.config.roomId} ${
-              isEarlyMidMatchSettle ? '中途提前结算' : '终局满局结算'
-            }·大赢家顺位裁决扣减 ${cost} 张房卡`
-          );
-        }
+        storageService.settleWinnerRoomCard(
+          adjudicatedWinner.id,
+          cost,
+          session.config.roomId,
+          session.config.gameType,
+          `包间 #${session.config.roomId} ${
+            isEarlyMidMatchSettle ? '中途提前结算' : '终局满局结算'
+          }·真人顺位裁决扣减 ${cost} 张房卡`
+        );
 
         const existingEscrow = session.escrowMap[adjudicatedWinner.id];
         if (existingEscrow) {
@@ -934,12 +940,14 @@ export class RoomCardEngine {
 
   /**
    * Disbands or settles a Room Card session:
-   * - If `roundHistory.length === 0`: Releases all frozen room cards (`RELEASED`) back to players' available balance.
+   * - Immediate Entry Deduction Policy: Active manual disband before Round 1 does NOT refund already captured (`CAPTURED`) cards;
+   *   refunds are issued ONLY when `isIdleTimeout === true` (room timed out with no human joiners / no rounds started).
    * - If `roundHistory.length >= 1`: Immediately triggers Grand Settlement based on completed rounds (`GRAND_SETTLED`).
    */
   public disbandOrSettleSession(
     roomId: string,
-    _actorPlayerId?: string
+    _actorPlayerId?: string,
+    isIdleTimeout = false
   ): {
     action: 'refunded' | 'settled' | 'none';
     message: string;
@@ -951,7 +959,8 @@ export class RoomCardEngine {
     }
 
     if (session.roundHistory.length === 0) {
-      let totalReleased = 0;
+      let totalRefunded = 0;
+
       for (const record of Object.values(session.escrowMap)) {
         if (record.status === 'FROZEN' && record.frozenCards > 0) {
           storageService.releaseFrozenRoomCard(
@@ -959,19 +968,31 @@ export class RoomCardEngine {
             record.frozenCards,
             roomId,
             session.config.gameType,
-            `包间 #${roomId} 未开局解散，全额解冻退回 ${record.frozenCards} 张房卡`
+            `包间 #${roomId} 超时未开局解散，全额退回 ${record.frozenCards} 张房卡`
           );
-          totalReleased += record.frozenCards;
+          totalRefunded += record.frozenCards;
           record.releasedCards = record.frozenCards;
           record.frozenCards = 0;
+          record.status = 'RELEASED';
+          record.updatedAt = Date.now();
+        } else if (isIdleTimeout && record.status === 'CAPTURED' && record.capturedCards > 0) {
+          storageService.refundRoomCard(
+            record.playerId,
+            record.capturedCards,
+            roomId,
+            session.config.gameType
+          );
+          totalRefunded += record.capturedCards;
+          record.releasedCards = record.capturedCards;
+          record.capturedCards = 0;
           record.status = 'RELEASED';
           record.updatedAt = Date.now();
         }
       }
 
       session.status = 'disbanded_refunded';
-      session.escrowState = 'RELEASED';
-      session.refunded = true;
+      session.escrowState = isIdleTimeout ? 'RELEASED' : session.escrowState;
+      session.refunded = totalRefunded > 0;
       session.verification = this.signScorecardDigest(session);
 
       for (const pid of Object.keys(session.players)) {
@@ -983,10 +1004,9 @@ export class RoomCardEngine {
 
       return {
         action: 'refunded',
-        message:
-          totalReleased > 0
-            ? `包间 #${roomId} 未开局解散，服务端已全额解冻退还 ${totalReleased} 张房卡`
-            : `包间 #${roomId} 未开局解散，已解除大赢家准入锁`,
+        message: isIdleTimeout
+          ? `包间 #${roomId} 超时无人加入，系统已自动退还 ${totalRefunded} 张房卡`
+          : `包间 #${roomId} 已解散（入场即扣模式主动解散不退还房卡，仅超时无人加入自动退还）`,
         session,
       };
     }
@@ -994,15 +1014,37 @@ export class RoomCardEngine {
     this.finalizeGrandSettlement(session, true);
     return {
       action: 'settled',
-      message: `包间 #${roomId} 按已完成 ${session.roundHistory.length} 局完成大赢家裁决与防伪战报签名`,
+      message: `包间 #${roomId} 按已完成 ${session.roundHistory.length} 局完成真人顺位大赢家裁决与防伪战报签名`,
       session,
     };
   }
 
   /**
+   * Sweeps waiting sessions that have timed out with no human joiners / no rounds started (`roundHistory.length === 0`)
+   * and refunds their captured entry room cards automatically.
+   */
+  public sweepExpiredIdleSessions(maxIdleMs = 15 * 60 * 1000): string[] {
+    const now = Date.now();
+    const refundedRoomIds: string[] = [];
+    for (const [roomId, session] of this.sessions.entries()) {
+      const humanCount = Object.values(session.players).filter((p) => !p.isBot).length;
+      if (
+        session.status === 'waiting_first_round' &&
+        session.roundHistory.length === 0 &&
+        humanCount <= 1 &&
+        now - session.config.createdAt >= maxIdleMs
+      ) {
+        this.disbandOrSettleSession(roomId, undefined, true);
+        refundedRoomIds.push(roomId);
+      }
+    }
+    return refundedRoomIds;
+  }
+
+  /**
    * Called when a player disconnects or leaves a room.
-   * - If the match is in progress (`roundHistory.length > 0`), preserves their seat!
-   * - If `waiting_first_round` and a non-host AA player leaves, releases their frozen AA share.
+   * - Preserves seat if match is in progress (`roundHistory.length > 0`).
+   * - Under immediate-deduction policy, voluntary leave before timeout does not refund captured cards.
    */
   public handlePlayerLeaveOrDisconnect(roomId: string, playerId: string, isDisconnectOnly: boolean): void {
     const session = this.sessions.get(roomId);
@@ -1016,27 +1058,9 @@ export class RoomCardEngine {
       return;
     }
 
-    // Waiting for Round 1 & explicit leave: if host leaves, disband and refund all
     if (playerStat.isHost) {
-      this.disbandOrSettleSession(roomId, playerId);
+      this.disbandOrSettleSession(roomId, playerId, false);
       return;
-    }
-
-    // Non-host leaves before Round 1: release their frozen AA share if any
-    const escrow = session.escrowMap[playerId];
-    if (escrow && escrow.status === 'FROZEN' && escrow.frozenCards > 0) {
-      storageService.releaseFrozenRoomCard(
-        playerId,
-        escrow.frozenCards,
-        roomId,
-        session.config.gameType,
-        `包间 #${roomId} 开局前离座，自动解冻退回 ${escrow.frozenCards} 张AA房卡`
-      );
-      session.deductedAmount = Math.max(0, session.deductedAmount - escrow.frozenCards);
-      escrow.releasedCards = escrow.frozenCards;
-      escrow.frozenCards = 0;
-      escrow.status = 'RELEASED';
-      escrow.updatedAt = Date.now();
     }
 
     this.playerToActiveSession.delete(playerId);
@@ -1046,8 +1070,11 @@ export class RoomCardEngine {
    * Generates an authoritative HMAC-SHA256 anti-counterfeit signature over the session scorecard.
    */
   public signScorecardDigest(session: ServerRoomCardSessionState): ServerScorecardVerification {
-    const sorted = Object.values(session.players).sort(comparePlayersForWinnerPay);
-    const topWinner = sorted[0];
+    const allSorted = Object.values(session.players).sort(comparePlayersForWinnerPay);
+    const sortedHumans = Object.values(session.players)
+      .filter((p) => !p.isBot)
+      .sort(comparePlayersForWinnerPay);
+    const topHumanWinner = sortedHumans[0];
     const zeroSumVerified = session.roundHistory.every((r) => r.zeroSumCheck === 0);
 
     let payerName = session.config.hostName;
@@ -1056,31 +1083,37 @@ export class RoomCardEngine {
     } else if (session.config.payMode === 'winner') {
       if (session.deductedFromPlayerId && session.players[session.deductedFromPlayerId]) {
         payerName = session.players[session.deductedFromPlayerId].name;
-      } else if (topWinner && topWinner.totalDelta > 0) {
-        payerName = `${topWinner.name} (顺位暂领)`;
+      } else if (topHumanWinner && topHumanWinner.totalDelta > 0) {
+        payerName = `${topHumanWinner.name} (真人顺位暂领)`;
       } else {
-        payerName = '待终局大赢家裁决';
+        payerName = `${session.config.hostName} (真人全负房主兜底)`;
       }
     }
 
-    // Check if there was a tie for top positive score to explain tie-breaker rule
+    // Check if there was a tie among human players for top positive score to explain tie-breaker rule
     let tieBreakRuleApplied: string | undefined;
     if (
-      sorted.length >= 2 &&
-      sorted[0].totalDelta > 0 &&
-      sorted[0].totalDelta === sorted[1].totalDelta
+      sortedHumans.length >= 2 &&
+      sortedHumans[0].totalDelta > 0 &&
+      sortedHumans[0].totalDelta === sortedHumans[1].totalDelta
     ) {
-      if (sorted[0].bestSingleRound !== sorted[1].bestSingleRound) {
-        tieBreakRuleApplied = '并列最高分·按单局最高爆发分优先裁决';
-      } else if (sorted[0].winCount !== sorted[1].winCount) {
-        tieBreakRuleApplied = '并列最高分·按胜局数优先裁决';
+      if (sortedHumans[0].bestSingleRound !== sortedHumans[1].bestSingleRound) {
+        tieBreakRuleApplied = '真人并列最高分·按单局最高爆发分优先裁决';
+      } else if (sortedHumans[0].winCount !== sortedHumans[1].winCount) {
+        tieBreakRuleApplied = '真人并列最高分·按胜局数优先裁决';
       } else {
-        tieBreakRuleApplied = '并列最高分·按入座顺位优先裁决';
+        tieBreakRuleApplied = '真人并列最高分·按入座顺位优先裁决';
       }
+    } else if (
+      session.status === 'grand_settled' &&
+      session.config.payMode === 'winner' &&
+      (!topHumanWinner || topHumanWinner.totalDelta <= 0)
+    ) {
+      tieBreakRuleApplied = '真人玩家净胜分均未为正·由房主兜底扣卡';
     }
 
     const issuedAt = session.settledAt || Date.now();
-    const scoreVector = sorted
+    const scoreVector = allSorted
       .map((p) => `${p.id}:${p.totalDelta}:${p.bestSingleRound}:${p.winCount}`)
       .join('|');
     const canonicalPayload = [

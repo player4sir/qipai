@@ -1,13 +1,4 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import {
-  ChevronLeft,
-  ChevronRight,
-  Crown,
-  FastForward,
-  Pause,
-  Play,
-  RotateCcw,
-} from 'lucide-react';
 import { CardData, MatchReplayRecord, Rank, Suit } from '../types';
 import { AvatarSvg } from '../../../shared/ui/AvatarSvg';
 import { CommercialModalShell } from '../../../shared/ui/CommercialModalShell';
@@ -53,14 +44,14 @@ const MiniPokerCard: React.FC<{
 
   return (
     <div
-      className={`relative flex items-center justify-center overflow-hidden rounded-md select-none shadow-xs transition-transform ${
+      className={`relative flex items-center justify-center overflow-hidden rounded-md select-none shadow-2xs transition-transform ${
         size === 'md' ? 'h-12 w-9' : 'h-9 w-7'
       } ${
         isWild
-          ? 'ring-2 ring-[#F59E0B] shadow-amber-400/30'
+          ? 'ring-2 ring-[#F59E0B]'
           : highlight
-            ? 'ring-1 ring-[#D97706] -translate-y-1'
-            : 'border border-slate-200'
+          ? 'ring-1 ring-[#D97706] -translate-y-1'
+          : 'border border-[#E5DAC3]'
       }`}
     >
       <img
@@ -70,7 +61,7 @@ const MiniPokerCard: React.FC<{
         draggable={false}
       />
       {isWild && (
-        <span className="absolute right-0.5 bottom-0.5 rounded bg-[#F59E0B] px-0.5 text-[8px] leading-tight font-extrabold text-white shadow">
+        <span className="absolute right-0.5 bottom-0.5 rounded bg-[#F59E0B] px-0.5 text-[8px] leading-tight font-extrabold text-white shadow-2xs">
           赖
         </span>
       )}
@@ -106,7 +97,6 @@ export const ReplayViewerModal: React.FC<ReplayViewerModalProps> = ({
     return () => clearTimeout(timer);
   }, [isPlaying, stepIndex, totalSteps, speed]);
 
-  // Reconstruct the exact 3-seat open-card board state at `stepIndex`
   const snapshotAtStep = useMemo(() => {
     const hands: Record<number, CardData[]> = {
       0: [...(replay.initialHands[0] ?? [])],
@@ -123,7 +113,7 @@ export const ReplayViewerModal: React.FC<ReplayViewerModalProps> = ({
       replay.wildRanks.length > 0 ? [replay.wildRanks[0]] : [];
     let landlordRevealed = false;
     let activeStepSeat: number | null = null;
-    let activeStepDesc = '开局发牌完毕（三家底牌透视已开启）';
+    let activeStepDesc = '开局发牌完毕';
 
     const sortHandDesc = (arr: CardData[]) =>
       [...arr].sort((a, b) => b.value - a.value || b.id.localeCompare(a.id));
@@ -158,7 +148,7 @@ export const ReplayViewerModal: React.FC<ReplayViewerModalProps> = ({
           cards: st.cards,
           isHighlight: i === stepIndex - 1,
         };
-        activeStepDesc = `${seatName} 打出【${st.patternLabel ?? '牌组'}】（${st.cards.length}张）`;
+        activeStepDesc = `${seatName} 打出 ${st.patternLabel ?? '牌组'}（${st.cards.length}张）`;
       } else {
         const label = st.patternLabel ?? '不出';
         seatActionMap[st.seat] = {
@@ -166,7 +156,7 @@ export const ReplayViewerModal: React.FC<ReplayViewerModalProps> = ({
           cards: [],
           isHighlight: i === stepIndex - 1,
         };
-        activeStepDesc = `${seatName} 选择「${label}」`;
+        activeStepDesc = `${seatName} 选择 ${label}`;
       }
     }
 
@@ -203,36 +193,38 @@ export const ReplayViewerModal: React.FC<ReplayViewerModalProps> = ({
 
     return (
       <div
-        className={`flex flex-col rounded-2xl border p-3 transition-all ${
+        className={`flex flex-col rounded-xl border p-3.5 transition-all ${
           isActiveStep
-            ? 'border-[#F59E0B] bg-[#FFFBEB] shadow-sm'
-            : 'border-[#E8E1D0] bg-white shadow-2xs'
+            ? 'border-[#D4AF37]/35 bg-[#D4AF37]/[0.08]'
+            : 'border-white/[0.07] bg-white/[0.03]'
         } ${position === 'bottom' ? 'col-span-2' : ''}`}
       >
-        <div className="flex items-center justify-between gap-2 border-b border-[#EFE8D8] pb-2">
+        <div className="flex items-center justify-between gap-2 border-b border-white/[0.07] pb-2.5">
           <div className="flex min-w-0 items-center gap-2.5">
-            <AvatarSvg
-              avatarId={info?.avatarId ?? 'noble'}
-              size={32}
-              isLandlord={isLandlord}
-            />
+            <div className="h-8 w-8 shrink-0 overflow-hidden rounded-full border border-white/12 bg-black/40">
+              <AvatarSvg
+                avatarId={info?.avatarId ?? 'noble'}
+                size={32}
+                isLandlord={isLandlord}
+              />
+            </div>
             <div className="min-w-0">
-              <div className="flex items-center gap-1.5 text-xs">
-                <span className="truncate font-display font-black text-[#1E242B]">
+              <div className="flex items-center gap-1.5 text-xs sm:text-sm">
+                <span className="truncate font-bold text-[#F3F4F6]">
                   {info?.nickname ?? `玩家 ${seatIdx + 1}`}
                 </span>
-                <span className="font-bold text-[#B45309] whitespace-nowrap shrink-0">
+                <span className="text-xs font-medium text-[#E5B85B] whitespace-nowrap shrink-0">
                   · {isLandlord ? '地主' : '农民'}
                 </span>
               </div>
-              <div className="font-mono text-[11px] font-medium text-[#5A6572] tabular-nums">
+              <div className="mt-0.5 text-[11px] text-[#9CA3AF] tabular-nums">
                 余牌 {cards.length} 张 · 结算{' '}
                 <span
-                  className={`font-black ${
-                    delta >= 0 ? 'text-[#D97706]' : 'text-rose-600'
+                  className={`font-bold ${
+                    delta > 0 ? 'text-[#E5B85B]' : delta < 0 ? 'text-[#94A3B8]' : 'text-[#9CA3AF]'
                   }`}
                 >
-                  {delta >= 0 ? `+${delta}` : delta} 积分
+                  {delta > 0 ? `+${delta.toLocaleString()}` : delta.toLocaleString()}
                 </span>
               </div>
             </div>
@@ -241,10 +233,10 @@ export const ReplayViewerModal: React.FC<ReplayViewerModalProps> = ({
           {action && (
             <div className="flex items-center gap-2">
               <span
-                className={`rounded-lg border px-2 py-0.5 text-[11px] font-black whitespace-nowrap shrink-0 ${
+                className={`rounded-md border px-2 py-0.5 text-xs font-bold whitespace-nowrap shrink-0 ${
                   action.isHighlight
-                    ? 'border-[#F59E0B] bg-[#F59E0B] text-white'
-                    : 'border-[#E2D8C5] bg-[#FAF8F3] text-[#5C4934]'
+                    ? 'border-[#D4AF37]/40 bg-[#D4AF37]/15 text-[#E5B85B]'
+                    : 'border-white/10 bg-white/[0.04] text-[#9CA3AF]'
                 }`}
               >
                 {action.label}
@@ -266,10 +258,10 @@ export const ReplayViewerModal: React.FC<ReplayViewerModalProps> = ({
           )}
         </div>
 
-        <div className="mt-2.5 flex flex-wrap items-center gap-1">
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
           {cards.length === 0 ? (
-            <span className="text-xs font-black text-[#0D9488]">
-              已出完所有手牌（获胜）
+            <span className="text-xs font-bold text-[#E5B85B]">
+              已出完所有手牌（本局获胜）
             </span>
           ) : (
             cards.map((c) => (
@@ -294,18 +286,15 @@ export const ReplayViewerModal: React.FC<ReplayViewerModalProps> = ({
 
   return (
     <CommercialModalShell
-      title={`全视角三家明牌复盘 · 房号 ${replay.roomId}`}
+      title={`明牌复盘 · 房号 ${replay.roomId}`}
       subtitle={`${modeLabel} · 底分 ${replay.baseScore} · 倍数 ×${snapshotAtStep.currentMultiplier}${wildDesc}`}
-      icon={<Crown className="h-5 w-5" />}
       size="xl"
       portalMode="stage"
       closeOnBackdrop={false}
       onClose={onClose}
       headerExtra={
-        <div className="flex items-center gap-1.5 rounded-xl border border-[#DEC99A] bg-white px-2.5 py-1 shadow-2xs">
-          <span className="text-[11px] font-extrabold text-[#6E5A44] whitespace-nowrap">
-            三张底牌:
-          </span>
+        <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/35 px-2.5 py-1">
+          <span className="text-xs font-medium text-[#9CA3AF] whitespace-nowrap">底牌</span>
           <div className="flex items-center gap-1">
             {replay.landlordCards.map((c) => (
               <MiniPokerCard
@@ -319,13 +308,13 @@ export const ReplayViewerModal: React.FC<ReplayViewerModalProps> = ({
         </div>
       }
       footer={
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="min-w-0 flex-1">
             <div className="flex items-center justify-between text-xs">
-              <span className="truncate font-extrabold text-[#2C1E10]">
+              <span className="truncate font-medium text-[#F3F4F6]">
                 {snapshotAtStep.activeStepDesc}
               </span>
-              <span className="ml-2 font-mono text-xs font-black text-[#B45309] tabular-nums whitespace-nowrap">
+              <span className="ml-3 text-xs font-bold text-[#E5B85B] tabular-nums whitespace-nowrap">
                 步数 {stepIndex} / {totalSteps}
               </span>
             </div>
@@ -338,11 +327,11 @@ export const ReplayViewerModal: React.FC<ReplayViewerModalProps> = ({
                 setIsPlaying(false);
                 setStepIndex(Number(e.target.value));
               }}
-              className="mt-1.5 h-2 w-full cursor-pointer appearance-none rounded-lg bg-[#DFD5C0] accent-[#D97706]"
+              className="mt-2 h-1.5 w-full cursor-pointer appearance-none rounded-full bg-white/15 accent-[#D49B35]"
             />
           </div>
 
-          <div className="flex shrink-0 items-center gap-1.5">
+          <div className="flex shrink-0 items-center gap-2">
             <button
               type="button"
               onClick={() => {
@@ -350,11 +339,9 @@ export const ReplayViewerModal: React.FC<ReplayViewerModalProps> = ({
                 setIsPlaying(false);
                 setStepIndex(0);
               }}
-              className="flex items-center gap-1 rounded-xl border border-[#D8CEB8] bg-white px-2.5 py-1.5 text-xs font-extrabold text-[#334155] hover:bg-[#FAF8F3] whitespace-nowrap shrink-0 cursor-pointer"
-              title="回到开局"
+              className="flex h-8.5 items-center justify-center rounded-lg border border-white/12 bg-white/[0.06] px-3 text-xs font-semibold text-[#E5E7EB] hover:bg-white/[0.11] whitespace-nowrap shrink-0 cursor-pointer"
             >
-              <RotateCcw className="h-3.5 w-3.5" />
-              <span>开局</span>
+              开局
             </button>
 
             <button
@@ -365,10 +352,9 @@ export const ReplayViewerModal: React.FC<ReplayViewerModalProps> = ({
                 setIsPlaying(false);
                 setStepIndex((s) => Math.max(0, s - 1));
               }}
-              className="flex items-center gap-1 rounded-xl border border-[#D8CEB8] bg-white px-2.5 py-1.5 text-xs font-extrabold text-[#334155] hover:bg-[#FAF8F3] disabled:opacity-40 whitespace-nowrap shrink-0 cursor-pointer"
+              className="flex h-8.5 items-center justify-center rounded-lg border border-white/12 bg-white/[0.06] px-3 text-xs font-semibold text-[#E5E7EB] hover:bg-white/[0.11] disabled:opacity-35 whitespace-nowrap shrink-0 cursor-pointer"
             >
-              <ChevronLeft className="h-3.5 w-3.5" />
-              <span>上一手</span>
+              上一手
             </button>
 
             <button
@@ -382,10 +368,9 @@ export const ReplayViewerModal: React.FC<ReplayViewerModalProps> = ({
                   setIsPlaying((p) => !p);
                 }
               }}
-              className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-[#F59E0B] to-[#D97706] px-3.5 py-1.5 text-xs font-black text-white shadow-xs hover:brightness-105 whitespace-nowrap shrink-0 cursor-pointer"
+              className="flex h-8.5 min-w-[84px] items-center justify-center rounded-lg bg-[#D49B35] px-4 text-xs font-bold text-[#111315] hover:bg-[#E0A842] whitespace-nowrap shrink-0 cursor-pointer"
             >
-              {isPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-              <span>{isPlaying ? '暂停' : stepIndex >= totalSteps ? '重播' : '自动播放'}</span>
+              {isPlaying ? '暂停' : stepIndex >= totalSteps ? '重播' : '自动播放'}
             </button>
 
             <button
@@ -396,10 +381,9 @@ export const ReplayViewerModal: React.FC<ReplayViewerModalProps> = ({
                 setIsPlaying(false);
                 setStepIndex((s) => Math.min(totalSteps, s + 1));
               }}
-              className="flex items-center gap-1 rounded-xl border border-[#D8CEB8] bg-white px-2.5 py-1.5 text-xs font-extrabold text-[#334155] hover:bg-[#FAF8F3] disabled:opacity-40 whitespace-nowrap shrink-0 cursor-pointer"
+              className="flex h-8.5 items-center justify-center rounded-lg border border-white/12 bg-white/[0.06] px-3 text-xs font-semibold text-[#E5E7EB] hover:bg-white/[0.11] disabled:opacity-35 whitespace-nowrap shrink-0 cursor-pointer"
             >
-              <span>下一手</span>
-              <ChevronRight className="h-3.5 w-3.5" />
+              下一手
             </button>
 
             <button
@@ -408,17 +392,15 @@ export const ReplayViewerModal: React.FC<ReplayViewerModalProps> = ({
                 hapticEngine.tap();
                 setSpeed((s) => (s === 1 ? 2 : 1));
               }}
-              className="flex items-center gap-1 rounded-xl border border-[#F59E0B] bg-[#FFFBEB] px-2.5 py-1.5 font-mono text-xs font-black text-[#B45309] hover:bg-[#FEF3C7] whitespace-nowrap shrink-0 tabular-nums cursor-pointer"
-              title="切换复盘播放倍速"
+              className="flex h-8.5 items-center justify-center rounded-lg border border-[#D4AF37]/35 bg-[#D4AF37]/[0.08] px-3 text-xs font-bold text-[#E5B85B] hover:bg-[#D4AF37]/15 whitespace-nowrap shrink-0 tabular-nums cursor-pointer"
             >
-              <FastForward className="h-3.5 w-3.5" />
-              <span>{speed}x</span>
+              {speed}x倍速
             </button>
           </div>
         </div>
       }
     >
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {renderSeatPanel(leftSeat, 'left')}
         {renderSeatPanel(rightSeat, 'right')}
         {renderSeatPanel(bottomSeat, 'bottom')}

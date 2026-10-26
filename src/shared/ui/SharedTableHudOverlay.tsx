@@ -1,25 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  AlertTriangle,
-  Bot,
-  Check,
   Coffee,
-  Coins,
-  Copy,
-  Flame,
   Flower2,
-  Lock,
-  LogOut,
-  MessageSquare,
-  Play,
-  PlusCircle,
-  Shield,
-  ShieldCheck,
-  Sparkles,
   ThumbsUp,
-  Trophy,
-  Wifi,
-  WifiOff,
   X,
 } from 'lucide-react';
 import { soundEngine } from '../audio/SoundEngine';
@@ -30,10 +13,7 @@ import {
   EffectPriority,
   useEffectCoordinator,
 } from '../EffectCoordinator';
-import {
-  calculateStakeTierRoomCardCost,
-  computeRebuyOptions,
-} from '../roomcard/RoomCardSystem';
+import { computeRebuyOptions } from '../roomcard/RoomCardSystem';
 
 export interface SharedTableHudOverlayProps {
   activeRoomId: string | null;
@@ -81,32 +61,12 @@ const QUICK_CHAT_PRESETS: Array<{ iconKey: QuickIconKey; text: string }> = [
 const INTERACTIVE_PROPS: Array<{
   type: InteractivePropType;
   label: string;
-  accentClass: string;
 }> = [
-  { type: 'flower', label: '赠鲜花', accentClass: 'text-rose-300 border-rose-400/40 bg-rose-500/15' },
-  { type: 'tea', label: '敬香茗', accentClass: 'text-emerald-300 border-emerald-400/40 bg-emerald-500/15' },
-  { type: 'like', label: '赞好牌', accentClass: 'text-amber-300 border-amber-400/40 bg-amber-500/15' },
-  { type: 'ingot', label: '赐元宝', accentClass: 'text-yellow-200 border-yellow-400/40 bg-yellow-500/15' },
+  { type: 'flower', label: '赠鲜花' },
+  { type: 'tea', label: '敬香茗' },
+  { type: 'like', label: '赞好牌' },
+  { type: 'ingot', label: '赐元宝' },
 ];
-
-function renderChatVectorIcon(iconKey?: string) {
-  switch (iconKey) {
-    case 'flame':
-      return <Flame className="h-3.5 w-3.5 shrink-0 text-orange-400" />;
-    case 'sparkles':
-      return <Sparkles className="h-3.5 w-3.5 shrink-0 text-amber-300" />;
-    case 'thumbsup':
-      return <ThumbsUp className="h-3.5 w-3.5 shrink-0 text-emerald-400" />;
-    case 'shield':
-      return <Shield className="h-3.5 w-3.5 shrink-0 text-sky-400" />;
-    case 'coffee':
-      return <Coffee className="h-3.5 w-3.5 shrink-0 text-amber-400" />;
-    case 'trophy':
-      return <Trophy className="h-3.5 w-3.5 shrink-0 text-yellow-300" />;
-    default:
-      return <MessageSquare className="h-3.5 w-3.5 shrink-0 text-amber-300" />;
-  }
-}
 
 function renderPropGraphic(propType: InteractivePropType, sizeClass = 'h-6 w-6') {
   switch (propType) {
@@ -146,25 +106,13 @@ function getRelativeSeatAnchor(relSeat: number, totalSeats: number): { x: number
   return { x: 24, y: 82 };
 }
 
-/**
- * SharedTableHudOverlay (/src/shared/ui/SharedTableHudOverlay.tsx).
- * Unified non-intrusive HUD layer across all 5 games:
- * 1. Commercial Two-Phase Escrow Status (PRE_FREEZE -> COMMIT_DEDUCT) + Table Score & Base/Initial Stakes HUD
- * 2. Zero-Score Bankruptcy Protection & Room Card Rebuy Modal (1x Standard / 2x Super Rebuy)
- * 3. Real-time RTT network latency indicator + silent reconnection status banner
- * 4. One-click copyable 6-digit Room ID badge for Friend Room invitations
- * 5. Universal AI Trusteeship toggle & active takeover banner
- * 6. Cross-game Quick-Chat & Interactive Prop throwing with parabolic flight animations
- */
 export const SharedTableHudOverlay: React.FC<SharedTableHudOverlayProps> = ({
   activeRoomId,
   gameType,
   onShowNotice,
   onLeaveRoom,
 }) => {
-  const [rttMs, setRttMs] = useState<number>(() => socketClient.getRttMs() || 24);
   const [isReconnecting, setIsReconnecting] = useState<boolean>(false);
-  const [copiedRoomId, setCopiedRoomId] = useState<boolean>(false);
   const [isTrusteeship, setIsTrusteeship] = useState<boolean>(false);
   const [showChatMenu, setShowChatMenu] = useState<boolean>(false);
   const [drawerTab, setDrawerTab] = useState<'chat' | 'props'>('chat');
@@ -177,10 +125,6 @@ export const SharedTableHudOverlay: React.FC<SharedTableHudOverlayProps> = ({
   const [baseScore, setBaseScore] = useState<number>(100);
   const [initialScore, setInitialScore] = useState<number>(2000);
   const [myTableScore, setMyTableScore] = useState<number>(2000);
-  const [escrowState, setEscrowState] = useState<'FROZEN' | 'CAPTURED' | 'REFUNDED'>('FROZEN');
-  const [frozenCards, setFrozenCards] = useState<number>(1);
-  const [deductedCards, setDeductedCards] = useState<number>(0);
-  const [sessionStatus, setSessionStatus] = useState<'waiting_first_round' | 'in_progress' | 'grand_settled'>('waiting_first_round');
   const [showRebuyModal, setShowRebuyModal] = useState<boolean>(false);
   const [isBankruptTriggered, setIsBankruptTriggered] = useState<boolean>(false);
   const [rebuySubmitting, setRebuySubmitting] = useState<boolean>(false);
@@ -201,8 +145,6 @@ export const SharedTableHudOverlay: React.FC<SharedTableHudOverlayProps> = ({
     setShowRebuyModal(false);
     setIsBankruptTriggered(false);
     setIsSettlementActive(false);
-    setSessionStatus('waiting_first_round');
-    setEscrowState('FROZEN');
     const sceneKey = gameType || 'hall';
     effectCoordinator.setActiveScene(sceneKey);
     return () => {
@@ -214,10 +156,7 @@ export const SharedTableHudOverlay: React.FC<SharedTableHudOverlayProps> = ({
     const unsubs: Array<() => void> = [];
 
     unsubs.push(
-      socketClient.on('socket_heartbeat', (data: { rttMs?: number }) => {
-        if (typeof data?.rttMs === 'number') {
-          setRttMs(data.rttMs);
-        }
+      socketClient.on('socket_heartbeat', () => {
         setIsReconnecting(false);
       })
     );
@@ -240,7 +179,6 @@ export const SharedTableHudOverlay: React.FC<SharedTableHudOverlayProps> = ({
       })
     );
 
-    // Commercial Room Card Session Sync (PRE_FREEZE / COMMIT_DEDUCT / REBUY)
     unsubs.push(
       socketClient.on(
         's2c_rc_session_sync',
@@ -254,17 +192,11 @@ export const SharedTableHudOverlay: React.FC<SharedTableHudOverlayProps> = ({
             participants?: Array<{
               playerId: string;
               currentScore?: number;
-              frozenCards?: number;
-              deductedCards?: number;
-              escrowState?: 'FROZEN' | 'CAPTURED' | 'REFUNDED';
             }>;
           };
         }) => {
           const sess = payload?.session;
           if (!sess) return;
-          if (sess.status) {
-            setSessionStatus(sess.status);
-          }
           if (typeof sess.config?.baseScore === 'number' && sess.config.baseScore > 0) {
             setBaseScore(sess.config.baseScore);
           }
@@ -273,25 +205,13 @@ export const SharedTableHudOverlay: React.FC<SharedTableHudOverlayProps> = ({
           }
           const myId = socketClient.getPlayerId();
           const me = sess.participants?.find((p) => p.playerId === myId);
-          if (me) {
-            if (typeof me.currentScore === 'number') {
-              setMyTableScore(me.currentScore);
-            }
-            if (typeof me.frozenCards === 'number') {
-              setFrozenCards(me.frozenCards);
-            }
-            if (typeof me.deductedCards === 'number') {
-              setDeductedCards(me.deductedCards);
-            }
-            if (me.escrowState) {
-              setEscrowState(me.escrowState);
-            }
+          if (me && typeof me.currentScore === 'number') {
+            setMyTableScore(me.currentScore);
           }
         }
       )
     );
 
-    // Server-side Bankruptcy Protection Prompt
     unsubs.push(
       socketClient.on(
         's2c_bankruptcy_prompt',
@@ -319,7 +239,6 @@ export const SharedTableHudOverlay: React.FC<SharedTableHudOverlayProps> = ({
       )
     );
 
-    // Room Card Rebuy Success
     unsubs.push(
       socketClient.on(
         's2c_rc_rebuy_success',
@@ -339,7 +258,7 @@ export const SharedTableHudOverlay: React.FC<SharedTableHudOverlayProps> = ({
           hapticEngine.tap();
           if (data?.addedScore) {
             onShowNotice?.(
-              `破产保护补分成功：消耗 ${data.cardCost ?? 1} 张房卡，补充 +${data.addedScore.toLocaleString()} 台面积分`
+              `补分成功：消耗 ${data.cardCost ?? 1} 张房卡，补充 +${data.addedScore.toLocaleString()} 台面积分`
             );
           }
         }
@@ -360,7 +279,6 @@ export const SharedTableHudOverlay: React.FC<SharedTableHudOverlayProps> = ({
       )
     );
 
-    // Sync player table score, baseScore & settlement state across all 5 games
     unsubs.push(
       socketClient.on(
         's2c_mj_snapshot',
@@ -551,17 +469,12 @@ export const SharedTableHudOverlay: React.FC<SharedTableHudOverlayProps> = ({
           if (!msg?.text && !msg?.emoji) return;
           soundEngine.playTap(880);
           const bubbleId = `chat_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-          const validIcons: QuickIconKey[] = ['flame', 'sparkles', 'thumbsup', 'shield', 'coffee', 'trophy'];
-          const iconKey = validIcons.includes(msg.emoji as QuickIconKey)
-            ? (msg.emoji as QuickIconKey)
-            : 'sparkles';
           const entry: IncomingChatBubble = {
             id: bubbleId,
             playerId: msg.playerId,
             seatIndex: msg.seatIndex,
             nickname: msg.nickname || '牌友',
             text: msg.text || '',
-            iconKey,
           };
           setChatBubbles((prev) => [...prev.slice(-3), entry]);
           window.setTimeout(() => {
@@ -633,31 +546,6 @@ export const SharedTableHudOverlay: React.FC<SharedTableHudOverlayProps> = ({
     };
   }, [gameType, mySeatIndex, totalSeats, onShowNotice]);
 
-  const displayRoomCode =
-    activeRoomId && /^\d{6}$/.test(activeRoomId) ? activeRoomId : null;
-
-  const handleCopyRoomId = async () => {
-    if (!displayRoomCode) return;
-    soundEngine.playTap(820);
-    hapticEngine.tap();
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(displayRoomCode);
-      }
-    } catch {
-      // Ignore clipboard restriction
-    }
-    setCopiedRoomId(true);
-    window.setTimeout(() => setCopiedRoomId(false), 1800);
-  };
-
-  const handleCommitImmediateDeal = () => {
-    if (!activeRoomId) return;
-    soundEngine.playPowerChime(1);
-    hapticEngine.tap();
-    socketClient.emit('c2s_rc_commit_deal', { roomId: activeRoomId });
-  };
-
   const handleExecuteRebuy = (multiplier: 1 | 2) => {
     if (!activeRoomId || rebuySubmitting) return;
     soundEngine.playTap(840);
@@ -674,7 +562,7 @@ export const SharedTableHudOverlay: React.FC<SharedTableHudOverlayProps> = ({
     soundEngine.playPowerChime(2);
     hapticEngine.tap();
     socketClient.emit('c2s_exchange_room_cards', { cardCount: 5, beanCost: 0 });
-    onShowNotice?.('已为您免费补充 +5 张商业房卡，可直接执行台面补分');
+    onShowNotice?.('已为您免费补充 +5 张房卡');
   };
 
   const handleToggleTrusteeship = (nextValue?: boolean) => {
@@ -709,29 +597,10 @@ export const SharedTableHudOverlay: React.FC<SharedTableHudOverlayProps> = ({
     });
   };
 
-  const signalColorClass = isReconnecting
-    ? 'text-rose-400'
-    : rttMs < 85
-    ? 'text-emerald-400'
-    : rttMs < 180
-    ? 'text-amber-300'
-    : 'text-rose-400';
-
   const isScoreLow = myTableScore < baseScore;
-  const isEscrowWaiting =
-    sessionStatus === 'waiting_first_round' && escrowState === 'FROZEN';
-  const estimatedCardCost = useMemo(
-    () =>
-      Math.max(
-        1,
-        frozenCards || deductedCards || calculateStakeTierRoomCardCost(baseScore, initialScore)
-      ),
-    [baseScore, initialScore, frozenCards, deductedCards]
-  );
 
   return (
     <div className="pointer-events-none fixed inset-0 z-40 overflow-hidden select-none">
-      {/* Parabolic Prop Keyframes */}
       <style>{`
         @keyframes hudPropArcFlight {
           0% {
@@ -756,7 +625,6 @@ export const SharedTableHudOverlay: React.FC<SharedTableHudOverlayProps> = ({
         }
       `}</style>
 
-      {/* 0. Unified EffectCoordinator Backdrop Mask Layer (prevents multi-overlay darkening conflicts) */}
       {coordinatorSnap.maskConfig.level !== 'none' && (
         <div
           className="pointer-events-none fixed inset-0 transition-opacity duration-200"
@@ -773,9 +641,8 @@ export const SharedTableHudOverlay: React.FC<SharedTableHudOverlayProps> = ({
 
       {/* 1. Top-Center Silent Reconnection Banner */}
       {isReconnecting && (
-        <div className="pointer-events-auto fixed top-2.5 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-xl border border-amber-400/50 bg-[#1a1109]/95 px-3.5 py-1.5 text-xs font-bold text-amber-200 shadow-xl backdrop-blur-md">
-          <WifiOff className="h-3.5 w-3.5 text-amber-400 animate-spin" />
-          <span className="whitespace-nowrap">网络波动，正在为您静默重连恢复牌桌...</span>
+        <div className="pointer-events-auto fixed top-2.5 left-1/2 z-50 flex -translate-x-1/2 items-center rounded-xl border border-white/12 bg-[#12171B]/95 px-3.5 py-1.5 text-xs font-bold text-[#F3F4F6] shadow-lg backdrop-blur-md">
+          <span className="whitespace-nowrap">网络重连中...</span>
         </div>
       )}
 
@@ -785,11 +652,10 @@ export const SharedTableHudOverlay: React.FC<SharedTableHudOverlayProps> = ({
           {chatBubbles.map((b) => (
             <div
               key={b.id}
-              className="flex items-center gap-1.5 rounded-xl border border-amber-300/40 bg-[#141822]/92 px-3 py-1 text-xs text-white shadow-lg backdrop-blur-md animate-in fade-in zoom-in-95 duration-150"
+              className="flex items-center gap-1.5 rounded-xl border border-white/12 bg-[#12171B]/92 px-3 py-1 text-xs text-[#F3F4F6] shadow-md backdrop-blur-md animate-in fade-in zoom-in-95 duration-150"
             >
-              {renderChatVectorIcon(b.iconKey)}
-              <span className="font-bold text-amber-300">{b.nickname}：</span>
-              <span className="text-white/95">{b.text}</span>
+              <span className="font-bold text-[#E5B85B]">{b.nickname}：</span>
+              <span>{b.text}</span>
             </div>
           ))}
         </div>
@@ -846,16 +712,16 @@ export const SharedTableHudOverlay: React.FC<SharedTableHudOverlayProps> = ({
           {/* Quick-Chat & Interactive Prop Drawer */}
           <div className="relative">
             {showChatMenu && (
-              <div className="absolute right-0 bottom-10 mb-1 w-68 rounded-2xl border border-amber-300/30 bg-[#141822]/95 p-2.5 shadow-2xl backdrop-blur-md animate-in fade-in zoom-in-95 duration-150">
-                <div className="mb-2 flex items-center justify-between border-b border-white/10 pb-1.5">
-                  <div className="flex items-center gap-1">
+              <div className="absolute right-0 bottom-10 mb-1 w-64 rounded-2xl border border-white/10 bg-[#12171B]/95 p-3 text-[#F3F4F6] shadow-[0_20px_50px_rgba(0,0,0,0.68)] backdrop-blur-md animate-in fade-in zoom-in-95 duration-150">
+                <div className="mb-2 flex items-center justify-between border-b border-white/[0.08] pb-1.5">
+                  <div className="flex items-center gap-1 rounded-lg bg-black/35 p-0.5 border border-white/[0.08]">
                     <button
                       type="button"
                       onClick={() => setDrawerTab('chat')}
-                      className={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition-colors cursor-pointer ${
+                      className={`rounded-md px-2.5 py-1 text-[11px] font-bold transition-colors cursor-pointer ${
                         drawerTab === 'chat'
-                          ? 'bg-amber-400 text-[#1c1008]'
-                          : 'text-amber-100/75 hover:text-white'
+                          ? 'bg-[#D49B35] text-[#111315]'
+                          : 'text-[#9CA3AF] hover:text-[#F3F4F6]'
                       }`}
                     >
                       快捷语
@@ -863,10 +729,10 @@ export const SharedTableHudOverlay: React.FC<SharedTableHudOverlayProps> = ({
                     <button
                       type="button"
                       onClick={() => setDrawerTab('props')}
-                      className={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition-colors cursor-pointer ${
+                      className={`rounded-md px-2.5 py-1 text-[11px] font-bold transition-colors cursor-pointer ${
                         drawerTab === 'props'
-                          ? 'bg-amber-400 text-[#1c1008]'
-                          : 'text-amber-100/75 hover:text-white'
+                          ? 'bg-[#D49B35] text-[#111315]'
+                          : 'text-[#9CA3AF] hover:text-[#F3F4F6]'
                       }`}
                     >
                       互动礼仪
@@ -875,7 +741,8 @@ export const SharedTableHudOverlay: React.FC<SharedTableHudOverlayProps> = ({
                   <button
                     type="button"
                     onClick={() => setShowChatMenu(false)}
-                    className="text-white/50 hover:text-white cursor-pointer"
+                    aria-label="关闭互动菜单"
+                    className="flex h-6 w-6 items-center justify-center rounded-md text-[#9CA3AF] hover:bg-white/10 hover:text-white cursor-pointer"
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>
@@ -888,32 +755,24 @@ export const SharedTableHudOverlay: React.FC<SharedTableHudOverlayProps> = ({
                         key={idx}
                         type="button"
                         onClick={() => handleSendQuickChat(preset)}
-                        className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-white/85 transition-colors hover:bg-amber-500/20 hover:text-amber-200 active:scale-98 cursor-pointer"
+                        className="flex items-center rounded-xl border border-white/[0.06] bg-white/[0.03] px-2.5 py-1.5 text-left text-xs font-medium text-[#E5E7EB] transition-colors hover:border-[#D4AF37]/40 hover:bg-[#D4AF37]/10 hover:text-[#F3F4F6] active:scale-98 cursor-pointer"
                       >
-                        {renderChatVectorIcon(preset.iconKey)}
                         <span className="truncate">{preset.text}</span>
                       </button>
                     ))}
                   </div>
                 ) : (
-                  <div className="flex flex-col gap-2">
-                    <div className="grid grid-cols-2 gap-1.5">
-                      {INTERACTIVE_PROPS.map((item) => (
-                        <button
-                          key={item.type}
-                          type="button"
-                          onClick={() => handleThrowPropToNextOpponent(item.type, 1)}
-                          className={`flex items-center gap-2 rounded-xl border px-2.5 py-2 text-xs font-bold transition-transform active:scale-95 cursor-pointer ${item.accentClass}`}
-                        >
-                          {renderPropGraphic(item.type, 'h-4 w-4')}
-                          <span>{item.label}</span>
-                        </button>
-                      ))}
-                    </div>
-                    <div className="flex items-center justify-between px-1 text-[10px] text-white/50">
-                      <span>点击向牌桌邻座赠送互动礼仪</span>
-                      <Coins className="h-3 w-3 text-amber-300/70" />
-                    </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {INTERACTIVE_PROPS.map((item) => (
+                      <button
+                        key={item.type}
+                        type="button"
+                        onClick={() => handleThrowPropToNextOpponent(item.type, 1)}
+                        className="flex items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.04] px-2.5 py-2 text-xs font-bold text-[#F3F4F6] transition-colors hover:border-[#D4AF37]/40 hover:bg-[#D4AF37]/10 active:scale-95 cursor-pointer"
+                      >
+                        <span>{item.label}</span>
+                      </button>
+                    ))}
                   </div>
                 )}
               </div>
@@ -925,11 +784,10 @@ export const SharedTableHudOverlay: React.FC<SharedTableHudOverlayProps> = ({
                 soundEngine.playTap(760);
                 setShowChatMenu((prev) => !prev);
               }}
-              className="flex h-8 items-center gap-1 rounded-xl border border-amber-300/30 bg-[#141822]/85 px-2.5 text-xs font-bold text-amber-100 shadow-md backdrop-blur-xs transition-all hover:border-amber-300/60 hover:bg-[#1e2433] active:scale-95 whitespace-nowrap cursor-pointer"
+              className="flex h-8 items-center rounded-lg border border-white/12 bg-[#12171B]/90 px-3 text-xs font-bold text-[#E5E7EB] shadow-md backdrop-blur-xs transition-all hover:border-white/25 hover:bg-[#1A2128] active:scale-95 whitespace-nowrap cursor-pointer"
               title="牌桌快捷语与互动礼仪"
             >
-              <MessageSquare className="h-3.5 w-3.5 text-amber-300" />
-              <span className="hidden sm:inline">互动</span>
+              <span>互动</span>
             </button>
           </div>
 
@@ -937,152 +795,121 @@ export const SharedTableHudOverlay: React.FC<SharedTableHudOverlayProps> = ({
           <button
             type="button"
             onClick={() => handleToggleTrusteeship()}
-            className={`flex h-8 items-center gap-1 rounded-xl border px-2.5 text-xs font-bold shadow-md backdrop-blur-xs transition-all active:scale-95 whitespace-nowrap cursor-pointer ${
+            className={`flex h-8 items-center rounded-lg border px-3 text-xs font-bold shadow-md backdrop-blur-xs transition-all active:scale-95 whitespace-nowrap cursor-pointer ${
               isTrusteeship
-                ? 'border-amber-300 bg-amber-500 text-[#18181B]'
-                : 'border-amber-300/30 bg-[#141822]/85 text-amber-100 hover:border-amber-300/60 hover:bg-[#1e2433]'
+                ? 'border-[#D49B35] bg-[#D49B35] text-[#111315]'
+                : 'border-white/12 bg-[#12171B]/90 text-[#E5E7EB] hover:border-white/25 hover:bg-[#1A2128]'
             }`}
-            title={isTrusteeship ? '点击取消 AI 托管' : '开启 AI 智能代打托管'}
+            title={isTrusteeship ? '点击取消托管' : '开启托管'}
           >
-            <Bot className="h-3.5 w-3.5" />
             <span>{isTrusteeship ? '托管中' : '托管'}</span>
           </button>
         </div>
       )}
 
-      {/* 6. Prominent Active AI Trusteeship Banner */}
+      {/* 6. Active AI Trusteeship Banner */}
       {!isDdz && !isSettlementActive && isTrusteeship && (
         <div className="pointer-events-auto fixed bottom-12 left-1/2 z-40 -translate-x-1/2">
           <button
             type="button"
             onClick={() => handleToggleTrusteeship(false)}
-            className="flex items-center gap-2 rounded-2xl border border-amber-300/70 bg-[#181b26]/95 px-4 py-2 text-xs font-extrabold text-amber-200 shadow-2xl backdrop-blur-md transition-transform hover:scale-102 active:scale-95 whitespace-nowrap cursor-pointer"
+            className="flex items-center gap-2 rounded-xl border border-[#D4AF37]/40 bg-[#12171B]/95 px-4 py-2 text-xs font-bold text-[#E5B85B] shadow-xl backdrop-blur-md transition-transform hover:scale-102 active:scale-95 whitespace-nowrap cursor-pointer"
           >
-            <Bot className="h-4 w-4 text-amber-400" />
-            <span>AI 智能托管代打中 · 点击恢复手动操作</span>
+            <span>智能托管中 · 点击恢复手动出牌</span>
           </button>
         </div>
       )}
 
       {/* 7. Commercial Bankruptcy Protection & Room Card Rebuy Modal */}
       {showRebuyModal && (
-        <div className="pointer-events-auto fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-md animate-in fade-in duration-150">
-          <div className="relative w-full max-w-md overflow-hidden rounded-3xl border-2 border-amber-400/50 bg-gradient-to-b from-[#28160b] via-[#1c1008] to-[#120a05] p-5 text-white shadow-[0_24px_64px_rgba(0,0,0,0.85)]">
-            <div className="mb-3 flex items-center justify-between border-b border-amber-300/20 pb-3">
-              <div className="flex items-center gap-2">
-                <div
-                  className={`flex h-9 w-9 items-center justify-center rounded-xl border ${
-                    isBankruptTriggered || isScoreLow
-                      ? 'border-rose-400/50 bg-rose-500/20 text-rose-300'
-                      : 'border-amber-400/50 bg-amber-500/20 text-amber-300'
-                  }`}
-                >
-                  <AlertTriangle className="h-5 w-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-black tracking-wide text-amber-200">
-                    {isBankruptTriggered || isScoreLow
-                      ? '破产保护触发 · 房卡补分续局'
-                      : '商业牌桌 · 消耗房卡补充台面积分'}
-                  </h3>
-                  <p className="text-[11px] text-amber-100/70">
-                    单局输赢严格按台面余额零和封顶，绝不穿仓负分
-                  </p>
-                </div>
-              </div>
+        <div className="pointer-events-auto fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-[3px] animate-in fade-in duration-150">
+          <div
+            className="relative flex w-full max-w-[400px] max-h-[85dvh] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#12171B]/95 text-[#F3F4F6] shadow-[0_24px_60px_rgba(0,0,0,0.72)] backdrop-blur-md"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex shrink-0 items-center justify-between border-b border-white/[0.08] bg-white/[0.02] px-4 sm:px-5 py-3">
+              <h3 className="text-[15px] font-bold tracking-wide text-[#F3F4F6]">
+                {isBankruptTriggered || isScoreLow ? '房卡补分续局' : '补充台面积分'}
+              </h3>
               <button
                 type="button"
                 onClick={() => setShowRebuyModal(false)}
-                className="rounded-lg p-1 text-white/60 hover:bg-white/10 hover:text-white cursor-pointer"
+                aria-label="关闭面板"
+                className="flex h-7 w-7 items-center justify-center rounded-lg text-[#9CA3AF] hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
-            {/* Current Table Score Metrics */}
-            <div className="mb-4 grid grid-cols-3 gap-2 rounded-2xl border border-amber-300/20 bg-black/45 p-3 text-center">
-              <div>
-                <div className="text-[10px] font-bold text-amber-100/60">当前台面积分</div>
-                <div
-                  className={`mt-0.5 font-mono text-base font-black tabular-nums ${
-                    isScoreLow ? 'text-rose-400' : 'text-emerald-300'
-                  }`}
+            {/* Body */}
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 sm:p-5 space-y-3.5">
+              {/* Current Table Score Metrics */}
+              <div className="grid grid-cols-3 gap-2 rounded-xl border border-white/[0.07] bg-white/[0.03] p-3 text-center">
+                <div>
+                  <div className="text-[11px] font-medium text-[#9CA3AF]">当前台面积分</div>
+                  <div
+                    className={`mt-0.5 font-mono text-sm font-bold tabular-nums ${
+                      isScoreLow ? 'text-rose-400' : 'text-[#F3F4F6]'
+                    }`}
+                  >
+                    {myTableScore.toLocaleString()}
+                  </div>
+                </div>
+                <div className="border-x border-white/[0.07]">
+                  <div className="text-[11px] font-medium text-[#9CA3AF]">本桌底分</div>
+                  <div className="mt-0.5 font-mono text-sm font-bold text-[#E5B85B] tabular-nums">
+                    {baseScore.toLocaleString()}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[11px] font-medium text-[#9CA3AF]">准入初始分</div>
+                  <div className="mt-0.5 font-mono text-sm font-bold text-[#F3F4F6] tabular-nums">
+                    {initialScore.toLocaleString()}
+                  </div>
+                </div>
+              </div>
+
+              {/* Two Commercial Rebuy Tiers */}
+              <div className="grid grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  disabled={rebuySubmitting}
+                  onClick={() => handleExecuteRebuy(1)}
+                  className="flex flex-col items-center justify-between rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 text-center transition-all hover:border-[#D4AF37]/40 active:scale-98 disabled:opacity-50 cursor-pointer"
                 >
-                  {myTableScore.toLocaleString()}
-                </div>
-              </div>
-              <div className="border-x border-white/10">
-                <div className="text-[10px] font-bold text-amber-100/60">本桌底分</div>
-                <div className="mt-0.5 font-mono text-base font-black text-amber-300 tabular-nums">
-                  {baseScore.toLocaleString()}
-                </div>
-              </div>
-              <div>
-                <div className="text-[10px] font-bold text-amber-100/60">准入初始分</div>
-                <div className="mt-0.5 font-mono text-base font-black text-white tabular-nums">
-                  {initialScore.toLocaleString()}
-                </div>
+                  <span className="rounded-md bg-white/[0.06] px-2 py-0.5 text-[11px] font-medium text-[#9CA3AF]">
+                    1x {standardRebuyOpt.label}
+                  </span>
+                  <div className="my-2 font-mono text-base font-bold text-[#E5B85B] tabular-nums">
+                    +{standardRebuyOpt.addedScore.toLocaleString()} 分
+                  </div>
+                  <div className="h-8 px-3 flex items-center justify-center rounded-lg bg-[#D49B35] text-xs font-bold text-[#111315]">
+                    消耗 {standardRebuyOpt.cardCost} 张房卡
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={rebuySubmitting}
+                  onClick={() => handleExecuteRebuy(2)}
+                  className="flex flex-col items-center justify-between rounded-xl border border-[#D4AF37]/35 bg-[#D4AF37]/[0.08] p-3 text-center transition-all hover:border-[#D4AF37]/60 active:scale-98 disabled:opacity-50 cursor-pointer"
+                >
+                  <span className="rounded-md bg-[#D4AF37]/20 px-2 py-0.5 text-[11px] font-bold text-[#E5B85B]">
+                    2x {doubleRebuyOpt.label}
+                  </span>
+                  <div className="my-2 font-mono text-base font-bold text-[#E5B85B] tabular-nums">
+                    +{doubleRebuyOpt.addedScore.toLocaleString()} 分
+                  </div>
+                  <div className="h-8 px-3 flex items-center justify-center rounded-lg bg-[#D49B35] text-xs font-bold text-[#111315]">
+                    消耗 {doubleRebuyOpt.cardCost} 张房卡
+                  </div>
+                </button>
               </div>
             </div>
 
-            {/* Two Commercial Rebuy Tiers */}
-            <div className="mb-4 grid grid-cols-2 gap-2.5">
-              <button
-                type="button"
-                disabled={rebuySubmitting}
-                onClick={() => handleExecuteRebuy(1)}
-                className="group flex flex-col items-center justify-between rounded-2xl border border-amber-300/45 bg-gradient-to-b from-[#382010] to-[#221309] p-3.5 text-center transition-all hover:border-amber-300 hover:brightness-110 active:scale-98 disabled:opacity-50 cursor-pointer"
-              >
-                <span className="rounded-full bg-amber-400/20 px-2 py-0.5 text-[10px] font-extrabold text-amber-200">
-                  1x {standardRebuyOpt.label}
-                </span>
-                <div className="my-2 font-mono text-lg font-black text-emerald-300 tabular-nums">
-                  +{standardRebuyOpt.addedScore.toLocaleString()} 分
-                </div>
-                <div className="flex items-center gap-1 rounded-xl bg-amber-400 px-3 py-1 text-xs font-black text-[#231105] shadow">
-                  <img
-                    src="/assets/ui/zjm_icon_jinka.png"
-                    alt="房卡"
-                    className="h-3.5 w-3.5 object-contain"
-                  />
-                  <span className="font-mono tabular-nums">消耗 {standardRebuyOpt.cardCost} 张房卡</span>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                disabled={rebuySubmitting}
-                onClick={() => handleExecuteRebuy(2)}
-                className="group flex flex-col items-center justify-between rounded-2xl border border-amber-300/75 bg-gradient-to-b from-[#4c2910] via-[#331a09] to-[#221106] p-3.5 text-center shadow-[0_0_20px_rgba(245,158,11,0.2)] transition-all hover:border-amber-200 hover:brightness-110 active:scale-98 disabled:opacity-50 cursor-pointer"
-              >
-                <span className="rounded-full bg-gradient-to-r from-amber-300 to-yellow-500 px-2 py-0.5 text-[10px] font-black text-[#241104]">
-                  2x {doubleRebuyOpt.label}
-                </span>
-                <div className="my-2 font-mono text-lg font-black text-amber-300 tabular-nums">
-                  +{doubleRebuyOpt.addedScore.toLocaleString()} 分
-                </div>
-                <div className="flex items-center gap-1 rounded-xl bg-gradient-to-r from-amber-300 via-amber-400 to-orange-400 px-3 py-1 text-xs font-black text-[#231105] shadow">
-                  <img
-                    src="/assets/ui/zjm_icon_jinka.png"
-                    alt="房卡"
-                    className="h-3.5 w-3.5 object-contain"
-                  />
-                  <span className="font-mono tabular-nums">消耗 {doubleRebuyOpt.cardCost} 张房卡</span>
-                </div>
-              </button>
-            </div>
-
-            {/* Footer Actions: Free Card Supply + Leave Table */}
-            <div className="flex items-center justify-between gap-2 pt-1">
-              <button
-                type="button"
-                onClick={handleQuickFreeRoomCards}
-                className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-amber-300/35 bg-amber-500/15 py-2 text-xs font-bold text-amber-200 transition-colors hover:bg-amber-500/25 active:scale-98 cursor-pointer"
-              >
-                <PlusCircle className="h-3.5 w-3.5 text-amber-300" />
-                <span>免费补充房卡 (+5张)</span>
-              </button>
-
+            {/* Footer Actions */}
+            <div className="flex shrink-0 items-center justify-end gap-2.5 border-t border-white/[0.08] bg-white/[0.02] px-4 sm:px-5 py-2.5">
               {onLeaveRoom && (
                 <button
                   type="button"
@@ -1090,12 +917,19 @@ export const SharedTableHudOverlay: React.FC<SharedTableHudOverlayProps> = ({
                     setShowRebuyModal(false);
                     onLeaveRoom();
                   }}
-                  className="flex items-center justify-center gap-1.5 rounded-xl border border-white/15 bg-white/10 px-3.5 py-2 text-xs font-bold text-white/80 transition-colors hover:bg-rose-500/25 hover:text-rose-200 active:scale-98 cursor-pointer"
+                  className="h-8.5 min-w-[84px] rounded-lg border border-white/12 bg-white/[0.06] px-3.5 text-xs font-semibold text-[#E5E7EB] transition-colors hover:bg-white/[0.11] active:scale-98 cursor-pointer whitespace-nowrap"
                 >
-                  <LogOut className="h-3.5 w-3.5" />
-                  <span>离桌结算</span>
+                  离桌结算
                 </button>
               )}
+
+              <button
+                type="button"
+                onClick={handleQuickFreeRoomCards}
+                className="h-8.5 min-w-[116px] rounded-lg bg-[#D49B35] px-4 text-xs font-bold text-[#111315] transition-colors hover:bg-[#E0A842] active:scale-98 cursor-pointer whitespace-nowrap"
+              >
+                免费补充房卡 (+5)
+              </button>
             </div>
           </div>
         </div>

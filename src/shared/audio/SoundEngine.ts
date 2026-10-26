@@ -1,172 +1,284 @@
-import { legacyIdToTileIndex } from '../../games/mahjong/algorithms/TileEngine';
+import {
+  SOUND_MANIFEST,
+  DDZ_PRELOAD_MANIFEST,
+  MAHJONG_PRELOAD_MANIFEST,
+  resolveDdzCardVoicePath,
+  resolveDdzActionVoicePath,
+  resolveDdzQuickChatVoicePath,
+  resolveMahjongTileVoicePath,
+  type BgmMode,
+  type DdzActionVoiceType,
+  type DdzSfxType,
+  type MahjongActionVoiceType,
+  type VoiceGender,
+} from './SoundManifest';
+
+const SOUND_STORAGE_KEY = 'cardgame_sound_enabled_v1';
+const BGM_STORAGE_KEY = 'cardgame_bgm_enabled_v1';
+const BGM_VOLUME_KEY = 'cardgame_bgm_volume_v1';
+const SFX_VOLUME_KEY = 'cardgame_sfx_volume_v1';
 
 /**
- * Commercial 4.0 Multi-Track Audio, Chinese Pentatonic BGM Sequencer,
- * Physical Playing Card Acoustics & Expressive Voice Announcer.
+ * Tier-0 High-Frequency SFX paths that are pinned in the LRU cache (never evicted)
+ * and pre-fetched as raw ArrayBuffers immediately upon module instantiation—even before
+ * `AudioContext` is unlocked—eliminating any network or decode frame drops on table entry.
+ */
+const PINNED_HIGH_FREQ_PATHS: readonly string[] = [
+  SOUND_MANIFEST.ddzSfx.deal,
+  SOUND_MANIFEST.ddzSfx.cardTick,
+  SOUND_MANIFEST.ddzSfx.cardFan,
+  SOUND_MANIFEST.ddzSfx.discard,
+  SOUND_MANIFEST.ui.cardSelect,
+  SOUND_MANIFEST.ui.click,
+  SOUND_MANIFEST.ddzSfx.clock,
+  SOUND_MANIFEST.ddzSfx.alert,
+  SOUND_MANIFEST.ddzSfx.bomb,
+  SOUND_MANIFEST.ddzSfx.rocket,
+  SOUND_MANIFEST.ddzSfx.plane,
+  SOUND_MANIFEST.ddzSfx.shunzi,
+  SOUND_MANIFEST.ddzSfx.liandui,
+];
+
+/**
+ * Generic O(1) Least Recently Used (LRU) Cache with support for pinned (non-evictable) keys.
+ * Uses JavaScript `Map` insertion-order invariants to promote accessed entries to the MRU tail
+ * and evict the oldest unpinned entry when capacity is exceeded.
+ */
+export class LruAudioCache<V> {
+  private readonly store = new Map<string, V>();
+  private readonly pinnedKeys = new Set<string>();
+  private readonly maxEntries: number;
+  private hits = 0;
+  private misses = 0;
+  private evictions = 0;
+
+  constructor(maxEntries: number, initialPinnedKeys: Iterable<string> = []) {
+    this.maxEntries = Math.max(16, maxEntries);
+    for (const k of initialPinnedKeys) {
+      this.pinnedKeys.add(k);
+    }
+  }
+
+  public pin(key: string): void {
+    this.pinnedKeys.add(key);
+  }
+
+  public isPinned(key: string): boolean {
+    return this.pinnedKeys.has(key);
+  }
+
+  public has(key: string): boolean {
+    return this.store.has(key);
+  }
+
+  /**
+   * Retrieves a cached value and promotes its key to Most-Recently-Used (MRU) position.
+   */
+  public get(key: string): V | undefined {
+    const val = this.store.get(key);
+    if (val === undefined) {
+      this.misses++;
+      return undefined;
+    }
+    this.hits++;
+    // Promote to MRU tail by re-inserting
+    this.store.delete(key);
+    this.store.set(key, val);
+    return val;
+  }
+
+  /**
+   * Inserts or updates a cached value, evicting the Least-Recently-Used non-pinned entry
+   * if capacity is exceeded.
+   */
+  public set(key: string, value: V, pinEntry = false): void {
+    if (pinEntry) {
+      this.pinnedKeys.add(key);
+    }
+    if (this.store.has(key)) {
+      this.store.delete(key);
+    } else if (this.store.size >= this.maxEntries) {
+      this.evictOldestUnpinned();
+    }
+    this.store.set(key, value);
+  }
+
+  public delete(key: string): boolean {
+    return this.store.delete(key);
+  }
+
+  public get size(): number {
+    return this.store.size;
+  }
+
+  public getStats(): {
+    size: number;
+    maxEntries: number;
+    pinnedCount: number;
+    hits: number;
+    misses: number;
+    evictions: number;
+  } {
+    return {
+      size: this.store.size,
+      maxEntries: this.maxEntries,
+      pinnedCount: this.pinnedKeys.size,
+      hits: this.hits,
+      misses: this.misses,
+      evictions: this.evictions,
+    };
+  }
+
+  private evictOldestUnpinned(): void {
+    for (const candidateKey of this.store.keys()) {
+      if (!this.pinnedKeys.has(candidateKey)) {
+        this.store.delete(candidateKey);
+        this.evictions++;
+        return;
+      }
+    }
+    // Fallback if all entries are pinned: evict the absolute oldest key
+    const oldestKey = this.store.keys().next().value;
+    if (oldestKey !== undefined) {
+      this.store.delete(oldestKey);
+      this.evictions++;
+    }
+  }
+}
+
+/**
+ * SoundEngine — Commercial Production Audio Engine with Two-Stage LRU Pre-caching
+ *
+ * Strictly zero WebAudio Oscillator synthesis (`createOscillator`), zero procedural noise buffers,
+ * and zero browser `speechSynthesis` TTS.
+ * 100% of background music (BGM), sound effects (SFX), and male/female character voices (`Man_*` / `Woman_*`)
+ * are decoded and played from authentic commercial audio assets mapped in `SoundManifest.ts`.
  */
 class SoundEngine {
   private ctx: AudioContext | null = null;
   private enabled: boolean = true;
   private bgmEnabled: boolean = true;
-  private bgmMode: 'lobby' | 'table' | null = null;
-  private bgmTimer: number | null = null;
-  private bgmStep: number = 0;
-  private lobbyAudio: HTMLAudioElement | null = null;
-  private bgmVolume: number = 0.6;
-  private sfxVolume: number = 0.8;
-  private bufferCache: Map<string, AudioBuffer> = new Map();
-  private pendingFetches: Map<string, Promise<AudioBuffer | null>> = new Map();
-  private isUnlocked: boolean = false;
-  private activeVoiceSource: AudioBufferSourceNode | null = null;
-  private activeVoiceAudio: HTMLAudioElement | null = null;
+  private bgmVolume: number = 0.75;
+  private sfxVolume: number = 0.9;
+  private bgmMode: BgmMode = 'lobby';
+  private bgmSource: AudioBufferSourceNode | null = null;
+  private bgmGain: GainNode | null = null;
+  private bgmHtmlAudio: HTMLAudioElement | null = null;
+  private bgmLoadingToken: number = 0;
+
+  // Stage-2 LRU Decoded AudioBuffer cache (capacity: 96 clips, high-frequency SFX pinned)
+  private readonly audioBufferCache = new LruAudioCache<AudioBuffer>(96, PINNED_HIGH_FREQ_PATHS);
+  // Stage-1 LRU Raw ArrayBuffer pre-cache (warms network bytes BEFORE AudioContext is created)
+  private readonly rawByteCache = new LruAudioCache<ArrayBuffer>(64, PINNED_HIGH_FREQ_PATHS);
+
+  private loadingPromises: Map<string, Promise<AudioBuffer | null>> = new Map();
+  private rawFetchPromises: Map<string, Promise<ArrayBuffer | null>> = new Map();
+
+  // Concurrency-throttled background preload queue to prevent decode spikes during entry animations
+  private preloadQueue: string[] = [];
+  private queuedPathsSet: Set<string> = new Set();
+  private activePreloadWorkers = 0;
+  private readonly maxConcurrentPreloads = 3;
+
+  // Per-clip cooldown tracking (ms) to prevent overlapping clipping during rapid actions
+  private lastPlayedAt: Map<string, number> = new Map();
+
+  // Active Mahjong voice timers so `clearMahjongVoiceQueue` can cancel pending queued calls cleanly
+  private mahjongVoiceTimers: Set<number> = new Set();
+
+  // Controlled dealing cascade audio nodes so `Special_Dispatch.mp3` never overlaps or overruns dealing
+  private dealCascadeSource: AudioBufferSourceNode | null = null;
+  private dealCascadeGain: GainNode | null = null;
+  private dealFanTimer: number | null = null;
+  private coreDealPreloaded: boolean = false;
 
   constructor() {
-    const savedSfx = localStorage.getItem('h5_audio_enabled');
-    if (savedSfx !== null) {
-      this.enabled = savedSfx === 'true';
-    }
-    const savedBgm = localStorage.getItem('h5_bgm_enabled');
-    if (savedBgm !== null) {
-      this.bgmEnabled = savedBgm === 'true';
-    }
-    const savedBgmVol = localStorage.getItem('h5_bgm_volume');
-    if (savedBgmVol !== null) {
-      const v = parseFloat(savedBgmVol);
-      if (!isNaN(v)) this.bgmVolume = Math.max(0, Math.min(1, v));
-    }
-    const savedSfxVol = localStorage.getItem('h5_sfx_volume');
-    if (savedSfxVol !== null) {
-      const v = parseFloat(savedSfxVol);
-      if (!isNaN(v)) this.sfxVolume = Math.max(0, Math.min(1, v));
-    }
-
-    // Auto unlock mobile WebAudio on first user gesture
-    if (typeof window !== 'undefined') {
-      const unlockHandler = () => {
-        this.unlockAudio();
-        window.removeEventListener('pointerdown', unlockHandler);
-        window.removeEventListener('touchstart', unlockHandler);
-        window.removeEventListener('keydown', unlockHandler);
-      };
-      window.addEventListener('pointerdown', unlockHandler, { passive: true });
-      window.addEventListener('touchstart', unlockHandler, { passive: true });
-      window.addEventListener('keydown', unlockHandler, { passive: true });
-    }
-  }
-
-  /**
-   * Unlock WebAudio context for mobile browser autoplay policies
-   */
-  unlockAudio(): void {
-    if (typeof window === 'undefined') return;
-    const ctx = this.getContext();
-    if (!ctx) return;
-    if (ctx.state === 'suspended') {
-      ctx.resume().catch(() => {});
-    }
-    if (!this.isUnlocked) {
-      try {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        gain.gain.value = 0.0001;
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(0);
-        osc.stop(0.001);
-        this.isUnlocked = true;
-      } catch {
-        // Ignored
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const savedSound = window.localStorage.getItem(SOUND_STORAGE_KEY);
+        if (savedSound !== null) {
+          this.enabled = savedSound !== 'false';
+        }
+        const savedBgm = window.localStorage.getItem(BGM_STORAGE_KEY);
+        if (savedBgm !== null) {
+          this.bgmEnabled = savedBgm !== 'false';
+        } else {
+          this.bgmEnabled = this.enabled;
+        }
+        const savedBgmVol = window.localStorage.getItem(BGM_VOLUME_KEY);
+        if (savedBgmVol !== null) {
+          const parsed = parseFloat(savedBgmVol);
+          if (!Number.isNaN(parsed)) {
+            this.bgmVolume = Math.max(0, Math.min(1, parsed));
+          }
+        }
+        const savedSfxVol = window.localStorage.getItem(SFX_VOLUME_KEY);
+        if (savedSfxVol !== null) {
+          const parsed = parseFloat(savedSfxVol);
+          if (!Number.isNaN(parsed)) {
+            this.sfxVolume = Math.max(0, Math.min(1, parsed));
+          }
+        }
       }
+    } catch {
+      this.enabled = true;
+      this.bgmEnabled = true;
+    }
+    // Immediately warm Stage-1 raw ArrayBuffer cache for high-frequency dealing & card SFX
+    // before any AudioContext user gesture occurs, so initial table entry has zero network wait.
+    this.primeHighFrequencyRawBuffers();
+  }
+
+  /**
+   * Pre-fetches raw `.mp3`/`.wav` bytes into the Stage-1 LRU `rawByteCache` before `AudioContext`
+   * initialization completes, ensuring instantaneous `decodeAudioData` once the table mounts.
+   */
+  private primeHighFrequencyRawBuffers(): void {
+    if (typeof window === 'undefined' || typeof fetch === 'undefined') return;
+    const immediateDealPaths = [
+      SOUND_MANIFEST.ddzSfx.deal,
+      SOUND_MANIFEST.ddzSfx.cardTick,
+      SOUND_MANIFEST.ddzSfx.cardFan,
+      SOUND_MANIFEST.ddzSfx.discard,
+      SOUND_MANIFEST.ui.cardSelect,
+      SOUND_MANIFEST.ui.click,
+    ];
+    for (const path of immediateDealPaths) {
+      void this.fetchRawAudioBytes(path, true);
     }
   }
 
   /**
-   * Preload and cache decoded AudioBuffer for 0ms latency playback
+   * Fetches and caches raw audio bytes in the Stage-1 LRU cache without requiring an active `AudioContext`.
    */
-  async loadAudioBuffer(url: string): Promise<AudioBuffer | null> {
-    if (this.bufferCache.has(url)) {
-      return this.bufferCache.get(url)!;
-    }
-    if (this.pendingFetches.has(url)) {
-      return this.pendingFetches.get(url)!;
-    }
+  private async fetchRawAudioBytes(path: string, pin = false): Promise<ArrayBuffer | null> {
+    const cachedRaw = this.rawByteCache.get(path);
+    if (cachedRaw) return cachedRaw;
 
-    const fetchPromise = (async () => {
+    const existing = this.rawFetchPromises.get(path);
+    if (existing) return existing;
+
+    const task = (async (): Promise<ArrayBuffer | null> => {
       try {
-        const ctx = this.getContext();
-        if (!ctx) return null;
-        const resp = await fetch(url);
-        if (!resp.ok) return null;
-        const arrayBuf = await resp.arrayBuffer();
-        const audioBuf = await ctx.decodeAudioData(arrayBuf);
-        this.bufferCache.set(url, audioBuf);
-        return audioBuf;
+        const res = await fetch(path);
+        if (!res.ok) return null;
+        const buf = await res.arrayBuffer();
+        this.rawByteCache.set(path, buf, pin || this.audioBufferCache.isPinned(path));
+        return buf;
       } catch {
         return null;
       } finally {
-        this.pendingFetches.delete(url);
+        this.rawFetchPromises.delete(path);
       }
     })();
 
-    this.pendingFetches.set(url, fetchPromise);
-    return fetchPromise;
-  }
-
-  /**
-   * Play decoded WebAudio buffer with HTMLAudioElement fallback
-   */
-  playBuffer(url: string, volumeScale = 1.0, fallbackChime = 2): void {
-    if (!this.enabled) return;
-    const ctx = this.getContext();
-    if (!ctx) return;
-
-    if (this.bufferCache.has(url)) {
-      try {
-        const source = ctx.createBufferSource();
-        source.buffer = this.bufferCache.get(url)!;
-        const gain = ctx.createGain();
-        gain.gain.setValueAtTime(this.sfxVolume * volumeScale, ctx.currentTime);
-        source.connect(gain);
-        gain.connect(ctx.destination);
-        source.start(0);
-        return;
-      } catch {
-        // Fallback
-      }
-    }
-
-    this.loadAudioBuffer(url).then((buf) => {
-      if (buf && ctx.state === 'running') {
-        try {
-          const source = ctx.createBufferSource();
-          source.buffer = buf;
-          const gain = ctx.createGain();
-          gain.gain.setValueAtTime(this.sfxVolume * volumeScale, ctx.currentTime);
-          source.connect(gain);
-          gain.connect(ctx.destination);
-          source.start(0);
-          return;
-        } catch {
-          // Fallback
-        }
-      }
-      try {
-        const audio = new Audio(url);
-        audio.volume = Math.min(1.0, this.sfxVolume * volumeScale);
-        audio.play().catch(() => {
-          if (fallbackChime) this.playPowerChime(fallbackChime as 2 | 4);
-        });
-      } catch {
-        if (fallbackChime) this.playPowerChime(fallbackChime as 2 | 4);
-      }
-    });
+    this.rawFetchPromises.set(path, task);
+    return task;
   }
 
   private getContext(): AudioContext | null {
-    if (!this.enabled && !this.bgmEnabled) return null;
-    if (typeof window === 'undefined') return null;
-
-    if (!this.ctx) {
+    if (!this.enabled) return null;
+    if (!this.ctx && typeof window !== 'undefined') {
       const AudioCtx =
         window.AudioContext ||
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
@@ -174,30 +286,83 @@ class SoundEngine {
         this.ctx = new AudioCtx();
       }
     }
-
     if (this.ctx && this.ctx.state === 'suspended') {
       this.ctx.resume().catch(() => {});
     }
+    if (this.ctx && !this.coreDealPreloaded) {
+      this.coreDealPreloaded = true;
+      // Decode pinned Tier-0 dealing & card interaction buffers immediately from pre-fetched raw bytes
+      for (const path of [
+        SOUND_MANIFEST.ddzSfx.deal,
+        SOUND_MANIFEST.ddzSfx.cardTick,
+        SOUND_MANIFEST.ddzSfx.cardFan,
+        SOUND_MANIFEST.ddzSfx.discard,
+        SOUND_MANIFEST.ui.cardSelect,
+      ]) {
+        void this.loadAudioBuffer(path, true);
+      }
+      this.pumpPreloadQueue();
+    }
     return this.ctx;
+  }
+
+  private getSfxMultiplier(): number {
+    return this.enabled ? this.sfxVolume : 0;
+  }
+
+  private getBgmMultiplier(): number {
+    if (!this.bgmEnabled || !this.enabled) return 0;
+    return this.bgmVolume;
+  }
+
+  setEnabled(val: boolean): void {
+    this.enabled = val;
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem(SOUND_STORAGE_KEY, String(val));
+      }
+    } catch {
+      // Ignore storage errors
+    }
+    if (!val) {
+      this.stopBgm();
+    } else if (this.bgmEnabled) {
+      this.startBgm(this.bgmMode);
+    }
   }
 
   isEnabled(): boolean {
     return this.enabled;
   }
 
-  isBgmEnabled(): boolean {
-    return this.bgmEnabled;
+  toggle(): boolean {
+    this.setEnabled(!this.enabled);
+    return this.enabled;
   }
 
-  toggle(): boolean {
-    this.enabled = !this.enabled;
-    localStorage.setItem('h5_audio_enabled', String(this.enabled));
-    if (this.enabled) {
-      this.playTap(700);
-    } else if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
+  setBgmEnabled(val: boolean): void {
+    this.bgmEnabled = val;
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem(BGM_STORAGE_KEY, String(val));
+      }
+    } catch {
+      // Ignore storage errors
     }
-    return this.enabled;
+    if (!val) {
+      this.stopBgm();
+    } else if (this.enabled) {
+      this.startBgm(this.bgmMode);
+    }
+  }
+
+  isBgmEnabled(): boolean {
+    return this.bgmEnabled && this.enabled;
+  }
+
+  toggleBgm(): boolean {
+    this.setBgmEnabled(!this.bgmEnabled);
+    return this.bgmEnabled;
   }
 
   getBgmVolume(): number {
@@ -206,10 +371,14 @@ class SoundEngine {
 
   setBgmVolume(val: number): void {
     this.bgmVolume = Math.max(0, Math.min(1, val));
-    localStorage.setItem('h5_bgm_volume', String(this.bgmVolume));
-    if (this.lobbyAudio) {
-      this.lobbyAudio.volume = this.bgmVolume;
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem(BGM_VOLUME_KEY, String(this.bgmVolume));
+      }
+    } catch {
+      // Ignore storage errors
     }
+    this.syncBgmVolume();
   }
 
   getSfxVolume(): number {
@@ -218,1433 +387,982 @@ class SoundEngine {
 
   setSfxVolume(val: number): void {
     this.sfxVolume = Math.max(0, Math.min(1, val));
-    localStorage.setItem('h5_sfx_volume', String(this.sfxVolume));
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem(SFX_VOLUME_KEY, String(this.sfxVolume));
+      }
+    } catch {
+      // Ignore storage errors
+    }
   }
 
-  toggleBgm(): boolean {
-    this.bgmEnabled = !this.bgmEnabled;
-    localStorage.setItem('h5_bgm_enabled', String(this.bgmEnabled));
-    if (this.bgmEnabled) {
-      const targetMode = this.bgmMode ?? 'table';
-      this.bgmMode = null;
-      this.startBgm(targetMode);
-    } else {
-      this.stopBgmLoopOnly();
-    }
-    return this.bgmEnabled;
+  private getBgmTrackPath(mode: BgmMode): string {
+    if (mode === 'lobby') return SOUND_MANIFEST.bgm.lobby;
+    if (mode === 'exciting') return SOUND_MANIFEST.bgm.exciting;
+    return SOUND_MANIFEST.bgm.table;
   }
 
   /**
-   * Start Chinese Pentatonic BGM Sequencer or play authentic lobby audio file.
+   * Starts authentic commercial Dou Dizhu looping BGM (`MusicEx_Welcome.mp3`, `MusicEx_Normal.mp3`, `MusicEx_Exciting.mp3`).
    */
-  startBgm(mode: 'lobby' | 'table'): void {
-    if (this.bgmMode === mode && (this.bgmTimer !== null || (this.lobbyAudio && !this.lobbyAudio.paused))) return;
+  startBgm(mode: BgmMode = 'table'): void {
+    const modeChanged = this.bgmMode !== mode;
     this.bgmMode = mode;
-    this.stopBgmLoopOnly();
-    if (!this.bgmEnabled) return;
 
-    if (mode === 'lobby') {
+    const bgmVol = this.getBgmMultiplier();
+    if (bgmVol <= 0) {
+      this.stopBgm();
+      return;
+    }
+
+    if (!modeChanged && (this.bgmSource || (this.bgmHtmlAudio && !this.bgmHtmlAudio.paused))) {
+      this.syncBgmVolume();
+      return;
+    }
+
+    this.stopBgm();
+    const trackPath = this.getBgmTrackPath(mode);
+    const token = ++this.bgmLoadingToken;
+
+    if (typeof window !== 'undefined' && typeof Audio !== 'undefined') {
       try {
-        if (!this.lobbyAudio) {
-          this.lobbyAudio = new Audio('/assets/audio/bgm_lobby.wav');
-          this.lobbyAudio.loop = true;
-        }
-        this.lobbyAudio.volume = this.bgmVolume;
-        const playPromise = this.lobbyAudio.play();
-        if (playPromise) {
-          playPromise.catch(() => {
-            // If browser autoplay policies block audio element, fallback to WebAudio sequencer
-            this.startSynthesizedBgm('lobby');
-          });
-        }
+        const audio = new Audio(trackPath);
+        audio.loop = true;
+        audio.volume = Math.max(0, Math.min(1, 0.42 * bgmVol));
+        this.bgmHtmlAudio = audio;
+        audio.play().catch(() => {
+          if (this.bgmLoadingToken === token) {
+            void this.startWebAudioBgmFallback(trackPath, token);
+          }
+        });
         return;
       } catch {
-        // Fallback to WebAudio sequencer
+        // Fallback to WebAudio buffer below
       }
     }
 
-    this.startSynthesizedBgm(mode);
+    void this.startWebAudioBgmFallback(trackPath, token);
   }
 
-  private startSynthesizedBgm(mode: 'lobby' | 'table'): void {
-    // Pentatonic frequencies (C4, D4, E4, G4, A4, C5, D5, E5, G5, A5, C6)
-    const lobbyMelody = [
-      523.25, 659.25, 587.33, 523.25, 440.0, 523.25, 392.0, 0,
-      440.0, 523.25, 587.33, 659.25, 587.33, 523.25, 440.0, 0,
-    ];
-    const tableMelody = [
-      659.25, 783.99, 880.0, 783.99, 659.25, 587.33, 523.25, 587.33,
-      659.25, 659.25, 783.99, 880.0, 1046.5, 880.0, 783.99, 0,
-      587.33, 659.25, 783.99, 659.25, 523.25, 440.0, 392.0, 440.0,
-      523.25, 587.33, 659.25, 587.33, 523.25, 392.0, 523.25, 0,
-    ];
-    const bassNotes = [261.63, 196.0, 220.0, 196.0];
+  private async startWebAudioBgmFallback(trackPath: string, token: number): Promise<void> {
+    const ctx = this.getContext();
+    if (!ctx) return;
+    const buffer = await this.loadAudioBuffer(trackPath);
+    if (!buffer || token !== this.bgmLoadingToken) return;
 
-    const stepMs = mode === 'table' ? 230 : 340;
-    this.bgmStep = 0;
+    const bgmVol = this.getBgmMultiplier();
+    if (bgmVol <= 0) return;
 
-    this.bgmTimer = window.setInterval(() => {
-      if (!this.bgmEnabled) return;
-      const ctx = this.getContext();
-      if (!ctx || ctx.state !== 'running') return;
+    try {
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.loop = true;
 
-      const seq = this.bgmMode === 'table' ? tableMelody : lobbyMelody;
-      const note = seq[this.bgmStep % seq.length];
-      const now = ctx.currentTime;
-      const volMultiplier = this.bgmVolume;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(Math.max(0.001, 0.42 * bgmVol), ctx.currentTime);
 
-      // Plucked Pipa / GuZheng lead note
-      if (note > 0) {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(note, now);
+      source.connect(gain);
+      gain.connect(ctx.destination);
+      source.start(0);
 
-        gain.gain.setValueAtTime(0.001, now);
-        gain.gain.linearRampToValueAtTime(0.028 * volMultiplier, now + 0.015);
-        gain.gain.exponentialRampToValueAtTime(0.0008, now + 0.28);
-
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(now);
-        osc.stop(now + 0.29);
-      }
-
-      // Warm plucked bass on every 4th step
-      if (this.bgmStep % 4 === 0) {
-        const bassFreq = bassNotes[(this.bgmStep / 4) % bassNotes.length];
-        const bOsc = ctx.createOscillator();
-        const bGain = ctx.createGain();
-        bOsc.type = 'sine';
-        bOsc.frequency.setValueAtTime(bassFreq, now);
-
-        bGain.gain.setValueAtTime(0.001, now);
-        bGain.gain.linearRampToValueAtTime(0.024 * volMultiplier, now + 0.02);
-        bGain.gain.exponentialRampToValueAtTime(0.0008, now + 0.45);
-
-        bOsc.connect(bGain);
-        bGain.connect(ctx.destination);
-        bOsc.start(now);
-        bOsc.stop(now + 0.46);
-      }
-
-      this.bgmStep += 1;
-    }, stepMs);
-  }
-
-  private stopBgmLoopOnly(): void {
-    if (this.lobbyAudio) {
-      try {
-        this.lobbyAudio.pause();
-        this.lobbyAudio.currentTime = 0;
-      } catch {}
+      this.bgmSource = source;
+      this.bgmGain = gain;
+    } catch {
+      // Ignore WebAudio state errors
     }
-    if (this.bgmTimer !== null) {
-      clearInterval(this.bgmTimer);
-      this.bgmTimer = null;
+  }
+
+  /**
+   * Switches table BGM into high-tension climax mode (`MusicEx_Exciting.mp3`) when a Bomb/Rocket
+   * is played or when any player drops to 1–2 remaining cards.
+   */
+  triggerExcitingBgm(): void {
+    if (this.bgmMode === 'table') {
+      this.startBgm('exciting');
+    }
+  }
+
+  private syncBgmVolume(): void {
+    const bgmVol = this.getBgmMultiplier();
+    if (this.bgmHtmlAudio) {
+      this.bgmHtmlAudio.volume = Math.max(0, Math.min(1, 0.42 * bgmVol));
+    }
+    if (this.bgmGain && this.ctx) {
+      this.bgmGain.gain.setValueAtTime(Math.max(0.0001, 0.42 * bgmVol), this.ctx.currentTime);
     }
   }
 
   stopBgm(): void {
-    this.bgmMode = null;
-    this.stopBgmLoopOnly();
+    this.bgmLoadingToken++;
+    if (this.bgmHtmlAudio) {
+      try {
+        this.bgmHtmlAudio.pause();
+        this.bgmHtmlAudio.currentTime = 0;
+      } catch {}
+      this.bgmHtmlAudio = null;
+    }
+    if (this.bgmSource) {
+      try {
+        this.bgmSource.stop();
+        this.bgmSource.disconnect();
+      } catch {}
+      this.bgmSource = null;
+    }
+    if (this.bgmGain) {
+      try {
+        this.bgmGain.disconnect();
+      } catch {}
+      this.bgmGain = null;
+    }
   }
 
-  /** Play treasure chest open sound */
-  playChestOpen(): void {
+  /**
+   * Preloads core Dou Dizhu commercial audio files using a two-tier LRU priority strategy:
+   * - Tier 0 (Dealing & card interaction SFX) are pinned and decoded immediately.
+   * - Tier 1 (Bidding, multiplier, combo SFX & character voices) are queued through a
+   *   concurrency-throttled background pipeline (`maxConcurrentPreloads = 3`) so entry dealing
+   *   never suffers main-thread decode frame drops.
+   */
+  preloadDdzAudio(): void {
+    const dealPriority = [
+      SOUND_MANIFEST.ddzSfx.deal,
+      SOUND_MANIFEST.ddzSfx.cardTick,
+      SOUND_MANIFEST.ddzSfx.cardFan,
+      SOUND_MANIFEST.ddzSfx.discard,
+      SOUND_MANIFEST.ui.cardSelect,
+    ];
+    for (const p of dealPriority) {
+      void this.loadAudioBuffer(p, true);
+    }
+    this.enqueueBackgroundPreload(DDZ_PRELOAD_MANIFEST);
+  }
+
+  /**
+   * Ensures core Dou Dizhu dealing audio buffers (`Special_Dispatch.mp3`, `Common_click_cards.mp3`,
+   * `Common_fanpai.mp3`) are decoded and pinned in the LRU cache before starting the entry deal animation.
+   */
+  public async ensureDealAudioReady(): Promise<void> {
     if (!this.enabled) return;
+
+    const dealEssentials = [
+      SOUND_MANIFEST.ddzSfx.deal,
+      SOUND_MANIFEST.ddzSfx.cardTick,
+      SOUND_MANIFEST.ddzSfx.cardFan,
+      SOUND_MANIFEST.ddzSfx.discard,
+      SOUND_MANIFEST.ui.cardSelect,
+    ];
+
+    // Ensure Stage-1 raw bytes are fetched even if AudioContext is still initializing
+    await Promise.race([
+      Promise.all(dealEssentials.map((p) => this.fetchRawAudioBytes(p, true))),
+      new Promise<void>((resolve) => setTimeout(resolve, 350)),
+    ]);
+
+    const ctx = this.getContext();
+    if (!ctx) return;
+
     try {
-      const audio = new Audio('/assets/audio/sfx_chest_open.wav');
-      audio.volume = this.sfxVolume;
-      audio.play().catch(() => {
-        this.playPowerChime(2);
-      });
+      await Promise.race([
+        Promise.all(dealEssentials.map((p) => this.loadAudioBuffer(p, true))),
+        new Promise<void>((resolve) => setTimeout(resolve, 450)),
+      ]);
     } catch {
-      this.playPowerChime(2);
+      // Ignore preload errors
     }
   }
 
-  /** Play Mahjong audio helper with WebAudio buffer caching and graceful fallback */
-  playMahjongAudio(fileName: string, fallbackChime = 2): void {
-    if (!this.enabled) return;
-    this.playBuffer(`/assets/mahjong/audio/${fileName}`, 1.0, fallbackChime);
-  }
-
-  playMahjongDeal(): void {
-    this.playMahjongAudio('Sepcial_Mahjong_Deal.wav');
-  }
-
-  playMahjongDraw(): void {
-    this.playMahjongAudio('Sepcial_Mahjong_DrawCard.wav');
-  }
-
-  playMahjongGive(): void {
-    this.playMahjongAudio('Sepcial_Mahjong_GiveCard.wav');
-  }
-
-  playMahjongWild(): void {
-    this.playMahjongAudio('Sepcial_Mahjong_DrawGiveWild.wav', 4);
-  }
-
-  playMahjongBeanFly(): void {
-    this.playMahjongAudio('Sepcial_Mahjong_BeanFly.wav');
-  }
-
-  playDiceRoll(): void {
-    if (!this.enabled) return;
-    const ctx = this.getContext();
-    if (!ctx) return;
-    [0, 0.07, 0.15, 0.24, 0.35].forEach((t, i) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(800 + Math.random() * 450, ctx.currentTime + t);
-      gain.gain.setValueAtTime(0.09 / (i + 1), ctx.currentTime + t);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.04);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(ctx.currentTime + t);
-      osc.stop(ctx.currentTime + t + 0.05);
-    });
-  }
-
-  playMahjongWin(isZimo = false): void {
-    this.playMahjongAudio(
-      isZimo ? 'Sepcial_Mahjong_Win_Zimo.wav' : 'Sepcial_Mahjong_Win.wav',
-      4
-    );
-  }
-
-  private activeMjVoiceSource: AudioBufferSourceNode | null = null;
-  private activeMjVoiceAudio: HTMLAudioElement | null = null;
-  private activeMjVoicePriority: number = 0;
-
   /**
-   * Clear any active or queued Mahjong voice playback (called on leave room / new deal)
+   * Alias for backwards compatibility.
    */
-  clearMahjongVoiceQueue(): void {
-    this.activeMjVoicePriority = 0;
-    if (this.activeMjVoiceSource) {
-      try {
-        this.activeMjVoiceSource.onended = null;
-        this.activeMjVoiceSource.stop();
-        this.activeMjVoiceSource.disconnect();
-      } catch {
-        // Ignored
-      }
-      this.activeMjVoiceSource = null;
-    }
-    if (this.activeMjVoiceAudio) {
-      try {
-        this.activeMjVoiceAudio.onended = null;
-        this.activeMjVoiceAudio.pause();
-        this.activeMjVoiceAudio.currentTime = 0;
-      } catch {
-        // Ignored
-      }
-      this.activeMjVoiceAudio = null;
-    }
+  preloadDdzEssentials(): void {
+    this.preloadDdzAudio();
   }
 
   /**
-   * Play Mahjong voice line from reference audio library (female/male) via exclusive priority channel.
-   * Priority levels:
-   * - 1: Tile discard readout (mjt*.mp3)
-   * - 2: Peng / Gang action callout
-   * - 3: Hu / Zimo victory callout
-   */
-  playMahjongVoice(fileName: string, gender: 'female' | 'male' = 'female', priority = 1): void {
-    if (!this.enabled) return;
-
-    // Do not let a low-priority tile readout interrupt an ongoing Peng/Gang/Hu callout
-    const isBusy = this.activeMjVoiceSource !== null || this.activeMjVoiceAudio !== null;
-    if (isBusy && priority < this.activeMjVoicePriority) {
-      return;
-    }
-
-    const url = `/assets/mahjong/audio/voice/${gender}/${fileName}`;
-    this.clearMahjongVoiceQueue();
-    this.activeMjVoicePriority = priority;
-
-    const ctx = this.getContext();
-    if (ctx && this.bufferCache.has(url)) {
-      try {
-        const source = ctx.createBufferSource();
-        source.buffer = this.bufferCache.get(url)!;
-        const gain = ctx.createGain();
-        gain.gain.setValueAtTime(this.sfxVolume * 1.25, ctx.currentTime);
-        source.connect(gain);
-        gain.connect(ctx.destination);
-        source.onended = () => {
-          if (this.activeMjVoiceSource === source) {
-            this.activeMjVoiceSource = null;
-            this.activeMjVoicePriority = 0;
-          }
-        };
-        this.activeMjVoiceSource = source;
-        source.start(0);
-        return;
-      } catch {
-        // Fallback below
-      }
-    }
-
-    this.loadAudioBuffer(url).then((buf) => {
-      if (!this.enabled) return;
-      if (
-        (this.activeMjVoiceSource !== null || this.activeMjVoiceAudio !== null) &&
-        priority < this.activeMjVoicePriority
-      ) {
-        return;
-      }
-      if (buf && ctx && ctx.state === 'running') {
-        try {
-          this.clearMahjongVoiceQueue();
-          this.activeMjVoicePriority = priority;
-          const source = ctx.createBufferSource();
-          source.buffer = buf;
-          const gain = ctx.createGain();
-          gain.gain.setValueAtTime(this.sfxVolume * 1.25, ctx.currentTime);
-          source.connect(gain);
-          gain.connect(ctx.destination);
-          source.onended = () => {
-            if (this.activeMjVoiceSource === source) {
-              this.activeMjVoiceSource = null;
-              this.activeMjVoicePriority = 0;
-            }
-          };
-          this.activeMjVoiceSource = source;
-          source.start(0);
-          return;
-        } catch {
-          // Fallback below
-        }
-      }
-      try {
-        this.clearMahjongVoiceQueue();
-        this.activeMjVoicePriority = priority;
-        const audio = new Audio(url);
-        audio.volume = Math.min(1.0, this.sfxVolume * 1.25);
-        audio.onended = () => {
-          if (this.activeMjVoiceAudio === audio) {
-            this.activeMjVoiceAudio = null;
-            this.activeMjVoicePriority = 0;
-          }
-        };
-        this.activeMjVoiceAudio = audio;
-        audio.play().catch(() => {
-          if (this.activeMjVoiceAudio === audio) {
-            this.activeMjVoiceAudio = null;
-            this.activeMjVoicePriority = 0;
-          }
-        });
-      } catch {
-        this.activeMjVoicePriority = 0;
-      }
-    });
-  }
-
-  /**
-   * Speak discarded tile name using reference Mahjong sound bank.
-   * Maps legacy IDs (1..9 万, 11..19 条, 21..29 筒, 41..44 东南西北, 31/45 中, 46 发, 47 白)
-   * or continuous 0..33 indices to Cocos official mjt audio files:
-   * 万 (0..8): mjt2_1.mp3 .. mjt2_9.mp3
-   * 条 (9..17): mjt3_1.mp3 .. mjt3_9.mp3
-   * 筒 (18..26): mjt1_1.mp3 .. mjt1_9.mp3
-   * 东南西北 (27..30): mjt4_1.mp3 .. mjt4_4.mp3
-   * 中发白 (31..33): mjt4_5.mp3 .. mjt4_7.mp3
-   */
-  playTileVoice(tileId: number, gender: 'female' | 'male' = 'female'): void {
-    if (!this.enabled) return;
-    const idx = legacyIdToTileIndex(tileId);
-    let fileName = '';
-
-    if (idx >= 0 && idx <= 8) {
-      // 0..8: 一万 ~ 九万 -> mjt2_1.mp3 .. mjt2_9.mp3
-      fileName = `mjt2_${idx + 1}.mp3`;
-    } else if (idx >= 9 && idx <= 17) {
-      // 9..17: 一条 ~ 九条 -> mjt3_1.mp3 .. mjt3_9.mp3
-      fileName = `mjt3_${idx - 9 + 1}.mp3`;
-    } else if (idx >= 18 && idx <= 26) {
-      // 18..26: 一筒 ~ 九筒 -> mjt1_1.mp3 .. mjt1_9.mp3
-      fileName = `mjt1_${idx - 18 + 1}.mp3`;
-    } else if (idx >= 27 && idx <= 30) {
-      // 27..30: 东南西北 -> mjt4_1.mp3 .. mjt4_4.mp3
-      fileName = `mjt4_${idx - 27 + 1}.mp3`;
-    } else if (idx === 31) {
-      // 31: 红中 -> mjt4_5.mp3
-      fileName = 'mjt4_5.mp3';
-    } else if (idx === 32) {
-      // 32: 发财 -> mjt4_6.mp3
-      fileName = 'mjt4_6.mp3';
-    } else if (idx === 33) {
-      // 33: 白板 -> mjt4_7.mp3
-      fileName = 'mjt4_7.mp3';
-    }
-
-    if (fileName) {
-      this.playMahjongVoice(fileName, gender, 1);
-    }
-  }
-
-  /**
-   * Action voice callout: 碰、杠、胡、自摸 (higher priority than tile discard readout)
-   */
-  playActionVoice(action: 'peng' | 'gang' | 'hu' | 'zimo', gender: 'female' | 'male' = 'female'): void {
-    if (!this.enabled) return;
-    const priority = action === 'hu' || action === 'zimo' ? 3 : 2;
-    this.playMahjongVoice(`${action}.mp3`, gender, priority);
-  }
-
-  /**
-   * Niuniu (Bullfight) Casino Audio System
-   */
-  playNiuniuChip(): void {
-    if (!this.enabled) return;
-    const ctx = this.getContext();
-    if (!ctx) return;
-    // Multi-hit metallic clay casino chips clink
-    [0, 0.04, 0.09].forEach((t, i) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(1400 + Math.random() * 600, ctx.currentTime + t);
-      gain.gain.setValueAtTime(0.12 / (i + 1), ctx.currentTime + t);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.06);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(ctx.currentTime + t);
-      osc.stop(ctx.currentTime + t + 0.07);
-    });
-  }
-
-  playNiuniuDeal(): void {
-    this.playMahjongDeal();
-  }
-
-  playNiuniuCall(): void {
-    this.playTap(780);
-  }
-
-  playNiuniuHandReveal(level: number): void {
-    if (!this.enabled) return;
-    if (level >= 10) {
-      // Niu Niu or special hands (Five Small, Bomb, Gold, Silver) -> Grand fanfare
-      this.playPowerChime(4);
-      setTimeout(() => this.playPowerChime(6), 180);
-    } else if (level >= 7) {
-      // Niu 7 ~ 9
-      this.playPowerChime(3);
-    } else if (level > 0) {
-      // Niu 1 ~ 6
-      this.playPowerChime(2);
-    } else {
-      // No Niu
-      this.playTap(320);
-    }
-  }
-
-  /**
-   * Preload critical Mahjong sounds for instant responsive playback
+   * Preloads core Mahjong commercial audio files via the concurrency-throttled LRU queue.
    */
   preloadMahjongAudio(): void {
-    const sfxList = [
-      'Sepcial_Mahjong_Deal.wav',
-      'Sepcial_Mahjong_DrawCard.wav',
-      'Sepcial_Mahjong_GiveCard.wav',
-      'Sepcial_Mahjong_BeanFly.wav',
-      'Sepcial_Mahjong_Win.wav',
-      'Sepcial_Mahjong_Win_Zimo.wav',
-    ];
-    sfxList.forEach((f) => this.loadAudioBuffer(`/assets/mahjong/audio/${f}`));
-    ['female', 'male'].forEach((g) => {
-      ['hu.mp3', 'peng.mp3', 'gang.mp3', 'zimo.mp3'].forEach((a) => {
-        this.loadAudioBuffer(`/assets/mahjong/audio/voice/${g}/${a}`);
-      });
-    });
-  }
-
-  private queuedVoiceFile: { fileName: string; volumeScale: number } | null = null;
-
-  /** Stop any currently playing voice line so consecutive turn announcements never overlap */
-  private stopActiveVoice(clearQueue = true): void {
-    if (clearQueue) {
-      this.queuedVoiceFile = null;
-    }
-    if (this.activeVoiceSource) {
-      try {
-        this.activeVoiceSource.onended = null;
-        this.activeVoiceSource.stop();
-        this.activeVoiceSource.disconnect();
-      } catch {
-        // Ignored
-      }
-      this.activeVoiceSource = null;
-    }
-    if (this.activeVoiceAudio) {
-      try {
-        this.activeVoiceAudio.onended = null;
-        this.activeVoiceAudio.pause();
-        this.activeVoiceAudio.currentTime = 0;
-      } catch {
-        // Ignored
-      }
-      this.activeVoiceAudio = null;
-    }
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      try {
-        window.speechSynthesis.cancel();
-      } catch {
-        // Ignored
-      }
-    }
-  }
-
-  private flushQueuedVoice(): void {
-    if (!this.queuedVoiceFile || !this.enabled) return;
-    const next = this.queuedVoiceFile;
-    this.queuedVoiceFile = null;
-    this.playDdzVoice(next.fileName, next.volumeScale, false);
-  }
-
-  /** Play Dou Dizhu SFX audio on concurrent buffer channel */
-  playDdzAudio(fileName: string, volumeScale = 1.0, fallbackChime = 2): void {
-    if (!this.enabled) return;
-    this.playBuffer(`/assets/audio/ddz/${fileName}`, volumeScale, fallbackChime);
+    this.enqueueBackgroundPreload(MAHJONG_PRELOAD_MANIFEST);
   }
 
   /**
-   * Play Dou Dizhu voice clip on exclusive voice channel.
-   * If `enqueueIfBusy` is true (used for secondary alerts like `baojing1`/`baojing2`),
-   * waits for the current card-reading voice clip to finish before speaking.
+   * Returns live LRU cache telemetry for debugging or diagnostics.
    */
-  playDdzVoice(fileName: string, volumeScale = 1.25, enqueueIfBusy = false): void {
-    if (!this.enabled) return;
+  public getAudioCacheStats() {
+    return {
+      decodedBuffers: this.audioBufferCache.getStats(),
+      rawByteBuffers: this.rawByteCache.getStats(),
+      queuedPreloads: this.preloadQueue.length,
+    };
+  }
 
-    if (enqueueIfBusy && (this.activeVoiceSource !== null || this.activeVoiceAudio !== null)) {
-      this.queuedVoiceFile = { fileName, volumeScale };
-      return;
+  /**
+   * Enqueues audio paths into the low-jitter background preload queue, prioritizing pinned SFX first.
+   */
+  private enqueueBackgroundPreload(paths: readonly string[]): void {
+    const sorted = [...paths].sort((a, b) => {
+      const aPinned = this.audioBufferCache.isPinned(a) ? 0 : 1;
+      const bPinned = this.audioBufferCache.isPinned(b) ? 0 : 1;
+      return aPinned - bPinned;
+    });
+
+    for (const path of sorted) {
+      if (
+        this.audioBufferCache.has(path) ||
+        this.loadingPromises.has(path) ||
+        this.queuedPathsSet.has(path)
+      ) {
+        continue;
+      }
+      this.queuedPathsSet.add(path);
+      this.preloadQueue.push(path);
     }
 
-    const url = `/assets/audio/ddz/${fileName}`;
-    this.stopActiveVoice(true);
+    this.pumpPreloadQueue();
+  }
+
+  /**
+   * Drains the background preload queue with bounded concurrency (`maxConcurrentPreloads = 3`)
+   * so audio decoding never starves the 60/120Hz PixiJS rendering loop during table entry.
+   */
+  private pumpPreloadQueue(): void {
+    while (
+      this.activePreloadWorkers < this.maxConcurrentPreloads &&
+      this.preloadQueue.length > 0
+    ) {
+      const nextPath = this.preloadQueue.shift();
+      if (!nextPath) break;
+      this.queuedPathsSet.delete(nextPath);
+
+      if (this.audioBufferCache.has(nextPath)) {
+        continue;
+      }
+
+      this.activePreloadWorkers++;
+      const isPinned = this.audioBufferCache.isPinned(nextPath);
+
+      // If AudioContext is not yet created, warm Stage-1 raw bytes first; otherwise decode to Stage-2 AudioBuffer
+      const job = this.ctx
+        ? this.loadAudioBuffer(nextPath, isPinned)
+        : this.fetchRawAudioBytes(nextPath, isPinned);
+
+      void job.finally(() => {
+        this.activePreloadWorkers = Math.max(0, this.activePreloadWorkers - 1);
+        if (this.preloadQueue.length > 0) {
+          if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+            (
+              window as Window & {
+                requestIdleCallback: (cb: () => void, opts?: { timeout: number }) => number;
+              }
+            ).requestIdleCallback(() => this.pumpPreloadQueue(), { timeout: 120 });
+          } else {
+            setTimeout(() => this.pumpPreloadQueue(), 16);
+          }
+        }
+      });
+    }
+  }
+
+  private async loadAudioBuffer(path: string, pinEntry = false): Promise<AudioBuffer | null> {
+    const cached = this.audioBufferCache.get(path);
+    if (cached) {
+      if (pinEntry) this.audioBufferCache.pin(path);
+      return cached;
+    }
+
+    const existingPromise = this.loadingPromises.get(path);
+    if (existingPromise) return existingPromise;
 
     const ctx = this.getContext();
-    if (ctx && this.bufferCache.has(url)) {
+    if (!ctx) {
+      // Even if AudioContext cannot start yet, pre-cache the raw ArrayBuffer in Stage-1 LRU
+      void this.fetchRawAudioBytes(path, pinEntry);
+      return null;
+    }
+
+    const promise = (async () => {
+      try {
+        // Consume pre-fetched Stage-1 raw ArrayBuffer if available (zero network wait!)
+        let arrayBuf = this.rawByteCache.get(path);
+        if (!arrayBuf) {
+          const fetched = await this.fetchRawAudioBytes(path, pinEntry);
+          if (!fetched) return null;
+          arrayBuf = fetched;
+        }
+        // Clone the ArrayBuffer slice before decodeAudioData detaches it, keeping rawByteCache valid if needed
+        const decodeCopy = arrayBuf.slice(0);
+        const decoded = await ctx.decodeAudioData(decodeCopy);
+        this.audioBufferCache.set(path, decoded, pinEntry || this.audioBufferCache.isPinned(path));
+        // Once decoded into Stage-2 AudioBuffer, unpinned Stage-1 raw bytes can be released to save memory
+        if (!this.audioBufferCache.isPinned(path)) {
+          this.rawByteCache.delete(path);
+        }
+        return decoded;
+      } catch {
+        return null;
+      } finally {
+        this.loadingPromises.delete(path);
+      }
+    })();
+
+    this.loadingPromises.set(path, promise);
+    return promise;
+  }
+
+  /**
+   * Plays a pre-recorded commercial audio file from `/public/assets/` with stereo pan,
+   * playback rate, volume scaling, and anti-clipping cooldown.
+   */
+  public async playAudioFile(
+    path: string,
+    volume: number = 0.85,
+    pan: number = 0,
+    playbackRate: number = 1.0,
+    cooldownMs: number = 35
+  ): Promise<void> {
+    if (!this.enabled) return;
+    const sfxMult = this.getSfxMultiplier();
+    if (sfxMult <= 0) return;
+
+    const now = performance.now();
+    const lastTime = this.lastPlayedAt.get(path) ?? 0;
+    if (cooldownMs > 0 && now - lastTime < cooldownMs) {
+      return;
+    }
+    this.lastPlayedAt.set(path, now);
+
+    // Ensure HTML5 BGM resumes if browser blocked initial autoplay
+    if (this.bgmHtmlAudio && this.bgmHtmlAudio.paused && this.getBgmMultiplier() > 0) {
+      this.bgmHtmlAudio.play().catch(() => {});
+    }
+
+    const ctx = this.getContext();
+    if (!ctx) return;
+
+    const playDecodedBuffer = (buffer: AudioBuffer) => {
       try {
         const source = ctx.createBufferSource();
-        source.buffer = this.bufferCache.get(url)!;
-        const gain = ctx.createGain();
-        gain.gain.setValueAtTime(this.sfxVolume * volumeScale, ctx.currentTime);
-        source.connect(gain);
-        gain.connect(ctx.destination);
-        source.onended = () => {
-          if (this.activeVoiceSource === source) {
-            this.activeVoiceSource = null;
-            this.flushQueuedVoice();
-          }
-        };
-        this.activeVoiceSource = source;
-        source.start(0);
-        return;
-      } catch {
-        // Fallback below
-      }
-    }
+        source.buffer = buffer;
+        if (playbackRate !== 1.0) {
+          source.playbackRate.value = Math.max(0.5, Math.min(2.0, playbackRate));
+        }
 
-    this.loadAudioBuffer(url).then((buf) => {
-      if (!this.enabled) return;
-      if (buf && ctx && ctx.state === 'running') {
-        try {
-          this.stopActiveVoice(false);
-          const source = ctx.createBufferSource();
-          source.buffer = buf;
-          const gain = ctx.createGain();
-          gain.gain.setValueAtTime(this.sfxVolume * volumeScale, ctx.currentTime);
+        const gain = ctx.createGain();
+        gain.gain.value = Math.max(0, Math.min(1, volume * sfxMult));
+
+        if (typeof ctx.createStereoPanner === 'function' && pan !== 0) {
+          const panner = ctx.createStereoPanner();
+          panner.pan.value = Math.max(-1, Math.min(1, pan));
+          source.connect(gain);
+          gain.connect(panner);
+          panner.connect(ctx.destination);
+        } else {
           source.connect(gain);
           gain.connect(ctx.destination);
-          source.onended = () => {
-            if (this.activeVoiceSource === source) {
-              this.activeVoiceSource = null;
-              this.flushQueuedVoice();
-            }
-          };
-          this.activeVoiceSource = source;
-          source.start(0);
-          return;
-        } catch {
-          // Fallback below
         }
-      }
-      try {
-        this.stopActiveVoice(false);
-        const audio = new Audio(url);
-        audio.volume = Math.min(1.0, this.sfxVolume * volumeScale);
-        audio.onended = () => {
-          if (this.activeVoiceAudio === audio) {
-            this.activeVoiceAudio = null;
-            this.flushQueuedVoice();
-          }
-        };
-        this.activeVoiceAudio = audio;
-        audio.play().catch(() => {
-          if (this.activeVoiceAudio === audio) {
-            this.activeVoiceAudio = null;
-          }
-        });
+
+        source.start(0);
       } catch {
-        // Ignored
+        // Ignore WebAudio state errors gracefully
       }
-    });
-  }
-
-  /**
-   * Maps Dou Dizhu internal rank value (3..17) to standard poker audio index (1..15):
-   * - 14 ('A') -> 1 (1.wav / dui1.wav / tuple1.wav)
-   * - 15 ('2') -> 2 (2.wav / dui2.wav / tuple2.wav)
-   * - 3..13 ('3'..'K') -> 3..13 (3.wav..13.wav / dui3.wav..dui13.wav / tuple3.wav..tuple13.wav)
-   * - 16 ('small_joker') -> 14 (14.wav)
-   * - 17 ('big_joker') -> 15 (15.wav)
-   */
-  private ddzValueToAudioIndex(mainValue: number): number {
-    if (mainValue === 14) return 1;
-    if (mainValue === 15) return 2;
-    if (mainValue === 16) return 14;
-    if (mainValue === 17) return 15;
-    return Math.max(3, Math.min(13, Math.round(mainValue)));
-  }
-
-  /** Play Dou Dizhu read voice for played card pattern */
-  playDdzCardVoice(
-    patternType: string,
-    mainValue: number,
-    _seatIndex?: number,
-    _mySeat?: number
-  ): void {
-    if (!this.enabled) return;
-    const audioIdx = this.ddzValueToAudioIndex(mainValue);
-
-    // 1. Single card: A->1.wav, 2->2.wav, 3..K->3..13.wav, small_joker->14.wav, big_joker->15.wav
-    if (patternType === 'SINGLE') {
-      this.playDdzVoice(`${audioIdx}.wav`, 1.25);
-      return;
-    }
-
-    // 2. Pair: A->dui1.wav, 2->dui2.wav, 3..K->dui3..dui13.wav
-    if (patternType === 'PAIR' && audioIdx >= 1 && audioIdx <= 13) {
-      this.playDdzVoice(`dui${audioIdx}.wav`, 1.25);
-      return;
-    }
-
-    // 3. Triple without wings: A->tuple1.wav, 2->tuple2.wav, 3..K->tuple3..tuple13.wav
-    if (patternType === 'TRIPLE' && audioIdx >= 1 && audioIdx <= 13) {
-      this.playDdzVoice(`tuple${audioIdx}.wav`, 1.25);
-      return;
-    }
-
-    // 4. Special Patterns
-    switch (patternType) {
-      case 'TRIPLE_SINGLE':
-        this.playDdzVoice('sandaiyi.wav', 1.3);
-        break;
-      case 'TRIPLE_PAIR':
-        this.playDdzVoice('sandaiyidui.wav', 1.3);
-        break;
-      case 'STRAIGHT':
-        this.playDdzVoice('shunzi.wav', 1.3);
-        break;
-      case 'CONSECUTIVE_PAIRS':
-        this.playDdzVoice('liandui.wav', 1.3);
-        break;
-      case 'AIRPLANE':
-      case 'AIRPLANE_SINGLE_WINGS':
-      case 'AIRPLANE_PAIR_WINGS':
-        this.playDdzVoice('feiji.wav', 1.35);
-        setTimeout(() => this.playDdzSfx('plane'), 120);
-        break;
-      case 'FOUR_WITH_TWO_SINGLES':
-        this.playDdzVoice('sidaier.wav', 1.3);
-        break;
-      case 'FOUR_WITH_TWO_PAIRS':
-        this.playDdzVoice('sidailiangdui.wav', 1.3);
-        break;
-      case 'BOMB':
-        this.playDdzVoice('zhadan.wav', 1.4);
-        setTimeout(() => this.playDdzSfx('bomb'), 160);
-        break;
-      case 'ROCKET':
-        this.playDdzVoice('wangzha.wav', 1.45);
-        setTimeout(() => this.playDdzSfx('bomb'), 240);
-        break;
-    }
-  }
-
-  /** Play Dou Dizhu action voices: 不出/过、加倍、不加倍、报警 */
-  playDdzActionVoice(
-    action: 'pass' | 'jiabei' | 'bujiabei' | 'chaojijiabei' | 'baojing1' | 'baojing2',
-    _seatIndex?: number,
-    _mySeat?: number
-  ): void {
-    if (!this.enabled) return;
-    switch (action) {
-      case 'pass': {
-        const rand = 1 + Math.floor(Math.random() * 4);
-        this.playDdzVoice(`buyao${rand}.wav`, 1.2);
-        break;
-      }
-      case 'jiabei':
-        this.playDdzVoice('jiabei.wav', 1.25);
-        break;
-      case 'bujiabei':
-        this.playDdzVoice('bujiabei.wav', 1.2);
-        break;
-      case 'chaojijiabei':
-        this.playDdzVoice('chaojijiabei.wav', 1.3);
-        break;
-      case 'baojing1':
-        this.playDdzVoice('baojing1.wav', 1.3, true);
-        break;
-      case 'baojing2':
-        this.playDdzVoice('baojing2.wav', 1.3, true);
-        break;
-    }
-  }
-
-  /** Play Dou Dizhu SFX */
-  playDdzSfx(
-    sfx: 'bomb' | 'plane' | 'spring' | 'dispatch' | 'discard' | 'landlord' | 'alert',
-    _seatIndex?: number,
-    _mySeat?: number
-  ): void {
-    if (!this.enabled) return;
-    switch (sfx) {
-      case 'bomb':
-        this.playDdzAudio('Special_Bomb_New.wav', 1.0);
-        break;
-      case 'plane':
-        this.playDdzAudio('Special_plane.wav', 0.95);
-        break;
-      case 'spring':
-        this.playDdzAudio('Special_Chuntian.wav', 1.1);
-        break;
-      case 'dispatch':
-        this.playDdzAudio('Special_Dispatch_2D.wav', 0.85);
-        break;
-      case 'discard':
-        this.playDdzAudio('Special_Discard.wav', 0.55);
-        break;
-      case 'landlord':
-        this.playDdzAudio('Special_querendizhu.wav', 1.1);
-        break;
-      case 'alert':
-        this.playDdzAudio('Special_alert.wav', 1.0);
-        break;
-    }
-  }
-
-  /** Preload all Dou Dizhu card voices & SFX for 0ms latency playback */
-  preloadDdzAudio(): void {
-    const list = [
-      'Special_Bomb_New.wav',
-      'Special_plane.wav',
-      'Special_Chuntian.wav',
-      'Special_Dispatch_2D.wav',
-      'Special_Discard.wav',
-      'Special_querendizhu.wav',
-      'Special_alert.wav',
-      'shunzi.wav',
-      'liandui.wav',
-      'feiji.wav',
-      'zhadan.wav',
-      'wangzha.wav',
-      'sandaiyi.wav',
-      'sandaier.wav',
-      'sandaiyidui.wav',
-      'sidaier.wav',
-      'sidailiangdui.wav',
-      'buyao1.wav',
-      'buyao2.wav',
-      'buyao3.wav',
-      'buyao4.wav',
-      'jiabei.wav',
-      'bujiabei.wav',
-      'chaojijiabei.wav',
-      'baojing1.wav',
-      'baojing2.wav',
-    ];
-    for (let i = 1; i <= 15; i++) {
-      list.push(`${i}.wav`);
-      if (i <= 13) {
-        list.push(`dui${i}.wav`);
-        list.push(`tuple${i}.wav`);
-      }
-    }
-    list.forEach((f) => this.loadAudioBuffer(`/assets/audio/ddz/${f}`));
-  }
-
-  /** Crisp UI or card selection tap */
-  playTap(freq = 640): void {
-    if (!this.enabled) return;
-    const ctx = this.getContext();
-    if (!ctx) return;
-
-    const now = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(freq, now);
-    osc.frequency.exponentialRampToValueAtTime(freq * 1.38, now + 0.055);
-
-    gain.gain.setValueAtTime(0.11, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.065);
-
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(now);
-    osc.stop(now + 0.07);
-  }
-
-  /** Realistic rapid card Riffle Shuffle sound (dealing start) */
-  playRiffleShuffle(): void {
-    if (!this.enabled) return;
-    const ctx = this.getContext();
-    if (!ctx) return;
-
-    const now = ctx.currentTime;
-    for (let i = 0; i < 8; i++) {
-      const start = now + i * 0.042;
-      const bufferSize = Math.floor(ctx.sampleRate * 0.032);
-      const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-      const data = buffer.getChannelData(0);
-      for (let j = 0; j < bufferSize; j++) {
-        data[j] = (Math.random() * 2 - 1) * Math.exp(-j / (bufferSize * 0.35));
-      }
-
-      const noise = ctx.createBufferSource();
-      noise.buffer = buffer;
-
-      const filter = ctx.createBiquadFilter();
-      filter.type = 'bandpass';
-      filter.frequency.setValueAtTime(1100 + i * 140, start);
-      filter.Q.setValueAtTime(1.8, start);
-
-      const gain = ctx.createGain();
-      gain.gain.setValueAtTime(0.12, start);
-      gain.gain.exponentialRampToValueAtTime(0.005, start + 0.032);
-
-      noise.connect(filter);
-      filter.connect(gain);
-      gain.connect(ctx.destination);
-      noise.start(start);
-    }
-  }
-
-  /** Crisp single card fly/slide sound during staggered dealing */
-  playCardFly(index = 0): void {
-    if (!this.enabled) return;
-    const ctx = this.getContext();
-    if (!ctx) return;
-
-    const now = ctx.currentTime;
-    const bufferSize = Math.floor(ctx.sampleRate * 0.028);
-    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let j = 0; j < bufferSize; j++) {
-      data[j] = (Math.random() * 2 - 1) * Math.exp(-j / (bufferSize * 0.35));
-    }
-
-    const noise = ctx.createBufferSource();
-    noise.buffer = buffer;
-
-    const filter = ctx.createBiquadFilter();
-    filter.type = 'bandpass';
-    filter.frequency.setValueAtTime(1250 + (index % 10) * 65, now);
-    filter.Q.setValueAtTime(2.0, now);
-
-    const gain = ctx.createGain();
-    gain.gain.setValueAtTime(0.08, now);
-    gain.gain.exponentialRampToValueAtTime(0.002, now + 0.028);
-
-    noise.connect(filter);
-    filter.connect(gain);
-    gain.connect(ctx.destination);
-    noise.start(now);
-  }
-
-  /** Realistic physical card slap onto mahogany felt table */
-  playCardPlace(isHeavy = false): void {
-    if (!this.enabled) return;
-    const ctx = this.getContext();
-    if (!ctx) return;
-
-    const now = ctx.currentTime;
-
-    // 1. Paper snap noise burst
-    const bufferSize = Math.floor(ctx.sampleRate * 0.065);
-    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) {
-      data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.28));
-    }
-
-    const noise = ctx.createBufferSource();
-    noise.buffer = buffer;
-
-    const filter = ctx.createBiquadFilter();
-    filter.type = 'bandpass';
-    filter.frequency.setValueAtTime(isHeavy ? 950 : 1350, now);
-
-    const gain = ctx.createGain();
-    gain.gain.setValueAtTime(isHeavy ? 0.24 : 0.17, now);
-    gain.gain.exponentialRampToValueAtTime(0.005, now + 0.065);
-
-    noise.connect(filter);
-    filter.connect(gain);
-    gain.connect(ctx.destination);
-    noise.start(now);
-
-    // 2. Wooden table resonance thump
-    const thump = ctx.createOscillator();
-    const thumpGain = ctx.createGain();
-    thump.type = 'sine';
-    thump.frequency.setValueAtTime(isHeavy ? 155 : 210, now);
-    thump.frequency.exponentialRampToValueAtTime(48, now + 0.08);
-    thumpGain.gain.setValueAtTime(isHeavy ? 0.22 : 0.12, now);
-    thumpGain.gain.exponentialRampToValueAtTime(0.001, now + 0.085);
-
-    thump.connect(thumpGain);
-    thumpGain.connect(ctx.destination);
-    thump.start(now);
-    thump.stop(now + 0.09);
-  }
-
-  /** Countdown urgent woodblock tick for final 5 seconds */
-  playCountdownTick(urgent = false): void {
-    if (!this.enabled) return;
-    const ctx = this.getContext();
-    if (!ctx) return;
-
-    const now = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(urgent ? 980 : 740, now);
-    osc.frequency.exponentialRampToValueAtTime(urgent ? 520 : 420, now + 0.045);
-
-    gain.gain.setValueAtTime(urgent ? 0.12 : 0.07, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
-
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(now);
-    osc.stop(now + 0.055);
-  }
-
-  /** Ascending GuZheng glissando for Straight & Consecutive Pairs */
-  playGlissando(): void {
-    if (!this.enabled) return;
-    const ctx = this.getContext();
-    if (!ctx) return;
-
-    const notes = [523.25, 587.33, 659.25, 783.99, 880.0, 1046.5];
-    const now = ctx.currentTime;
-
-    notes.forEach((freq, idx) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(freq, now + idx * 0.045);
-
-      gain.gain.setValueAtTime(0.09, now + idx * 0.045);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.045 + 0.22);
-
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(now + idx * 0.045);
-      osc.stop(now + idx * 0.045 + 0.23);
-    });
-  }
-
-  /** Airplane flyby Doppler whoosh + heroic chord */
-  playAirplaneFlyby(): void {
-    if (!this.enabled) return;
-    const ctx = this.getContext();
-    if (!ctx) return;
-
-    const now = ctx.currentTime;
-    const bufferSize = Math.floor(ctx.sampleRate * 0.65);
-    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) {
-      const env = Math.sin((i / bufferSize) * Math.PI);
-      data[i] = (Math.random() * 2 - 1) * env;
-    }
-
-    const noise = ctx.createBufferSource();
-    noise.buffer = buffer;
-
-    const filter = ctx.createBiquadFilter();
-    filter.type = 'bandpass';
-    filter.frequency.setValueAtTime(320, now);
-    filter.frequency.exponentialRampToValueAtTime(1450, now + 0.32);
-    filter.frequency.exponentialRampToValueAtTime(280, now + 0.65);
-    filter.Q.setValueAtTime(2.5, now);
-
-    const gain = ctx.createGain();
-    gain.gain.setValueAtTime(0.22, now);
-    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.65);
-
-    noise.connect(filter);
-    filter.connect(gain);
-    gain.connect(ctx.destination);
-    noise.start(now);
-
-    this.playGlissando();
-  }
-
-  /** Bomb fuse sizzle + deep sub-bass explosion */
-  playHeavyImpact(): void {
-    if (!this.enabled) return;
-    const ctx = this.getContext();
-    if (!ctx) return;
-
-    const now = ctx.currentTime;
-
-    // Sub-bass cannon boom
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'sawtooth';
-    osc.frequency.setValueAtTime(140, now);
-    osc.frequency.exponentialRampToValueAtTime(28, now + 0.48);
-
-    gain.gain.setValueAtTime(0.32, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
-
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(now);
-    osc.stop(now + 0.52);
-
-    // Explosion debris crackle
-    const bufferSize = Math.floor(ctx.sampleRate * 0.38);
-    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) {
-      data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.32));
-    }
-    const noise = ctx.createBufferSource();
-    noise.buffer = buffer;
-    const nGain = ctx.createGain();
-    nGain.gain.setValueAtTime(0.24, now);
-    nGain.gain.exponentialRampToValueAtTime(0.005, now + 0.38);
-    noise.connect(nGain);
-    nGain.connect(ctx.destination);
-    noise.start(now);
-  }
-
-  /** Rocket (王炸) siren + launch ascent + nuclear impact */
-  playRocketLaunch(): void {
-    if (!this.enabled) return;
-    const ctx = this.getContext();
-    if (!ctx) return;
-
-    const now = ctx.currentTime;
-    // Ascending rocket turbine whistle
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'sawtooth';
-    osc.frequency.setValueAtTime(240, now);
-    osc.frequency.exponentialRampToValueAtTime(1680, now + 0.34);
-
-    gain.gain.setValueAtTime(0.16, now);
-    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
-
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(now);
-    osc.stop(now + 0.36);
-
-    // Impact explosion at 320ms
-    setTimeout(() => {
-      this.playHeavyImpact();
-    }, 310);
-  }
-
-  /** Power-up chord for Doubling (×2, ×3, ×4+) */
-  playPowerChime(level: number = 2): void {
-    if (!this.enabled) return;
-    const ctx = this.getContext();
-    if (!ctx) return;
-
-    const now = ctx.currentTime;
-    const freqs =
-      level >= 4
-        ? [523.25, 659.25, 783.99, 1046.5]
-        : level === 3
-        ? [493.88, 622.25, 739.99]
-        : [440, 554.37, 659.25];
-    freqs.forEach((f, idx) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(f, now + idx * 0.055);
-      gain.gain.setValueAtTime(0.12, now + idx * 0.055);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.055 + 0.28);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(now + idx * 0.055);
-      osc.stop(now + idx * 0.055 + 0.29);
-    });
-  }
-
-  /** Whoosh + chime for interactive prop throw */
-  playPropWhoosh(): void {
-    if (!this.enabled) return;
-    const ctx = this.getContext();
-    if (!ctx) return;
-    const now = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(360, now);
-    osc.frequency.exponentialRampToValueAtTime(880, now + 0.25);
-    gain.gain.setValueAtTime(0.08, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.26);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(now);
-    osc.stop(now + 0.27);
-  }
-
-  /** Impact sound when an interactive prop lands on target avatar */
-  playPropImpact(isExplosive: boolean): void {
-    if (!this.enabled) return;
-    const ctx = this.getContext();
-    if (!ctx) return;
-    const now = ctx.currentTime;
-
-    if (isExplosive) {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sawtooth';
-      osc.frequency.setValueAtTime(160, now);
-      osc.frequency.exponentialRampToValueAtTime(36, now + 0.34);
-      gain.gain.setValueAtTime(0.24, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.36);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(now);
-      osc.stop(now + 0.37);
-      return;
-    }
-
-    const notes = [659.25, 880, 1046.5];
-    notes.forEach((f, idx) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(f, now + idx * 0.05);
-      gain.gain.setValueAtTime(0.09, now + idx * 0.05);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.05 + 0.22);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(now + idx * 0.05);
-      osc.stop(now + idx * 0.05 + 0.23);
-    });
-  }
-
-  /** Metallic Gold Bean Coin Cascade on Settlement */
-  playCoinCascade(): void {
-    if (!this.enabled) return;
-    const ctx = this.getContext();
-    if (!ctx) return;
-
-    const now = ctx.currentTime;
-    const coinFreqs = [1318.5, 1567.98, 1760.0, 2093.0, 2349.32, 2637.02];
-    for (let i = 0; i < 10; i++) {
-      const start = now + i * 0.055;
-      const freq = coinFreqs[i % coinFreqs.length];
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(freq, start);
-      gain.gain.setValueAtTime(0.075, start);
-      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.14);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(start);
-      osc.stop(start + 0.15);
-    }
-  }
-
-  /** Victory fanfare + coin cascade */
-  playVictoryFanfare(): void {
-    if (!this.enabled) return;
-    const ctx = this.getContext();
-    if (!ctx) return;
-
-    const chord = [523.25, 659.25, 783.99, 1046.5];
-    const now = ctx.currentTime;
-    chord.forEach((freq, i) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(freq, now + i * 0.09);
-      gain.gain.setValueAtTime(0.14, now + i * 0.09);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.09 + 0.45);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(now + i * 0.09);
-      osc.stop(now + i * 0.09 + 0.46);
-    });
-    setTimeout(() => this.playCoinCascade(), 250);
-  }
-
-  /** Defeat tone */
-  playDefeatTone(): void {
-    if (!this.enabled) return;
-    const ctx = this.getContext();
-    if (!ctx) return;
-
-    const notes = [392.0, 349.23, 329.63, 261.63];
-    const now = ctx.currentTime;
-    notes.forEach((freq, i) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(freq, now + i * 0.11);
-      gain.gain.setValueAtTime(0.1, now + i * 0.11);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.11 + 0.35);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(now + i * 0.11);
-      osc.stop(now + i * 0.11 + 0.36);
-    });
-  }
-
-  /**
-   * Expressive Chinese Card Play Voice Announcer.
-   * Translates single/pair card ranks into authentic Chinese callouts ("单A", "对2", "小王", "大王", "炸弹！")
-   * and modulates pitch/rate for high-excitement patterns.
-   */
-  speakCardPlay(
-    patternType: string,
-    cards: Array<{ rank: string; value: number }> | undefined,
-    fallbackLabel: string
-  ): void {
-    if (!this.enabled) return;
-
-    const firstRank = cards && cards.length > 0 ? cards[0].rank : '';
-    const rankSpokenMap: Record<string, string> = {
-      '3': '三',
-      '4': '四',
-      '5': '五',
-      '6': '六',
-      '7': '七',
-      '8': '八',
-      '9': '九',
-      '10': '十',
-      J: '勾',
-      Q: '圈',
-      K: 'K',
-      A: '尖',
-      '2': '二',
-      small_joker: '小王',
-      big_joker: '大王',
     };
 
-    let phrase = fallbackLabel;
-    let excitement: 'normal' | 'high' | 'epic' = 'normal';
-
-    if (patternType === 'SINGLE' && firstRank) {
-      phrase =
-        firstRank === 'small_joker' || firstRank === 'big_joker'
-          ? rankSpokenMap[firstRank]
-          : `${rankSpokenMap[firstRank] || firstRank}`;
-      if (firstRank === '2' || firstRank === 'small_joker' || firstRank === 'big_joker') {
-        excitement = 'high';
-      }
-    } else if (patternType === 'PAIR' && firstRank) {
-      phrase = `对${rankSpokenMap[firstRank] || firstRank}`;
-      if (firstRank === '2' || firstRank === 'A') excitement = 'high';
-    } else if (patternType === 'ROCKET') {
-      phrase = '王炸！';
-      excitement = 'epic';
-    } else if (patternType === 'BOMB') {
-      phrase = '炸弹！';
-      excitement = 'epic';
-    } else if (
-      patternType === 'STRAIGHT' ||
-      patternType === 'CONSECUTIVE_PAIRS' ||
-      patternType.startsWith('AIRPLANE')
-    ) {
-      excitement = 'high';
+    // Synchronous zero-latency fast path when buffer is already decoded in memory
+    const cached = this.audioBufferCache.get(path);
+    if (cached) {
+      playDecodedBuffer(cached);
+      return;
     }
-
-    this.speak(phrase, excitement);
-  }
-
-  /** Web Speech API Chinese voice announcer with excitement modulation */
-  speak(text: string, excitement: 'normal' | 'high' | 'epic' = 'normal'): void {
-    if (!this.enabled) return;
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
 
     try {
-      window.speechSynthesis.cancel();
-      const utter = new SpeechSynthesisUtterance(text);
-      utter.lang = 'zh-CN';
-      utter.rate = excitement === 'epic' ? 1.18 : excitement === 'high' ? 1.24 : 1.3;
-      utter.pitch = excitement === 'epic' ? 1.22 : excitement === 'high' ? 1.14 : 1.06;
-      utter.volume = excitement === 'epic' ? 1.0 : 0.85;
-      window.speechSynthesis.speak(utter);
+      const buffer = await this.loadAudioBuffer(path);
+      if (!buffer) return;
+      playDecodedBuffer(buffer);
     } catch {
-      // Ignore speech synthesis errors on restricted browsers
-    }
-  }
-
-  // =========================================================================
-  // Yunnan Lao Yan Cai (捞腌菜) Special Hand Audio & Sequential Queue
-  // =========================================================================
-  private lycQueueTimers: number[] = [];
-
-  clearLaoYanCaiAudioQueue(): void {
-    if (typeof window === 'undefined') return;
-    for (const t of this.lycQueueTimers) {
-      window.clearTimeout(t);
-    }
-    this.lycQueueTimers = [];
-  }
-
-  /**
-   * 豹子 (Three of a Kind) Ceremonial SFX:
-   * Sub-bass shockwave + 5-note golden dragon pentatonic fanfare + coin cascade
-   */
-  playLaoYanCaiBaoziSfx(): void {
-    if (!this.enabled) return;
-    const ctx = this.getContext();
-    if (!ctx) return;
-
-    this.playHeavyImpact();
-
-    const now = ctx.currentTime;
-    // Ascending pentatonic royal fanfare: C5 - D5 - E5 - G5 - C6
-    const notes = [523.25, 587.33, 659.25, 783.99, 1046.5];
-    notes.forEach((freq, idx) => {
-      const start = now + 0.08 + idx * 0.065;
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(freq, start);
-      gain.gain.setValueAtTime(0.18 * this.sfxVolume, start);
-      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.42);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(start);
-      osc.stop(start + 0.44);
-    });
-
-    if (typeof window !== 'undefined') {
-      const t = window.setTimeout(() => this.playCoinCascade(), 320);
-      this.lycQueueTimers.push(t);
+      // Ignore decoding or playback errors gracefully
     }
   }
 
   /**
-   * 三公 (Three Face Cards J/Q/K) Ceremonial SFX:
-   * Imperial court harmonic chime + triumphant brass-like chord
+   * Computes stereo pan (-0.42 left, 0 bottom/center, +0.42 right) from seat index.
    */
-  playLaoYanCaiSanGongSfx(): void {
-    if (!this.enabled) return;
-    const ctx = this.getContext();
-    if (!ctx) return;
-
-    const now = ctx.currentTime;
-    // Imperial gong harmonic shimmer + major triad (G4 - B4 - D5 - G5)
-    const freqs = [392.0, 493.88, 587.33, 783.99, 987.77];
-    freqs.forEach((freq, idx) => {
-      const start = now + idx * 0.055;
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = idx % 2 === 0 ? 'triangle' : 'sine';
-      osc.frequency.setValueAtTime(freq, start);
-      gain.gain.setValueAtTime(0.15 * this.sfxVolume, start);
-      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.38);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(start);
-      osc.stop(start + 0.4);
-    });
-
-    if (typeof window !== 'undefined') {
-      const t = window.setTimeout(() => this.playPowerChime(4), 220);
-      this.lycQueueTimers.push(t);
-    }
+  public getSeatPan(seatIndex?: number, mySeat?: number): number {
+    if (seatIndex === undefined || mySeat === undefined) return 0;
+    const diff = (seatIndex - mySeat + 3) % 3;
+    if (diff === 1) return 0.42; // Right opponent
+    if (diff === 2) return -0.42; // Left opponent
+    return 0; // Self (bottom)
   }
 
   /**
-   * Queues and plays Lao Yan Cai special hand announcements & SFX in priority order
-   * so multiple special hands (豹子 / 三公 / 同花顺 / 天牌炸开) play sequentially with ceremonial pacing.
+   * Determines whether a seat uses the Female (`Woman_*`) or Male (`Man_*`) voice pack
+   * based on avatarId or seat index.
    */
-  playLaoYanCaiShowdownQueue(
-    items: Array<{
-      category: string;
-      handName: string;
-      multiplier: number;
-      nickname?: string;
-      isWinner?: boolean;
-    }>
+  public isFemaleVoice(avatarId?: string, seatIndex?: number): boolean {
+    if (avatarId) {
+      const lower = avatarId.toLowerCase();
+      if (
+        lower.includes('dizhupo') ||
+        lower.includes('nongminmei') ||
+        lower.includes('girl') ||
+        lower.includes('woman') ||
+        lower.includes('female') ||
+        lower === 'avatar_2' ||
+        lower === 'avatar_4'
+      ) {
+        return true;
+      }
+      if (lower.includes('dizhu') || lower.includes('nongmin') || lower.includes('man')) {
+        return false;
+      }
+    }
+    return seatIndex === 1;
+  }
+
+  /**
+   * Plays authentic Dou Dizhu card rank/pattern voice (`Man_*` or `Woman_*`) via `SoundManifest`.
+   */
+  public playDdzCardVoice(
+    patternType: string,
+    mainValue: number = 0,
+    seatIndex?: number,
+    mySeat?: number,
+    avatarId?: string,
+    isBeatingOpponent: boolean = false
   ): void {
-    if (!this.enabled || typeof window === 'undefined') return;
-    this.clearLaoYanCaiAudioQueue();
+    const pan = this.getSeatPan(seatIndex, mySeat);
+    const isFemale = this.isFemaleVoice(avatarId, seatIndex);
+    const useBeating = isBeatingOpponent && Math.random() < 0.38;
 
-    const priorityWeight: Record<string, number> = {
-      BAOZI: 100,
-      STRAIGHT_FLUSH: 85,
-      SANGONG: 75,
-      NATURAL_9: 60,
-      NATURAL_8: 55,
-      SANYAN: 40,
+    const path = resolveDdzCardVoicePath(patternType, mainValue, isFemale, useBeating);
+    if (path) {
+      void this.playAudioFile(path, 0.94, pan, 1.0, 45);
+    }
+  }
+
+  /**
+   * Plays authentic Dou Dizhu character action voice (`叫地主`, `不叫`, `抢地主`, `不抢`, `加倍`, `超级加倍`, `不加倍`, `不出`, `报单`, `报双`, `明牌`).
+   */
+  public playDdzActionVoice(
+    action: DdzActionVoiceType,
+    seatIndex?: number,
+    mySeat?: number,
+    avatarId?: string,
+    grabCount: number = 1
+  ): void {
+    // Ensure any dealing cascade track stops before bidding/action voices speak
+    this.stopDealCascade();
+    const pan = this.getSeatPan(seatIndex, mySeat);
+    const isFemale = this.isFemaleVoice(avatarId, seatIndex);
+    const path = resolveDdzActionVoicePath(action, isFemale, grabCount);
+    if (path) {
+      void this.playAudioFile(path, 0.94, pan, 1.0, 45);
+    }
+  }
+
+  /**
+   * Starts a time-bounded, non-overlapping dealing riffle cascade (`Special_Dispatch.mp3`)
+   * that automatically fades out when the 17th card lands and finishes with a crisp fan snap (`Common_fanpai.mp3`).
+   */
+  public async startDealCascade(durationMs: number = 820): Promise<void> {
+    this.stopDealCascade();
+    if (!this.enabled) return;
+    const sfxMult = this.getSfxMultiplier();
+    if (sfxMult <= 0) return;
+
+    const ctx = this.getContext();
+    if (!ctx) return;
+
+    const clampedDurationSec = Math.max(0.35, Math.min(1.6, durationMs / 1000));
+
+    // Schedule the final hand fan-settle snap right as the cards lock into place
+    if (typeof window !== 'undefined') {
+      this.dealFanTimer = window.setTimeout(() => {
+        this.dealFanTimer = null;
+        void this.playAudioFile(SOUND_MANIFEST.ddzSfx.cardFan, 0.76, 0, 1.04, 30);
+      }, Math.max(200, durationMs - 65));
+    }
+
+    const startCascadeNode = (buffer: AudioBuffer) => {
+      if (!this.enabled) return;
+      if (this.dealCascadeSource) {
+        try {
+          this.dealCascadeSource.stop();
+          this.dealCascadeSource.disconnect();
+        } catch {}
+      }
+
+      const now = ctx.currentTime;
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.playbackRate.value = 1.08;
+
+      const gain = ctx.createGain();
+      const peakGain = Math.max(0.001, Math.min(1, 0.78 * sfxMult));
+      gain.gain.setValueAtTime(peakGain, now);
+      const fadeStart = now + Math.max(0.18, clampedDurationSec - 0.14);
+      gain.gain.setValueAtTime(peakGain, fadeStart);
+      gain.gain.exponentialRampToValueAtTime(0.0008, now + clampedDurationSec);
+
+      source.connect(gain);
+      gain.connect(ctx.destination);
+
+      this.dealCascadeSource = source;
+      this.dealCascadeGain = gain;
+
+      source.onended = () => {
+        if (this.dealCascadeSource === source) {
+          this.dealCascadeSource = null;
+          this.dealCascadeGain = null;
+        }
+      };
+
+      source.start(now);
+      source.stop(now + clampedDurationSec + 0.02);
     };
 
-    const sorted = [...items].sort(
-      (a, b) =>
-        (priorityWeight[b.category] || 10) - (priorityWeight[a.category] || 10)
-    );
-
-    // If no special hand in the round, play standard showdown chime
-    if (sorted.length === 0) {
-      this.playCardPlace(true);
+    // Synchronous zero-latency fast path when dealing buffer is already decoded
+    const cachedDealBuf = this.audioBufferCache.get(SOUND_MANIFEST.ddzSfx.deal);
+    if (cachedDealBuf) {
+      try {
+        startCascadeNode(cachedDealBuf);
+      } catch {}
       return;
     }
 
-    sorted.slice(0, 3).forEach((item, index) => {
-      const delayMs = index * 920;
-      const timerId = window.setTimeout(() => {
-        if (!this.enabled) return;
-        if (item.category === 'BAOZI') {
-          this.playLaoYanCaiBaoziSfx();
-          this.speak(`${item.handName}，${item.multiplier}倍暴击！`, 'epic');
-        } else if (item.category === 'SANGONG') {
-          this.playLaoYanCaiSanGongSfx();
-          this.speak(`三公驾到，${item.multiplier}倍翻番！`, 'epic');
-        } else if (item.category === 'STRAIGHT_FLUSH') {
-          this.playPowerChime(4);
-          this.speak(`同花顺，${item.multiplier}倍！`, 'epic');
-        } else if (
-          item.category === 'NATURAL_9' ||
-          item.category === 'NATURAL_8'
-        ) {
-          this.playPowerChime(3);
-          this.speak(`${item.handName}`, 'high');
-        } else if (item.category === 'SANYAN') {
-          this.playPowerChime(3);
-          this.speak(`${item.handName}，三倍！`, 'high');
-        }
-      }, delayMs);
-      this.lycQueueTimers.push(timerId);
-    });
+    try {
+      const buffer = await this.loadAudioBuffer(SOUND_MANIFEST.ddzSfx.deal);
+      if (!buffer || !this.enabled) return;
+      startCascadeNode(buffer);
+    } catch {
+      // Ignore WebAudio state errors gracefully
+    }
+  }
+
+  /**
+   * Immediately stops any active dealing cascade audio node.
+   */
+  public stopDealCascade(): void {
+    if (this.dealFanTimer !== null && typeof window !== 'undefined') {
+      window.clearTimeout(this.dealFanTimer);
+      this.dealFanTimer = null;
+    }
+    if (this.dealCascadeSource) {
+      try {
+        this.dealCascadeSource.stop();
+        this.dealCascadeSource.disconnect();
+      } catch {}
+      this.dealCascadeSource = null;
+    }
+    if (this.dealCascadeGain) {
+      try {
+        this.dealCascadeGain.disconnect();
+      } catch {}
+      this.dealCascadeGain = null;
+    }
+  }
+
+  /**
+   * Plays Dou Dizhu physical table & VFX sound effects mapped in `SOUND_MANIFEST.ddzSfx`.
+   */
+  public playDdzSfx(type: DdzSfxType, seatIndex?: number, mySeat?: number): void {
+    const pan = this.getSeatPan(seatIndex, mySeat);
+    const sfx = SOUND_MANIFEST.ddzSfx;
+
+    switch (type) {
+      case 'deal':
+        void this.startDealCascade(820);
+        break;
+      case 'discard':
+        void this.playAudioFile(sfx.discard, 0.88, pan, 1.0, 25);
+        break;
+      case 'shunzi':
+        void this.playAudioFile(sfx.shunzi, 0.88, pan, 1.0, 80);
+        break;
+      case 'liandui':
+        void this.playAudioFile(sfx.liandui, 0.88, pan, 1.0, 80);
+        break;
+      case 'plane':
+        void this.playAudioFile(sfx.plane, 0.92, 0, 1.0, 100);
+        break;
+      case 'bomb':
+        void this.playAudioFile(sfx.bomb, 0.96, 0, 1.0, 100);
+        this.triggerExcitingBgm();
+        break;
+      case 'long_bomb':
+      case 'rocket':
+        void this.playAudioFile(sfx.rocket, 0.98, 0, 1.0, 100);
+        void this.playAudioFile(sfx.longBomb, 0.92, 0, 1.0, 100);
+        this.triggerExcitingBgm();
+        break;
+      case 'chuntian':
+      case 'spring':
+        void this.playAudioFile(sfx.spring, 0.92, 0, 1.0, 120);
+        void this.playAudioFile(sfx.star, 0.85, 0, 1.0, 120);
+        break;
+      case 'alert':
+        void this.playAudioFile(sfx.alert, 0.92, pan, 1.0, 120);
+        this.triggerExcitingBgm();
+        break;
+      case 'landlord':
+        void this.playAudioFile(sfx.landlordConfirm, 0.88, 0, 1.0, 100);
+        void this.playAudioFile(SOUND_MANIFEST.ui.cardFlip, 0.82, 0, 1.0, 80);
+        break;
+      case 'chaojijiabei':
+        void this.playAudioFile(sfx.chaojijiabei, 0.88, pan, 1.0, 80);
+        void this.playAudioFile(sfx.multiply, 0.85, pan, 1.0, 80);
+        break;
+      case 'multiply':
+        void this.playAudioFile(sfx.multiply, 0.85, pan, 1.0, 60);
+        break;
+    }
+  }
+
+  /**
+   * Plays authentic Quick Chat voice (`Man_chat_1..9.mp3` / `Woman_chat_1..9.mp3`).
+   * Supports both `(text, seatIdx, mySeat, avatarId)` and `(text, isFemale)`.
+   */
+  public speak(
+    text: string,
+    seatOrFemale?: number | boolean,
+    mySeat?: number,
+    avatarId?: string
+  ): void {
+    if (!this.enabled || !text) return;
+
+    let isFemale = false;
+    let pan = 0;
+
+    if (typeof seatOrFemale === 'boolean') {
+      isFemale = seatOrFemale;
+    } else if (typeof seatOrFemale === 'number') {
+      pan = this.getSeatPan(seatOrFemale, mySeat);
+      isFemale = this.isFemaleVoice(avatarId, seatOrFemale);
+    }
+
+    const path = resolveDdzQuickChatVoicePath(text, isFemale);
+    void this.playAudioFile(path, 0.92, pan, 1.0, 120);
+  }
+
+  // ============================================================================
+  // UI & Card Interaction SFX
+  // ============================================================================
+
+  public playCardSelect(): void {
+    void this.playAudioFile(SOUND_MANIFEST.ui.cardSelect, 0.78, 0, 1.0, 20);
+  }
+
+  /**
+   * Plays authentic physical card placement / table confirmation sound (`Special_Discard.wav` / `Common_fanpai.mp3`).
+   */
+  public playCardPlace(heavy: boolean = false, pan: number = 0): void {
+    if (heavy) {
+      void this.playAudioFile(SOUND_MANIFEST.ui.cardPlace, 0.88, pan, 0.96, 25);
+    } else {
+      void this.playAudioFile(SOUND_MANIFEST.ui.cardFlip, 0.8, pan, 1.0, 22);
+    }
+  }
+
+  /**
+   * Plays crisp single-card flick (`Common_click_cards.mp3`) with subtle stereo pan & pitch progression during dealing.
+   */
+  public playCardFly(index: number = 0, pan?: number): void {
+    const computedPan =
+      pan !== undefined ? pan : Math.max(-0.35, Math.min(0.35, ((index % 17) / 16 - 0.5) * 0.6));
+    const rate = Math.min(1.2, 0.96 + (index % 17) * 0.012);
+    void this.playAudioFile(SOUND_MANIFEST.ddzSfx.cardTick, 0.52, computedPan, rate, 28);
+  }
+
+  public playInvalidPlay(): void {
+    void this.playAudioFile(SOUND_MANIFEST.ui.invalid, 0.85, 0, 1.0, 80);
+  }
+
+  public playTap(_freq: number = 720, _duration: number = 0.045): void {
+    void this.playAudioFile(SOUND_MANIFEST.ui.tap, 0.65, 0, 1.0, 30);
+  }
+
+  public playCancel(): void {
+    void this.playAudioFile(SOUND_MANIFEST.ui.cancel, 0.68, 0, 1.0, 40);
+  }
+
+  public playCardSlide(pan: number = 0): void {
+    void this.playAudioFile(SOUND_MANIFEST.ddzSfx.cardTick, 0.68, pan, 1.0, 25);
+  }
+
+  public playCardSnap(pan: number = 0): void {
+    void this.playAudioFile(SOUND_MANIFEST.ddzSfx.discard, 0.86, pan, 1.0, 25);
+  }
+
+  public playRiffleShuffle(durationMs: number = 820): void {
+    void this.startDealCascade(durationMs);
+  }
+
+  public playGlissando(): void {
+    void this.playAudioFile(SOUND_MANIFEST.ddzSfx.shunzi, 0.85, 0, 1.0, 80);
+  }
+
+  public playDoubleRibbon(): void {
+    void this.playAudioFile(SOUND_MANIFEST.ddzSfx.liandui, 0.85, 0, 1.0, 80);
+  }
+
+  public playBiplaneFlyover(): void {
+    this.playDdzSfx('plane');
+  }
+
+  public playBombExplosion(isRocket: boolean = false): void {
+    if (isRocket) {
+      this.playDdzSfx('rocket');
+    } else {
+      this.playDdzSfx('bomb');
+    }
+  }
+
+  public playSpringCelebration(): void {
+    this.playDdzSfx('chuntian');
+  }
+
+  public playClockTick(urgent: boolean = false): void {
+    void this.playAudioFile(
+      SOUND_MANIFEST.ui.countdownTick,
+      urgent ? 0.84 : 0.56,
+      0,
+      urgent ? 1.1 : 1.0,
+      140
+    );
+  }
+
+  /**
+   * Alias used by `GameScene.ts` during final 5-second turn countdown.
+   */
+  public playCountdownTick(urgent: boolean = false): void {
+    this.playClockTick(urgent);
+  }
+
+  public playPowerChime(level: number = 1): void {
+    if (level >= 4) {
+      this.playDdzSfx('chaojijiabei');
+    } else {
+      this.playDdzSfx('multiply');
+    }
+  }
+
+  public playPropWhoosh(): void {
+    void this.playAudioFile(SOUND_MANIFEST.ui.beanFly, 0.75, 0, 1.0, 60);
+  }
+
+  public playPropImpact(isHeavy: boolean = false): void {
+    if (isHeavy) {
+      void this.playAudioFile(SOUND_MANIFEST.ddzSfx.bomb, 0.82, 0, 1.0, 80);
+    } else {
+      void this.playAudioFile(SOUND_MANIFEST.ddzSfx.flower, 0.82, 0, 1.0, 60);
+    }
+  }
+
+  public playChestOpen(): void {
+    void this.playAudioFile(SOUND_MANIFEST.ui.chestOpen, 0.88, 0, 1.0, 120);
+  }
+
+  public playDiceRoll(): void {
+    void this.playAudioFile(SOUND_MANIFEST.mahjong.diceRoll, 0.88, 0, 1.0, 100);
+  }
+
+  public playVictoryFanfare(): void {
+    this.stopBgm();
+    void this.playAudioFile(SOUND_MANIFEST.bgm.winStinger, 0.88, 0, 1.0, 200);
+    void this.playAudioFile(SOUND_MANIFEST.ui.beanWin, 0.82, 0, 1.0, 200);
+  }
+
+  public playDefeatTone(): void {
+    this.stopBgm();
+    void this.playAudioFile(SOUND_MANIFEST.bgm.loseStinger, 0.88, 0, 1.0, 200);
+    void this.playAudioFile(SOUND_MANIFEST.ui.beanLose, 0.82, 0, 1.0, 200);
+  }
+
+  public playCoinCascade(_count: number = 10): void {
+    void this.playAudioFile(SOUND_MANIFEST.ui.beanFly, 0.85, 0, 1.0, 100);
+  }
+
+  // ============================================================================
+  // NiuNiu (抢庄牛牛) & ZJH (诈金花) Commercial Audio Methods
+  // ============================================================================
+
+  public playNiuniuCall(isLock: boolean = false): void {
+    const path = isLock ? SOUND_MANIFEST.niuniu.bankerLock : SOUND_MANIFEST.niuniu.bankerTick;
+    void this.playAudioFile(path, 0.88, 0, 1.0, 45);
+  }
+
+  public playNiuniuChip(): void {
+    void this.playAudioFile(SOUND_MANIFEST.niuniu.chipBet, 0.85, 0, 1.0, 35);
+  }
+
+  public playNiuniuHandReveal(level: number = 0): void {
+    void this.playAudioFile(SOUND_MANIFEST.niuniu.cardReveal, 0.86, 0, 1.0, 40);
+    if (level >= 7) {
+      void this.playAudioFile(SOUND_MANIFEST.niuniu.highNiuFanfare, 0.9, 0, 1.0, 120);
+    }
+  }
+
+  public playZjhActionVoice(
+    action: 'genzhu' | 'jiazhu' | 'kanpai' | 'qipai' | 'bipai' | 'allin' | 'win' | 'lose'
+  ): void {
+    switch (action) {
+      case 'kanpai':
+        void this.playAudioFile(SOUND_MANIFEST.zjh.cardPeek, 0.88, 0, 1.0, 50);
+        break;
+      case 'qipai':
+        void this.playAudioFile(SOUND_MANIFEST.zjh.foldSlide, 0.86, 0, 1.0, 50);
+        break;
+      case 'bipai':
+        void this.playAudioFile(SOUND_MANIFEST.zjh.vsLightning, 0.92, 0, 1.0, 80);
+        break;
+      case 'allin':
+        void this.playAudioFile(SOUND_MANIFEST.zjh.chipAllIn, 0.94, 0, 1.0, 80);
+        break;
+      case 'win':
+        this.playVictoryFanfare();
+        break;
+      case 'lose':
+        this.playDefeatTone();
+        break;
+      default:
+        void this.playAudioFile(SOUND_MANIFEST.zjh.chipToss, 0.86, 0, 1.0, 40);
+        break;
+    }
+  }
+
+  // ============================================================================
+  // Mahjong (麻将) Commercial Audio Methods
+  // ============================================================================
+
+  public clearMahjongVoiceQueue(): void {
+    for (const timerId of this.mahjongVoiceTimers) {
+      window.clearTimeout(timerId);
+    }
+    this.mahjongVoiceTimers.clear();
+  }
+
+  public playMahjongDeal(): void {
+    void this.playAudioFile(SOUND_MANIFEST.mahjong.deal, 0.86, 0, 1.0, 80);
+  }
+
+  public playMahjongDraw(): void {
+    void this.playAudioFile(SOUND_MANIFEST.mahjong.draw, 0.82, 0, 1.0, 30);
+  }
+
+  public playMahjongGive(): void {
+    void this.playAudioFile(SOUND_MANIFEST.mahjong.give, 0.86, 0, 1.0, 30);
+  }
+
+  public playMahjongWild(): void {
+    void this.playAudioFile(SOUND_MANIFEST.mahjong.wild, 0.88, 0, 1.0, 60);
+  }
+
+  public playMahjongBeanFly(): void {
+    void this.playAudioFile(SOUND_MANIFEST.mahjong.beanFly, 0.86, 0, 1.0, 80);
+  }
+
+  public playMahjongWin(isZimo: boolean = false): void {
+    const path = isZimo ? SOUND_MANIFEST.mahjong.zimo : SOUND_MANIFEST.mahjong.win;
+    void this.playAudioFile(path, 0.92, 0, 1.0, 120);
+  }
+
+  public playTileVoice(tileId: string, gender: VoiceGender = 'male'): void {
+    const path = resolveMahjongTileVoicePath(tileId, gender);
+    if (path) {
+      void this.playAudioFile(path, 0.92, 0, 1.0, 40);
+    }
+  }
+
+  public playActionVoice(action: MahjongActionVoiceType, gender: VoiceGender = 'male'): void {
+    const folder = gender === 'female' ? 'female' : 'male';
+    const path = `/assets/mahjong/audio/voice/${folder}/${action}.mp3`;
+    void this.playAudioFile(path, 0.95, 0, 1.0, 50);
+  }
+
+  /**
+   * Unified sound effect dispatcher for cross-game UI & table events.
+   */
+  public play(
+    soundName:
+      | 'click'
+      | 'cancel'
+      | 'invalid'
+      | 'deal'
+      | 'chip'
+      | 'card_flip'
+      | 'card_select'
+      | 'card_place'
+      | 'win'
+      | 'lose'
+      | 'clock_tick'
+      | 'bomb'
+      | 'plane'
+      | 'shunzi'
+      | 'liandui'
+      | 'spring'
+      | 'shuffle'
+      | 'coin'
+      | 'power'
+  ): void {
+    switch (soundName) {
+      case 'click':
+        this.playTap();
+        break;
+      case 'cancel':
+        this.playCancel();
+        break;
+      case 'invalid':
+        this.playInvalidPlay();
+        break;
+      case 'card_select':
+        this.playCardSelect();
+        break;
+      case 'card_place':
+        this.playCardPlace(true);
+        break;
+      case 'deal':
+        this.playCardSlide();
+        break;
+      case 'chip':
+      case 'coin':
+        this.playCoinCascade(8);
+        break;
+      case 'card_flip':
+        void this.playAudioFile(SOUND_MANIFEST.ui.cardFlip, 0.82, 0, 1.0, 30);
+        break;
+      case 'win':
+        this.playVictoryFanfare();
+        break;
+      case 'lose':
+        this.playDefeatTone();
+        break;
+      case 'clock_tick':
+        this.playClockTick(true);
+        break;
+      case 'bomb':
+        this.playBombExplosion(false);
+        break;
+      case 'plane':
+        this.playBiplaneFlyover();
+        break;
+      case 'shunzi':
+        this.playGlissando();
+        break;
+      case 'liandui':
+        this.playDoubleRibbon();
+        break;
+      case 'spring':
+        this.playSpringCelebration();
+        break;
+      case 'shuffle':
+        this.playRiffleShuffle();
+        break;
+      case 'power':
+        this.playPowerChime(2);
+        break;
+    }
   }
 }
 
 export const soundEngine = new SoundEngine();
+export { SOUND_MANIFEST };

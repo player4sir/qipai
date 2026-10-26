@@ -1,17 +1,5 @@
 import React, { useState } from 'react';
-import {
-  Brain,
-  Edit3,
-  Maximize2,
-  Minimize2,
-  Music,
-  Plus,
-  Settings,
-  Smartphone,
-  Volume2,
-  VolumeX,
-  X,
-} from 'lucide-react';
+import { X } from 'lucide-react';
 import { soundEngine } from '../../../shared/audio/SoundEngine';
 import { hapticEngine } from '../../../shared/haptics/HapticEngine';
 import { PWAInstallButton } from '../../../shared/pwa/PWAInstallButton';
@@ -64,54 +52,33 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-3 sm:p-4 backdrop-blur-xs animate-in fade-in duration-200"
-      onClick={onClose}
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-[3px] animate-in fade-in duration-150 select-none">
       <div
-        className="flex max-h-[min(92dvh,580px)] w-full max-w-sm flex-col overflow-hidden rounded-3xl border-2 border-amber-300/40 bg-gradient-to-b from-[#331e12] via-[#24140b] to-[#170c06] p-4 text-white shadow-[0_20px_50px_rgba(0,0,0,0.75)] sm:p-5"
+        className="flex max-h-[84dvh] w-full max-w-[400px] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#12171B]/95 text-[#F3F4F6] shadow-[0_24px_60px_rgba(0,0,0,0.72)] backdrop-blur-md"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex shrink-0 items-center justify-between border-b border-amber-200/15 pb-2.5">
-          <div className="flex items-center gap-2">
-            <div className="flex h-8.5 w-8.5 items-center justify-center rounded-xl border border-amber-300/40 bg-amber-500/20 text-amber-300">
-              <Settings className="h-4.5 w-4.5" />
-            </div>
-            <div>
-              <h3 className="font-display text-base font-extrabold text-amber-100">
-                游戏系统设置
-              </h3>
-              <p className="text-[11px] text-amber-200/60">
-                音量调节、全屏显示与角色档案管理
-              </p>
-            </div>
-          </div>
+        <div className="flex shrink-0 items-center justify-between border-b border-white/[0.08] bg-white/[0.02] px-4 py-3 sm:px-5">
+          <h3 className="text-sm sm:text-base font-bold text-[#F3F4F6]">系统设置</h3>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg p-1 text-white/60 hover:text-white cursor-pointer"
+            aria-label="关闭面板"
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-[#9CA3AF] hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
         {/* Setting Items */}
-        <div className="mt-3 flex-1 min-h-0 space-y-2.5 overflow-y-auto overscroll-contain pr-0.5">
-          {/* Universal Room Card Account Balance & Supply */}
+        <div className="flex-1 min-h-0 space-y-2.5 overflow-y-auto overscroll-contain p-4 sm:p-5">
+          {/* Room Card Balance */}
           {typeof myBeans === 'number' && (
-            <div className="flex items-center justify-between rounded-2xl border border-amber-300/25 bg-black/40 px-3.5 py-2.5">
-              <div className="flex items-center gap-2">
-                <img
-                  src="/assets/ui/icon_fangka.png"
-                  alt="房卡"
-                  className="h-5 w-5 shrink-0 object-contain drop-shadow"
-                />
-                <div>
-                  <div className="text-xs font-bold text-amber-100">账户通用房卡</div>
-                  <div className="font-mono text-xs font-black text-amber-300 tabular-nums">
-                    {myBeans.toLocaleString()} 张
-                  </div>
+            <div className="flex items-center justify-between rounded-xl border border-white/[0.07] bg-white/[0.03] px-3.5 py-2.5">
+              <div>
+                <div className="text-xs font-medium text-[#9CA3AF]">通用房卡余额</div>
+                <div className="mt-0.5 font-mono text-sm font-bold text-[#FBBF24] tabular-nums">
+                  {myBeans.toLocaleString()} 张
                 </div>
               </div>
               {onClaimSupply && (
@@ -122,48 +89,43 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     hapticEngine.tap();
                     onClaimSupply();
                   }}
-                  className="flex items-center gap-1 rounded-full border border-amber-200/80 bg-gradient-to-b from-[#ffe082] via-[#f59e0b] to-[#d97706] px-3 py-1 text-xs font-extrabold text-[#1f0f05] shadow hover:brightness-110 active:scale-95 cursor-pointer"
+                  className="h-8 rounded-lg bg-[#D49B35] hover:bg-[#E0A842] px-3.5 text-xs font-bold text-[#111315] transition-colors active:scale-98 cursor-pointer"
                 >
-                  <Plus className="h-3 w-3 stroke-[3]" />
-                  <span>免费领卡</span>
+                  免费补充
                 </button>
               )}
             </div>
           )}
 
           {/* BGM Row + Slider */}
-          <div className="rounded-2xl border border-white/10 bg-black/35 p-3 space-y-2">
+          <div className="rounded-xl border border-white/[0.07] bg-white/[0.03] p-3 space-y-2">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Music className="h-4 w-4 text-amber-300" />
-                <div>
-                  <div className="text-xs font-bold text-white">背景音乐</div>
-                  <div className="text-[10px] text-white/50">大厅迎宾与对局国风配乐</div>
-                </div>
-              </div>
+              <span className="text-xs font-semibold text-[#E5E7EB]">背景音乐</span>
               <button
                 type="button"
                 onClick={handleToggleBgm}
-                className={`rounded-full px-3 py-1 text-xs font-extrabold transition-colors cursor-pointer ${
-                  bgmEnabled ? 'bg-emerald-500 text-[#0f172a]' : 'bg-white/10 text-white/60'
+                className={`h-7 min-w-[56px] rounded-lg px-2.5 text-xs font-bold transition-colors cursor-pointer ${
+                  bgmEnabled
+                    ? 'bg-[#D49B35] text-[#111315]'
+                    : 'border border-white/12 bg-white/[0.06] text-[#9CA3AF]'
                 }`}
               >
-                {bgmEnabled ? '已开启' : '已关闭'}
+                {bgmEnabled ? '开启' : '关闭'}
               </button>
             </div>
 
             {bgmEnabled && (
               <div className="flex items-center gap-3 pt-1">
-                <span className="text-[10px] text-white/60">音量</span>
+                <span className="text-[11px] text-[#9CA3AF]">音量</span>
                 <input
                   type="range"
                   min="0"
                   max="100"
                   value={bgmVolume}
                   onChange={(e) => handleChangeBgmVol(Number(e.target.value))}
-                  className="h-1.5 flex-1 accent-amber-400 rounded-lg cursor-pointer bg-white/20"
+                  className="h-1.5 flex-1 accent-[#D49B35] rounded-lg cursor-pointer bg-white/15"
                 />
-                <span className="font-mono text-xs font-bold text-amber-300 w-8 text-right">
+                <span className="font-mono text-xs font-semibold text-[#E5E7EB] w-8 text-right tabular-nums">
                   {bgmVolume}%
                 </span>
               </div>
@@ -171,42 +133,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
 
           {/* SFX Row + Slider */}
-          <div className="rounded-2xl border border-white/10 bg-black/35 p-3 space-y-2">
+          <div className="rounded-xl border border-white/[0.07] bg-white/[0.03] p-3 space-y-2">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                {sfxEnabled ? (
-                  <Volume2 className="h-4 w-4 text-amber-300" />
-                ) : (
-                  <VolumeX className="h-4 w-4 text-rose-400" />
-                )}
-                <div>
-                  <div className="text-xs font-bold text-white">游戏音效与语音</div>
-                  <div className="text-[10px] text-white/50">出牌声响与角色真人配音</div>
-                </div>
-              </div>
+              <span className="text-xs font-semibold text-[#E5E7EB]">游戏音效与语音</span>
               <button
                 type="button"
                 onClick={handleToggleSfx}
-                className={`rounded-full px-3 py-1 text-xs font-extrabold transition-colors cursor-pointer ${
-                  sfxEnabled ? 'bg-emerald-500 text-[#0f172a]' : 'bg-white/10 text-white/60'
+                className={`h-7 min-w-[56px] rounded-lg px-2.5 text-xs font-bold transition-colors cursor-pointer ${
+                  sfxEnabled
+                    ? 'bg-[#D49B35] text-[#111315]'
+                    : 'border border-white/12 bg-white/[0.06] text-[#9CA3AF]'
                 }`}
               >
-                {sfxEnabled ? '已开启' : '已关闭'}
+                {sfxEnabled ? '开启' : '关闭'}
               </button>
             </div>
 
             {sfxEnabled && (
               <div className="flex items-center gap-3 pt-1">
-                <span className="text-[10px] text-white/60">音量</span>
+                <span className="text-[11px] text-[#9CA3AF]">音量</span>
                 <input
                   type="range"
                   min="0"
                   max="100"
                   value={sfxVolume}
                   onChange={(e) => handleChangeSfxVol(Number(e.target.value))}
-                  className="h-1.5 flex-1 accent-amber-400 rounded-lg cursor-pointer bg-white/20"
+                  className="h-1.5 flex-1 accent-[#D49B35] rounded-lg cursor-pointer bg-white/15"
                 />
-                <span className="font-mono text-xs font-bold text-amber-300 w-8 text-right">
+                <span className="font-mono text-xs font-semibold text-[#E5E7EB] w-8 text-right tabular-nums">
                   {sfxVolume}%
                 </span>
               </div>
@@ -215,38 +169,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           {/* Haptics & Fullscreen Row */}
           <div className="grid grid-cols-1 gap-2">
-            <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/35 px-3.5 py-2.5">
-              <div className="flex items-center gap-2">
-                <Smartphone className="h-4 w-4 text-amber-300" />
-                <div>
-                  <div className="text-xs font-bold text-white">触感震动反馈</div>
-                  <div className="text-[10px] text-white/50">选牌与炸弹触感特效</div>
-                </div>
-              </div>
+            <div className="flex items-center justify-between rounded-xl border border-white/[0.07] bg-white/[0.03] px-3.5 py-2.5">
+              <span className="text-xs font-semibold text-[#E5E7EB]">触感震动</span>
               <button
                 type="button"
                 onClick={handleToggleHaptic}
-                className={`rounded-full px-3 py-1 text-xs font-extrabold transition-colors cursor-pointer ${
-                  hapticEnabled ? 'bg-emerald-500 text-[#0f172a]' : 'bg-white/10 text-white/60'
+                className={`h-7 min-w-[56px] rounded-lg px-2.5 text-xs font-bold transition-colors cursor-pointer ${
+                  hapticEnabled
+                    ? 'bg-[#D49B35] text-[#111315]'
+                    : 'border border-white/12 bg-white/[0.06] text-[#9CA3AF]'
                 }`}
               >
-                {hapticEnabled ? '已开启' : '已关闭'}
+                {hapticEnabled ? '开启' : '关闭'}
               </button>
             </div>
 
             {onToggleFullscreen && (
-              <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/35 px-3.5 py-2.5">
-                <div className="flex items-center gap-2">
-                  {isFullscreen ? (
-                    <Minimize2 className="h-4 w-4 text-amber-300" />
-                  ) : (
-                    <Maximize2 className="h-4 w-4 text-amber-300" />
-                  )}
-                  <div>
-                    <div className="text-xs font-bold text-white">沉浸全屏显示</div>
-                    <div className="text-[10px] text-white/50">最大化棋牌大厅视野</div>
-                  </div>
-                </div>
+              <div className="flex items-center justify-between rounded-xl border border-white/[0.07] bg-white/[0.03] px-3.5 py-2.5">
+                <span className="text-xs font-semibold text-[#E5E7EB]">全屏显示</span>
                 <button
                   type="button"
                   onClick={() => {
@@ -254,11 +194,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     hapticEngine.tap();
                     onToggleFullscreen();
                   }}
-                  className={`rounded-full px-3 py-1 text-xs font-extrabold transition-colors cursor-pointer ${
-                    isFullscreen
-                      ? 'bg-amber-400 text-[#18181B]'
-                      : 'bg-white/10 text-amber-200 hover:bg-white/20'
-                  }`}
+                  className="h-7 rounded-lg border border-white/12 bg-white/[0.06] hover:bg-white/[0.11] px-3 text-xs font-semibold text-[#E5E7EB] transition-colors cursor-pointer"
                 >
                   {isFullscreen ? '退出全屏' : '开启全屏'}
                 </button>
@@ -267,38 +203,35 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
         </div>
 
-        {/* Action Shortcuts */}
-        <div className="mt-3.5 grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              onClose();
-              onOpenProfile();
-            }}
-            className="flex items-center justify-center gap-1.5 rounded-2xl border border-amber-400/40 bg-amber-500/15 py-2 text-xs font-bold text-amber-200 hover:bg-amber-500/25 active:scale-95 cursor-pointer"
-          >
-            <Edit3 className="h-3.5 w-3.5" />
-            <span>角色资料</span>
-          </button>
+        {/* Footer Shortcuts */}
+        <div className="flex shrink-0 items-center justify-between gap-2 border-t border-white/[0.08] bg-white/[0.02] px-4 py-3 sm:px-5">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onOpenProfile();
+              }}
+              className="h-8 rounded-lg border border-white/12 bg-white/[0.06] hover:bg-white/[0.11] px-3 text-xs font-semibold text-[#E5E7EB] transition-colors active:scale-98 cursor-pointer"
+            >
+              个人资料
+            </button>
 
-          <button
-            type="button"
-            onClick={() => {
-              onClose();
-              onOpenPuzzle();
-            }}
-            className="flex items-center justify-center gap-1.5 rounded-2xl border border-sky-400/40 bg-sky-500/15 py-2 text-xs font-bold text-sky-200 hover:bg-sky-500/25 active:scale-95 cursor-pointer"
-          >
-            <Brain className="h-3.5 w-3.5" />
-            <span>残局闯关</span>
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onOpenPuzzle();
+              }}
+              className="h-8 rounded-lg border border-white/12 bg-white/[0.06] hover:bg-white/[0.11] px-3 text-xs font-semibold text-[#E5E7EB] transition-colors active:scale-98 cursor-pointer"
+            >
+              残局闯关
+            </button>
+          </div>
 
-        <div className="mt-3 flex justify-center">
           <PWAInstallButton />
         </div>
       </div>
     </div>
   );
 };
-

@@ -4,6 +4,7 @@ import { soundEngine } from '../../../shared/audio/SoundEngine';
 import { hapticEngine } from '../../../shared/haptics/HapticEngine';
 import { CARD_HEIGHT, CARD_WIDTH } from '../assets/CardAtlasGenerator';
 import { Card } from '../components/Card';
+import { spriteAnimationEngine } from '../scenes/SpriteAnimationEngine';
 import { CardData, HandSortMode, Rank } from '../types';
 
 export interface ExtractedComboResult {
@@ -112,10 +113,12 @@ export class HandManager {
     if (this.comboStatusBadge && !this.comboStatusBadge.destroyed) {
       this.comboStatusBadge.position.set(opts.centerX, opts.comboBannerY);
     }
-    if (this.cards.length > 0) {
+    if (this.cards.length > 0 && performance.now() >= this.dealAnimatingUntil) {
       this.layoutCards(0.12, false);
     }
   }
+
+  private dealAnimatingUntil: number = 0;
 
   private buildComboStatusBadge(): void {
     this.comboStatusBadge.position.set(this.centerX, 474);
@@ -214,14 +217,17 @@ export class HandManager {
       .sort()
       .join(',');
 
-    if (currentIds === nextIds && this.cards.length > 0) {
+    if (currentIds === nextIds && this.cards.length > 0 && !animateDeal) {
       for (const card of this.cards) {
         card.setLandlordBadgeVisible(isLandlord);
         card.setWildBadgeVisible(
           Boolean(card.cardData.isWild || wildSet.has(card.cardData.rank))
         );
       }
-      this.layoutCards(0.18);
+      // Do not interrupt an in-flight staggered dealing animation with a snapshot re-layout
+      if (performance.now() >= this.dealAnimatingUntil) {
+        this.layoutCards(0.18, false);
+      }
       return;
     }
 
@@ -330,10 +336,16 @@ export class HandManager {
     const step = Math.min(50 * cardScale, Math.max(26 * cardScale, rawStep));
     const startX = centerX - (step * (count - 1)) / 2;
 
+    const staggerStepSec = 0.032;
+    const totalDealMs = Math.round(((count - 1) * staggerStepSec + duration) * 1000);
+    if (staggerDeal) {
+      this.dealAnimatingUntil = performance.now() + totalDealMs + 80;
+    }
+
     this.cards.forEach((card, i) => {
       const targetX = startX + i * step;
       if (staggerDeal) {
-        const delaySec = i * 0.022;
+        const delaySec = i * staggerStepSec;
         gsap.killTweensOf(card);
         gsap.killTweensOf(card.scale);
         gsap.to(card, {
@@ -344,6 +356,16 @@ export class HandManager {
           duration,
           ease: 'back.out(1.25)',
           onStart: () => {
+            if (i === 0) {
+              void soundEngine.startDealCascade(totalDealMs);
+              spriteAnimationEngine.emitEffect('deal_cards', {
+                x: 0.5,
+                y: 0.34,
+                seat: 'center',
+                durationMs: totalDealMs,
+                label: '发牌',
+              });
+            }
             if (i % 2 === 0) {
               soundEngine.playCardFly(i);
             }
@@ -367,7 +389,7 @@ export class HandManager {
     if (card.destroyed) return;
     card.setSelected(!card.selected, false);
     hapticEngine.tap();
-    soundEngine.playTap(card.selected ? 760 : 540);
+    soundEngine.playCardSelect();
     this.refreshSelectedComboVisuals();
     this.notifySelectionChange();
   }
@@ -388,7 +410,7 @@ export class HandManager {
       }
     }
     hapticEngine.tap();
-    soundEngine.playTap(780);
+    soundEngine.playCardSelect();
     this.refreshSelectedComboVisuals();
     this.notifySelectionChange();
   }
@@ -474,6 +496,7 @@ export class HandManager {
       if (clampedIdx !== this.dragCurrentIndex) {
         this.dragCurrentIndex = clampedIdx;
         hapticEngine.slideTick();
+        soundEngine.playCardSelect();
       }
     }
     this.updateDragHighlights();
@@ -501,6 +524,7 @@ export class HandManager {
     if (index !== this.dragCurrentIndex) {
       this.dragCurrentIndex = index;
       hapticEngine.slideTick();
+      soundEngine.playCardSelect();
     }
     this.dragCurrentPoint = this.container.toLocal(e.global);
     this.updateDragHighlights();
@@ -667,11 +691,28 @@ export class HandManager {
     const distinctAsc = Array.from(sliceValMap.keys()).sort((a, b) => a - b);
     if (distinctAsc.length < 2) return null;
 
+    // Identify 4-of-a-kind Bombs in the full hand so slide-selection protects bombs whenever possible
+    const fullHandCounts = new Map<number, number>();
+    for (const c of this.cards) {
+      if (!c.destroyed) {
+        fullHandCounts.set(c.cardData.value, (fullHandCounts.get(c.cardData.value) ?? 0) + 1);
+      }
+    }
+    const nonBombDistinctAsc = distinctAsc.filter((v) => (fullHandCounts.get(v) ?? 0) < 4);
+
     // Priority 1: Airplane (飞机: >= 2 consecutive triples, value <= 14)
-    const tripleVals = distinctAsc.filter(
+    const nonBombTripleVals = nonBombDistinctAsc.filter(
       (v) => (sliceValMap.get(v)?.length ?? 0) >= 3
     );
-    const longestTripleRun = this.findLongestContiguousRun(tripleVals);
+    const allTripleVals = distinctAsc.filter(
+      (v) => (sliceValMap.get(v)?.length ?? 0) >= 3
+    );
+    const cleanTripleRun = this.findLongestContiguousRun(nonBombTripleVals);
+    const longestTripleRun =
+      cleanTripleRun.length >= 2
+        ? cleanTripleRun
+        : this.findLongestContiguousRun(allTripleVals);
+
     if (longestTripleRun.length >= 2 && slicedCards.length >= 6) {
       const ids = new Set<string>();
       for (const v of longestTripleRun) {
@@ -689,7 +730,8 @@ export class HandManager {
         const hasBothJokers =
           leftover.some((c) => c.cardData.value === 16) &&
           leftover.some((c) => c.cardData.value === 17);
-        if (!hasBothJokers) {
+        const breaksBomb = leftover.some((c) => (fullHandCounts.get(c.cardData.value) ?? 0) === 4);
+        if (!hasBothJokers && !breaksBomb) {
           leftover.forEach((c) => ids.add(c.cardData.id));
           labelSuffix = `带单 · ${ids.size}张`;
         }
@@ -703,7 +745,7 @@ export class HandManager {
         let totalPairs = 0;
         let valid = true;
         for (const [v, g] of wingPairs.entries()) {
-          if (v >= 16 || g.length % 2 !== 0) {
+          if (v >= 16 || g.length % 2 !== 0 || (fullHandCounts.get(v) ?? 0) === 4) {
             valid = false;
             break;
           }
@@ -728,12 +770,22 @@ export class HandManager {
       };
     }
 
-    // Priority 2: Consecutive Pairs (连对: >= 3 consecutive pairs, value <= 14)
-    const pairVals = distinctAsc.filter(
+    // Priority 2: Consecutive Pairs (连对: >= 3 consecutive pairs, value <= 14, protecting bombs first)
+    const nonBombPairVals = nonBombDistinctAsc.filter(
       (v) => (sliceValMap.get(v)?.length ?? 0) >= 2
     );
-    const longestPairRun = this.findLongestContiguousRun(pairVals);
-    const longestStraightRun = this.findLongestContiguousRun(distinctAsc);
+    const allPairVals = distinctAsc.filter(
+      (v) => (sliceValMap.get(v)?.length ?? 0) >= 2
+    );
+    const cleanPairRun = this.findLongestContiguousRun(nonBombPairVals);
+    const longestPairRun =
+      cleanPairRun.length >= 3 ? cleanPairRun : this.findLongestContiguousRun(allPairVals);
+
+    const cleanStraightRun = this.findLongestContiguousRun(nonBombDistinctAsc);
+    const longestStraightRun =
+      cleanStraightRun.length >= 5
+        ? cleanStraightRun
+        : this.findLongestContiguousRun(distinctAsc);
 
     // Prefer Consecutive Pairs when all dragged ranks form pairs OR when straight run < 5
     const allDraggedRanksArePairs = longestPairRun.length === distinctAsc.length;
@@ -760,7 +812,7 @@ export class HandManager {
       };
     }
 
-    // Priority 3: Straight (顺子: >= 5 consecutive singles, value <= 14)
+    // Priority 3: Straight (顺子: >= 5 consecutive singles, value <= 14, protecting bombs first)
     if (longestStraightRun.length >= 5) {
       const ids = new Set<string>();
       for (const v of longestStraightRun) {
@@ -915,7 +967,7 @@ export class HandManager {
     }
 
     hapticEngine.tap();
-    soundEngine.playTap(740);
+    soundEngine.playCardSelect();
     this.refreshSelectedComboVisuals();
     this.notifySelectionChange();
   }

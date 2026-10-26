@@ -37,19 +37,21 @@ export const LaoYanCaiSettlementModal: React.FC<LaoYanCaiSettlementModalProps> =
   const selfDelta = selfRow?.scoreDelta ?? 0;
 
   return (
-    <div className="pointer-events-auto absolute inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="relative flex w-full max-w-2xl flex-col overflow-hidden rounded-3xl border-2 border-amber-300/75 bg-gradient-to-b from-[#0d2b20] via-[#091d15] to-[#05110c] text-white shadow-[0_28px_68px_rgba(0,0,0,0.92)]">
-        {/* Commercial Hero Header with Flipbook Sparkle & Rolling Score */}
+    <div className="pointer-events-auto fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-[3px] animate-in fade-in duration-150 select-none">
+      <div
+        className="relative flex w-full max-w-[480px] max-h-[85dvh] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#12171B]/95 text-[#F3F4F6] shadow-[0_24px_60px_rgba(0,0,0,0.72)] backdrop-blur-md"
+        onClick={(e) => e.stopPropagation()}
+      >
         <SettlementHeroHeader
           selfScoreDelta={selfDelta}
-          titleWin="本局胜利 · 捞腌菜结算"
-          titleLose="本局惜败 · 捞腌菜结算"
-          subtitle={`${MODE_NAMES[settlement.playMode] || '云南捞腌菜'} · 底分 ${settlement.baseScore.toLocaleString()}${settlement.bankerZhaKaiAll ? ' · 庄家天牌炸开局' : ''}`}
-          suffix=" 分"
+          titleWin="本局胜利"
+          titleLose="本局结算"
+          subtitle={`${MODE_NAMES[settlement.playMode] || '云南捞腌菜'} · 底分 ${settlement.baseScore.toLocaleString()}${settlement.bankerZhaKaiAll ? ' · 庄家炸开' : ''}`}
+          onClose={onReadyNext}
         />
 
-        {/* Players Settlement List */}
-        <div className="flex max-h-[55vh] flex-col gap-2 overflow-y-auto p-3.5 sm:p-4">
+        {/* Player Cards */}
+        <div className="flex flex-1 min-h-0 flex-col gap-2 overflow-y-auto overscroll-contain p-3.5 sm:p-4">
           {settlement.players.map((p) => {
             const isSelf = p.playerId === selfPlayerId;
             const isBaozi = p.handName.includes('豹子');
@@ -69,51 +71,44 @@ export const LaoYanCaiSettlementModal: React.FC<LaoYanCaiSettlementModalProps> =
               p.decision === 'ZHAKAI'
                 ? '炸开'
                 : p.decision === 'LAO'
-                ? '捞牌(3张)'
-                : '不捞(2张)';
+                ? '捞牌'
+                : '不捞';
+
+            const roleText = p.isDealer
+              ? `庄家 · ${Math.max(1, p.callMultiplier)}倍`
+              : `闲家 · 下${p.betMultiplier}倍`;
 
             return (
               <div
                 key={p.playerId}
-                className={`flex items-center justify-between rounded-2xl border px-3.5 py-2 transition-all ${
-                  isBaozi
-                    ? 'border-amber-300 bg-gradient-to-r from-red-950/55 via-amber-900/35 to-red-950/55 shadow-[0_0_20px_rgba(245,158,11,0.3)]'
-                    : isSanGong
-                    ? 'border-fuchsia-300/80 bg-gradient-to-r from-purple-950/55 via-fuchsia-900/35 to-purple-950/55 shadow-[0_0_18px_rgba(217,70,239,0.28)]'
-                    : isSelf
-                    ? 'border-amber-300/65 bg-amber-400/12'
-                    : 'border-white/10 bg-white/[0.04]'
+                className={`flex items-center justify-between gap-3 rounded-xl border px-3.5 py-2.5 ${
+                  isSelf
+                    ? 'border-[#D4AF37]/35 bg-[#D4AF37]/[0.08]'
+                    : 'border-white/[0.07] bg-white/[0.03]'
                 }`}
               >
-                {/* Left: Seat Avatar & Role */}
-                <div className="flex min-w-[165px] items-center gap-2.5">
-                  <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-full border border-amber-200/40 bg-[#182620]">
-                    <AvatarSvg avatarId={p.avatarId} size={38} />
-                    {p.isDealer && (
-                      <span className="absolute top-0 left-0 rounded-br bg-amber-400 px-1 text-[9px] font-black text-[#240e03]">
-                        庄
-                      </span>
-                    )}
+                <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                  <div className="relative h-8 w-8 shrink-0 overflow-hidden rounded-full border border-white/12 bg-black/40">
+                    <AvatarSvg avatarId={p.avatarId} size={32} />
                   </div>
-                  <div className="flex flex-col">
-                    <div className="flex items-center gap-1.5">
-                      <span className="max-w-[100px] truncate text-xs sm:text-sm font-extrabold text-white">
-                        {p.nickname}
-                      </span>
-                      <span className="rounded bg-white/10 px-1.5 py-0.2 text-[10px] font-bold text-amber-200">
-                        {p.isDealer
-                          ? `庄${Math.max(1, p.callMultiplier)}倍`
-                          : `下${p.betMultiplier}倍`}
-                      </span>
+                  <div className="flex min-w-0 flex-col">
+                    <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-[#F3F4F6]">
+                      <span className="max-w-[100px] truncate">{p.nickname}</span>
+                      {isSelf && (
+                        <span className="text-[11px] font-semibold text-[#E5B85B]">· 我</span>
+                      )}
                     </div>
-                    <span className="text-[11px] font-semibold text-emerald-300/90">
-                      {decisionTag}
-                    </span>
+                    <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-[#9CA3AF] tabular-nums">
+                      <span>{roleText}</span>
+                      <span aria-hidden="true">·</span>
+                      <span>{decisionTag}</span>
+                      <span aria-hidden="true">·</span>
+                      <span>积分 {p.balance.toLocaleString()}</span>
+                    </div>
                   </div>
                 </div>
 
-                {/* Center: Hand Cards & Hand Name */}
-                <div className="flex items-center gap-3">
+                <div className="flex shrink-0 items-center gap-2.5">
                   <div className="flex items-center gap-1">
                     {p.cards.map((c, idx) => (
                       <LaoYanCaiCardView
@@ -126,63 +121,42 @@ export const LaoYanCaiSettlementModal: React.FC<LaoYanCaiSettlementModalProps> =
                       />
                     ))}
                   </div>
-                  <div className="flex min-w-[115px] flex-col items-start">
-                    <span
-                      className={`font-display text-xs sm:text-sm font-black ${
-                        isBaozi
-                          ? 'text-yellow-300 drop-shadow-[0_0_8px_rgba(251,191,36,0.8)]'
-                          : isSanGong
-                          ? 'text-fuchsia-200 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)]'
-                          : 'text-amber-200'
-                      }`}
-                    >
+                  <div className="flex w-18 flex-col items-end text-right">
+                    <span className="text-xs font-bold text-[#F3F4F6] whitespace-nowrap">
                       {p.handName}
                     </span>
-                    <span
-                      className={`rounded px-1.5 py-0.2 font-mono text-[10px] font-bold ${
-                        isBaozi
-                          ? 'bg-amber-500/30 text-yellow-200 border border-amber-300/50'
-                          : isSanGong
-                          ? 'bg-fuchsia-500/30 text-fuchsia-200 border border-fuchsia-300/50'
-                          : 'bg-emerald-500/20 text-emerald-300'
-                      }`}
-                    >
+                    <span className="text-[10px] text-[#E5B85B] tabular-nums whitespace-nowrap">
                       {p.badgeText}
                     </span>
                   </div>
                 </div>
 
-                {/* Right: Rolling Score Delta (Winner Gold #FFD700 / Loser Amber #D97706) */}
-                <div className="flex min-w-[110px] flex-col items-end">
+                <div className="flex w-22 shrink-0 flex-col items-end">
                   <RollingScoreCounter
                     value={p.scoreDelta}
-                    suffix=" 分"
                     size="md"
-                    durationMs={950}
+                    durationMs={900}
                     playTickSound={isSelf}
                   />
-                  <span className="font-mono text-[10px] text-white/50">
-                    当前积分 {p.balance.toLocaleString()}
-                  </span>
                 </div>
               </div>
             );
           })}
         </div>
 
-        {/* Footer Actions */}
-        <div className="flex items-center justify-between border-t border-white/10 bg-black/45 px-5 py-3">
+        {/* Compact Right-Aligned Action Footer */}
+        <div className="flex shrink-0 items-center justify-end gap-2.5 border-t border-white/[0.08] bg-white/[0.02] px-4 py-2.5">
           <button
             type="button"
             onClick={onLeaveRoom}
-            className="rounded-full border border-white/25 bg-white/10 px-6 py-1.5 text-xs sm:text-sm font-bold text-white/90 hover:bg-white/20 active:scale-95 cursor-pointer"
+            className="flex h-8.5 min-w-[84px] items-center justify-center rounded-lg border border-white/12 bg-white/[0.06] px-3.5 text-xs font-semibold text-[#E5E7EB] transition-colors hover:bg-white/[0.11] active:scale-98 whitespace-nowrap shrink-0 cursor-pointer"
           >
             返回大厅
           </button>
           <button
             type="button"
             onClick={onReadyNext}
-            className="rounded-full border-2 border-amber-200 bg-gradient-to-b from-[#ffe58f] via-[#f59e0b] to-[#d97706] px-8 py-1.5 font-display text-sm sm:text-base font-black text-[#261003] shadow-[0_6px_18px_rgba(245,158,11,0.45)] hover:brightness-108 active:scale-95 cursor-pointer"
+            className="flex h-8.5 min-w-[108px] items-center justify-center rounded-lg bg-[#D49B35] px-4 text-xs font-bold text-[#111315] transition-colors hover:bg-[#E0A842] active:scale-98 whitespace-nowrap tabular-nums shrink-0 cursor-pointer"
           >
             再来一局 ({countdown}s)
           </button>

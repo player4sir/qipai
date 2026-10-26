@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Flame, Trophy, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { UserProfile } from '../../HallView';
 import { AvatarSvg } from '../../../shared/ui/AvatarSvg';
 import { soundEngine } from '../../../shared/audio/SoundEngine';
@@ -27,70 +27,61 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
   });
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-3 sm:p-4 backdrop-blur-xs animate-in fade-in duration-200"
-      onClick={onClose}
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-[3px] animate-in fade-in duration-150 select-none">
       <div
-        className="flex max-h-[85vh] w-full max-w-xl flex-col overflow-hidden rounded-3xl border border-white/15 bg-gradient-to-b from-[#232838] to-[#171a24] shadow-2xl"
+        className="flex max-h-[84dvh] w-full max-w-[480px] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#12171B]/95 text-[#F3F4F6] shadow-[0_24px_60px_rgba(0,0,0,0.72)] backdrop-blur-md"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-white/10 px-4 py-3 sm:px-5">
-          <div className="flex items-center gap-2">
-            <Trophy className="h-5 w-5 text-amber-400" />
-            <h3 className="font-display text-base font-extrabold text-amber-200 sm:text-lg">
-              全服巅峰荣誉榜
-            </h3>
+        <div className="flex shrink-0 items-center justify-between border-b border-white/[0.08] bg-white/[0.02] px-4 py-3 sm:px-5">
+          <h3 className="text-sm sm:text-base font-bold text-[#F3F4F6]">排行榜</h3>
+
+          <div className="flex items-center gap-1 rounded-lg border border-white/[0.08] bg-black/35 p-1">
+            <button
+              type="button"
+              onClick={() => {
+                soundEngine.playTap(700);
+                hapticEngine.tap();
+                setActiveTab('wealth');
+              }}
+              className={`rounded-md px-3 py-1 text-xs font-bold transition-colors cursor-pointer ${
+                activeTab === 'wealth'
+                  ? 'bg-[#D49B35] text-[#111315]'
+                  : 'text-[#9CA3AF] hover:text-[#F3F4F6]'
+              }`}
+            >
+              积分榜
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                soundEngine.playTap(700);
+                hapticEngine.tap();
+                setActiveTab('wins');
+              }}
+              className={`rounded-md px-3 py-1 text-xs font-bold transition-colors cursor-pointer ${
+                activeTab === 'wins'
+                  ? 'bg-[#D49B35] text-[#111315]'
+                  : 'text-[#9CA3AF] hover:text-[#F3F4F6]'
+              }`}
+            >
+              胜场榜
+            </button>
           </div>
+
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg p-1 text-white/60 hover:text-white"
+            aria-label="关闭面板"
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-[#9CA3AF] hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        {/* Tab switch */}
-        <div className="flex border-b border-white/10 bg-black/20 px-4 pt-2 gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              soundEngine.playTap(700);
-              hapticEngine.tap();
-              setActiveTab('wealth');
-            }}
-            className={`flex items-center gap-1.5 border-b-2 py-2 px-3 text-xs font-black transition-colors ${
-              activeTab === 'wealth'
-                ? 'border-amber-400 text-amber-300'
-                : 'border-transparent text-white/60 hover:text-white'
-            }`}
-          >
-            <Trophy className="h-3.5 w-3.5" />
-            <span>总积分巅峰榜</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              soundEngine.playTap(700);
-              hapticEngine.tap();
-              setActiveTab('wins');
-            }}
-            className={`flex items-center gap-1.5 border-b-2 py-2 px-3 text-xs font-black transition-colors ${
-              activeTab === 'wins'
-                ? 'border-amber-400 text-amber-300'
-                : 'border-transparent text-white/60 hover:text-white'
-            }`}
-          >
-            <Flame className="h-3.5 w-3.5" />
-            <span>胜场王者榜</span>
-          </button>
-        </div>
-
         {/* Scrollable List */}
-        <div className="flex-1 space-y-2 overflow-y-auto p-3.5 sm:p-4">
+        <div className="flex-1 min-h-0 space-y-2 overflow-y-auto overscroll-contain p-4">
           {sortedList.map((u, idx) => {
             const isMe = u.playerId === myProfile?.playerId;
             const winRate =
@@ -99,51 +90,49 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
             return (
               <div
                 key={u.playerId}
-                className={`flex items-center justify-between rounded-2xl border px-3.5 py-2.5 transition-colors ${
+                className={`flex items-center justify-between rounded-xl border px-3.5 py-2.5 transition-colors ${
                   isMe
-                    ? 'border-amber-400/50 bg-amber-500/15'
-                    : 'border-white/8 bg-[#12151f]'
+                    ? 'border-[#D4AF37]/35 bg-[#D4AF37]/[0.08]'
+                    : 'border-white/[0.07] bg-white/[0.03]'
                 }`}
               >
-                <div className="flex items-center gap-2.5">
+                <div className="flex items-center gap-2.5 min-w-0">
                   <span
-                    className={`w-6 text-center font-mono text-sm font-black ${
+                    className={`w-7 text-center font-mono text-xs sm:text-sm font-bold shrink-0 ${
                       idx === 0
-                        ? 'text-amber-300 text-base'
+                        ? 'text-[#FBBF24]'
                         : idx === 1
-                        ? 'text-slate-300 text-base'
+                        ? 'text-[#CBD5E1]'
                         : idx === 2
-                        ? 'text-amber-600 text-base'
-                        : 'text-white/60'
+                        ? 'text-[#D97706]'
+                        : 'text-[#6B7280]'
                     }`}
                   >
                     #{idx + 1}
                   </span>
-                  <AvatarSvg avatarId={u.avatarId} size={32} />
-                  <div>
-                    <div className="text-xs font-bold text-white sm:text-sm">
-                      {u.nickname} {isMe && <span className="text-[10px] text-amber-300">(我)</span>}
+                  <div className="shrink-0">
+                    <AvatarSvg avatarId={u.avatarId} size={34} />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs sm:text-sm font-bold text-[#F3F4F6] truncate">
+                      {u.nickname}{' '}
+                      {isMe && <span className="text-xs font-medium text-[#FBBF24]">· 我</span>}
                     </div>
-                    <div className="text-[10px] text-white/55 tabular-nums">
-                      总胜局 {u.gamesWon} 场 · 胜率 {winRate}%
+                    <div className="text-[11px] text-[#9CA3AF] tabular-nums">
+                      胜局 {u.gamesWon} 场 · 胜率 {winRate}%
                     </div>
                   </div>
                 </div>
 
-                <div className="text-right">
+                <div className="text-right shrink-0">
                   {activeTab === 'wealth' ? (
-                    <div className="flex items-center gap-1 font-mono text-xs font-extrabold text-amber-300 tabular-nums sm:text-sm">
-                      <img
-                        src="/assets/ui/icon_gold.png"
-                        alt="积分"
-                        className="h-4 w-4 object-contain"
-                      />
-                      <span>{u.beans.toLocaleString()} 分</span>
-                    </div>
+                    <span className="font-mono text-xs sm:text-sm font-bold text-[#FBBF24] tabular-nums">
+                      {u.beans.toLocaleString()} 分
+                    </span>
                   ) : (
-                    <div className="font-mono text-xs font-extrabold text-emerald-400 tabular-nums sm:text-sm">
-                      胜 {u.gamesWon} 局
-                    </div>
+                    <span className="font-mono text-xs sm:text-sm font-bold text-[#F3F4F6] tabular-nums">
+                      {u.gamesWon} 胜
+                    </span>
                   )}
                 </div>
               </div>
@@ -153,20 +142,13 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
 
         {/* Sticky Bottom: My Rank */}
         {myProfile && (
-          <div className="flex items-center justify-between border-t border-white/10 bg-[#0e111a] px-4 py-2.5 sm:px-5">
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-xs font-bold text-amber-400">
-                我的当前排名：{myRankText}
-              </span>
-            </div>
-            <div className="flex items-center gap-1 font-mono text-xs font-extrabold text-amber-300">
-              <img
-                src="/assets/ui/icon_gold.png"
-                alt="积分"
-                className="h-4 w-4 object-contain"
-              />
-              <span>{myProfile.beans.toLocaleString()} 分</span>
-            </div>
+          <div className="flex shrink-0 items-center justify-between border-t border-white/[0.08] bg-white/[0.02] px-4 py-3 sm:px-5 text-xs">
+            <span className="font-medium text-[#9CA3AF]">
+              我的当前排名：<strong className="font-mono text-[#F3F4F6]">{myRankText}</strong>
+            </span>
+            <span className="font-mono font-bold text-[#FBBF24] tabular-nums">
+              {myProfile.beans.toLocaleString()} 分
+            </span>
           </div>
         )}
       </div>

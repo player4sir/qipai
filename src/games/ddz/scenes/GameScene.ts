@@ -7,6 +7,7 @@ import { CARD_HEIGHT, CARD_WIDTH, getCardBackTexturePath } from '../assets/CardA
 import { Card } from '../components/Card';
 import { HandManager } from '../managers/HandManager';
 import { CardData, DdzPhase, PropType, Rank } from '../types';
+import { DdzVfxEngine } from './DdzVfxEngine';
 
 export const DESIGN_WIDTH = 1334;
 export const DESIGN_HEIGHT = 750;
@@ -37,6 +38,7 @@ export class GameScene extends Container {
   private effectsLayer: Container = new Container();
 
   public handManager: HandManager;
+  private vfxEngine: DdzVfxEngine;
   private callbacks: GameSceneCallbacks;
   public virtualWidth: number = DESIGN_WIDTH;
 
@@ -102,6 +104,12 @@ export class GameScene extends Container {
     this.addChild(this.effectsLayer);
 
     this.handManager = new HandManager(this.bottomPlayer);
+    this.vfxEngine = new DdzVfxEngine(
+      this.effectsLayer,
+      this,
+      () => ({ x: this.virtualWidth / 2, y: DESIGN_HEIGHT / 2 }),
+      () => ({ width: this.virtualWidth, height: DESIGN_HEIGHT })
+    );
 
     this.buildTableBackground(this.virtualWidth, DESIGN_HEIGHT);
     this.buildOpponentDecks();
@@ -140,7 +148,10 @@ export class GameScene extends Container {
   }
 
   /**
-   * Build luxury Chinese rosewood mahogany & royal emerald velvet felt table.
+   * Build 3D-perspective VIP Arena Table:
+   * - Multi-layered carved rosewood mahogany outer rail with brushed brass corner inlays
+   * - Deep emerald-jade velvet felt with layered radial overhead spotlighting
+   * - Sculpted inner arena ring & authentic center emblem (`/assets/ui/Table_logo.png`)
    */
   private buildTableBackground(w = this.virtualWidth, h = DESIGN_HEIGHT): void {
     while (this.tableBackground.children.length > 0) {
@@ -151,59 +162,118 @@ export class GameScene extends Container {
 
     // 1. Deep ambient room backdrop
     const backdrop = new Graphics();
-    backdrop.rect(0, 0, w, h).fill({ color: 0x031810 });
+    backdrop.rect(0, 0, w, h).fill({ color: 0x03130d });
 
-    // 2. Carved Rosewood Mahogany Outer Frame (3D beveled wood rail)
+    // 2. Outer Drop Shadow & Carved Rosewood Mahogany Rail (3D beveled wood Cushion)
+    const railShadow = new Graphics();
+    railShadow
+      .roundRect(8, 6, w - 16, h - 12, 48)
+      .fill({ color: 0x000000, alpha: 0.55 });
+
     const mahoganyOuter = new Graphics();
     mahoganyOuter
-      .roundRect(14, 10, w - 28, h - 20, 44)
-      .fill({ color: 0x3b160d })
-      .stroke({ color: 0x1f0a05, width: 4 });
+      .roundRect(12, 8, w - 24, h - 16, 44)
+      .fill({ color: 0x2c0f08 })
+      .stroke({ color: 0x160603, width: 3 });
 
-    const mahoganyInnerBevel = new Graphics();
-    mahoganyInnerBevel
-      .roundRect(22, 18, w - 44, h - 36, 38)
-      .fill({ color: 0x4e1f13 })
-      .stroke({ color: 0xd97706, width: 2, alpha: 0.65 });
+    const mahoganyBevel = new Graphics();
+    mahoganyBevel
+      .roundRect(20, 15, w - 40, h - 30, 38)
+      .fill({ color: 0x481a0f })
+      .stroke({ color: 0xd4af37, width: 1.6, alpha: 0.55 });
 
-    // 3. Royal Emerald Velvet Felt Surface with subtle radial spotlight
+    // Subtle top-rail specular highlight
+    const railHighlight = new Graphics();
+    railHighlight
+      .roundRect(24, 18, w - 48, h - 36, 35)
+      .stroke({ color: 0xfde68a, width: 0.8, alpha: 0.22 });
+
+    // 3. Recessed Leather Cushion & Royal Emerald Velvet Felt Surface
+    const cushionRecess = new Graphics();
+    cushionRecess
+      .roundRect(28, 22, w - 56, h - 44, 33)
+      .fill({ color: 0x041e15 });
+
     const felt = new Graphics();
     felt
-      .roundRect(32, 26, w - 64, h - 52, 32)
-      .fill({ color: 0x093d2b })
-      .stroke({ color: 0x052419, width: 6 });
+      .roundRect(34, 27, w - 68, h - 54, 29)
+      .fill({ color: 0x083827 })
+      .stroke({ color: 0x041f15, width: 5 });
 
-    // Inner bright jade spotlight oval
-    const spotW = Math.min(560, w * 0.38);
+    // Layered overhead casino spotlight ovals for 3D table depth
+    const spotW = Math.min(620, w * 0.42);
     felt
-      .ellipse(w / 2, 330, spotW, 230)
-      .fill({ color: 0x0f573e, alpha: 0.45 });
+      .ellipse(w / 2, 332, spotW, 245)
+      .fill({ color: 0x0d4f38, alpha: 0.55 });
     felt
-      .ellipse(w / 2, 320, spotW * 0.6, 140)
-      .fill({ color: 0x156c4e, alpha: 0.25 });
+      .ellipse(w / 2, 322, spotW * 0.72, 175)
+      .fill({ color: 0x126347, alpha: 0.38 });
+    felt
+      .ellipse(w / 2, 314, spotW * 0.44, 110)
+      .fill({ color: 0x197a58, alpha: 0.22 });
 
-    // 4. Clean Gold Hairline Inner Trim (Minimalist commercial poker table frame)
+    // 4. Sculpted Brass Hairline Inner Frame & Arena Betting Ring
     const goldInlay = new Graphics();
     goldInlay
-      .roundRect(46, 38, w - 92, h - 76, 24)
-      .stroke({ color: 0xf59e0b, width: 1.2, alpha: 0.24 });
+      .roundRect(48, 39, w - 96, h - 78, 22)
+      .stroke({ color: 0xd4af37, width: 1.2, alpha: 0.28 });
+    goldInlay
+      .roundRect(54, 45, w - 108, h - 90, 18)
+      .stroke({ color: 0xd4af37, width: 0.6, alpha: 0.14 });
 
-    // 5. Subtle Center Table Watermark
-    const mX = w / 2;
-    const mY = 278;
-    const centerMark = new Text({
-      text: '斗 地 主',
-      style: {
-        fontFamily: 'Outfit, PingFang SC, Microsoft YaHei, sans-serif',
-        fontSize: 26,
-        fontWeight: '800',
-        fill: 0xfde68a,
-        letterSpacing: 12,
-      },
-    });
-    centerMark.alpha = 0.055;
-    centerMark.anchor.set(0.5);
-    centerMark.position.set(mX, mY);
+    // Center Arena Ring & Cardinal Compass Ticks
+    const arenaRing = new Graphics();
+    const ringRx = Math.min(340, w * 0.25);
+    const ringRy = 128;
+    const centerY = 304;
+    arenaRing
+      .ellipse(w / 2, centerY, ringRx, ringRy)
+      .stroke({ color: 0xd4af37, width: 1.2, alpha: 0.16 });
+    arenaRing
+      .ellipse(w / 2, centerY, ringRx - 8, ringRy - 6)
+      .stroke({ color: 0xfde68a, width: 0.6, alpha: 0.09 });
+
+    // 4 Brushed Brass Corner Ornaments
+    const corners = [
+      { x: 64, y: 55, dx: 1, dy: 1 },
+      { x: w - 64, y: 55, dx: -1, dy: 1 },
+      { x: 64, y: h - 55, dx: 1, dy: -1 },
+      { x: w - 64, y: h - 55, dx: -1, dy: -1 },
+    ];
+    for (const c of corners) {
+      goldInlay
+        .moveTo(c.x, c.y + c.dy * 18)
+        .lineTo(c.x, c.y)
+        .lineTo(c.x + c.dx * 18, c.y)
+        .stroke({ color: 0xd4af37, width: 2, alpha: 0.45 });
+      goldInlay
+        .circle(c.x + c.dx * 5, c.y + c.dy * 5, 2)
+        .fill({ color: 0xfde68a, alpha: 0.45 });
+    }
+
+    // 5. Authentic Center Table Emblem Sprite (/assets/ui/Table_logo.png)
+    const centerEmblemHolder = new Container();
+    centerEmblemHolder.position.set(w / 2, centerY - 6);
+    const emblemSprite = Sprite.from('/assets/ui/Table_logo.png');
+    emblemSprite.anchor.set(0.5);
+    emblemSprite.alpha = 0.18;
+    const syncEmblemSize = () => {
+      const tex = emblemSprite.texture;
+      if (tex && tex.width > 1 && tex.height > 1) {
+        const targetW = 196;
+        const scale = targetW / tex.width;
+        emblemSprite.scale.set(scale);
+      }
+    };
+    syncEmblemSize();
+    if (emblemSprite.texture && emblemSprite.texture.width <= 1) {
+      emblemSprite.texture.source?.once('update', () => {
+        if (!this.destroyed && !emblemSprite.destroyed) {
+          syncEmblemSize();
+        }
+      });
+    }
+    centerEmblemHolder.addChild(emblemSprite);
 
     felt.eventMode = 'static';
     felt.on('pointerdown', (e: FederatedPointerEvent) => {
@@ -217,11 +287,15 @@ export class GameScene extends Container {
 
     this.tableBackground.addChild(
       backdrop,
+      railShadow,
       mahoganyOuter,
-      mahoganyInnerBevel,
+      mahoganyBevel,
+      railHighlight,
+      cushionRecess,
       felt,
       goldInlay,
-      centerMark
+      arenaRing,
+      centerEmblemHolder
     );
   }
 
@@ -248,20 +322,22 @@ export class GameScene extends Container {
     const container = new Container();
     container.position.set(x, y);
 
-    // 1. Soft Ambient Depth Shadow
-    const stackShadow = new Graphics();
-    stackShadow
-      .roundRect(-28, -34, 56, 74, 8)
-      .fill({ color: 0x000000, alpha: 0.32 });
-    container.addChild(stackShadow);
+    // 1. Sculpted Dark-Obsidian & Brass Deck Pedestal
+    const stackPedestal = new Graphics();
+    stackPedestal
+      .roundRect(-31, -38, 62, 80, 12)
+      .fill({ color: 0x061510, alpha: 0.82 })
+      .stroke({ color: 0xd4af37, width: 1.2, alpha: 0.42 });
+    container.addChild(stackPedestal);
 
-    // 2. Cascaded Back Card Layers with Size Stabilization & Vector Fallback
+    // 2. Cascaded 3D Back Card Layers with Subtle Fan Rotation
     for (let i = 0; i < 3; i++) {
-      const w = CARD_WIDTH * 0.54;
-      const h = CARD_HEIGHT * 0.54;
+      const w = CARD_WIDTH * 0.52;
+      const h = CARD_HEIGHT * 0.52;
 
       const layerNode = new Container();
-      layerNode.position.set(i * 4 - 4, i * 2 - 2);
+      layerNode.position.set((i - 1) * 3.5, (i - 1) * 1.5 - 4);
+      layerNode.rotation = (i - 1) * 0.045;
 
       const vectorBack = new Graphics();
       vectorBack
@@ -292,39 +368,40 @@ export class GameScene extends Container {
       container.addChild(layerNode);
     }
 
+    // 3. High-Contrast Tabular Card Count Plate
     const countBg = new Graphics();
     countBg
-      .roundRect(-24, 10, 48, 26, 9)
-      .fill({ color: 0x051c14, alpha: 0.94 })
-      .stroke({ color: 0xf59e0b, width: 1.8 });
+      .roundRect(-25, 13, 50, 24, 8)
+      .fill({ color: 0x0b1116, alpha: 0.96 })
+      .stroke({ color: 0xd4af37, width: 1.5, alpha: 0.85 });
     container.addChild(countBg);
 
     const countText = new Text({
       text: '17',
       style: {
         fontFamily: 'JetBrains Mono, monospace',
-        fontSize: 16,
+        fontSize: 15,
         fontWeight: '800',
         fill: 0xfef08a,
       },
     });
     countText.anchor.set(0.5);
-    countText.position.set(0, 23);
+    countText.position.set(0, 25);
     container.addChild(countText);
 
-    // Siren Alert Lamp when Opponent has 1~2 Cards Left
+    // 4. Siren Alert Lamp when Opponent has 1~2 Cards Left
     const alertBadge = new Container();
     alertBadge.position.set(0, -48);
     const alertBg = new Graphics();
     alertBg
-      .roundRect(-32, -12, 64, 24, 12)
+      .roundRect(-30, -11, 60, 22, 11)
       .fill({ color: 0xdc2626 })
-      .stroke({ color: 0xfef08a, width: 1.8 });
+      .stroke({ color: 0xfef08a, width: 1.6 });
     const alertText = new Text({
-      text: '预警',
+      text: '警报',
       style: {
         fontFamily: 'PingFang SC, sans-serif',
-        fontSize: 11,
+        fontSize: 10,
         fontWeight: 'bold',
         fill: 0xffffff,
       },
@@ -341,85 +418,33 @@ export class GameScene extends Container {
   private multiplierValueText!: Text;
 
   /**
-   * Build Integrated Top-Center Console for the 3 Landlord Hole Cards + Base Score & Multiplier.
+   * Build Sculpted Top-Center 3-Card Hole-Card Pedestal (三张底牌鎏金底座).
+   * Eliminates redundant left/right score text wings so the 3 hole cards sit cleanly at top-center.
    */
   private buildLandlordCardsArea(): void {
-    this.landlordCardsArea.position.set(this.virtualWidth / 2, 54);
+    this.landlordCardsArea.position.set(this.virtualWidth / 2, 52);
 
-    // Unified commercial top console tray: Left wing (底分) | Center (3张底牌) | Right wing (倍数)
     const tray = new Graphics();
+    // Outer dark-obsidian & brushed-gold bezel
     tray
-      .roundRect(-204, -40, 408, 80, 18)
-      .fill({ color: 0x041a12, alpha: 0.92 })
-      .stroke({ color: 0xf59e0b, width: 1.8, alpha: 0.68 });
+      .roundRect(-118, -38, 236, 76, 16)
+      .fill({ color: 0x0b1116, alpha: 0.9 })
+      .stroke({ color: 0xd4af37, width: 1.5, alpha: 0.62 });
+    // Inner recessed velvet slot well
     tray
-      .roundRect(-108, -35, 216, 70, 12)
-      .fill({ color: 0x02120c, alpha: 0.65 })
-      .stroke({ color: 0xfef08a, width: 0.8, alpha: 0.22 });
+      .roundRect(-110, -32, 220, 64, 12)
+      .fill({ color: 0x050a0e, alpha: 0.85 })
+      .stroke({ color: 0xffffff, width: 0.8, alpha: 0.08 });
+    // Subtle decorative brass side studs
+    tray.circle(-113, 0, 2).fill({ color: 0xfde68a, alpha: 0.65 });
+    tray.circle(113, 0, 2).fill({ color: 0xfde68a, alpha: 0.65 });
     this.landlordCardsArea.addChild(tray);
-
-    // Left Wing: Base Score (底分)
-    const baseLabel = new Text({
-      text: '底分',
-      style: {
-        fontFamily: 'PingFang SC, Microsoft YaHei, sans-serif',
-        fontSize: 11,
-        fontWeight: 'bold',
-        fill: 0x6ee7b7,
-      },
-    });
-    baseLabel.anchor.set(0.5);
-    baseLabel.position.set(-156, -12);
-
-    this.baseScoreValueText = new Text({
-      text: '100',
-      style: {
-        fontFamily: 'JetBrains Mono, monospace',
-        fontSize: 16,
-        fontWeight: '800',
-        fill: 0xfef08a,
-      },
-    });
-    this.baseScoreValueText.anchor.set(0.5);
-    this.baseScoreValueText.position.set(-156, 11);
-
-    // Right Wing: Multiplier (倍数)
-    const mulLabel = new Text({
-      text: '倍数',
-      style: {
-        fontFamily: 'PingFang SC, Microsoft YaHei, sans-serif',
-        fontSize: 11,
-        fontWeight: 'bold',
-        fill: 0x6ee7b7,
-      },
-    });
-    mulLabel.anchor.set(0.5);
-    mulLabel.position.set(156, -12);
-
-    this.multiplierValueText = new Text({
-      text: '×1',
-      style: {
-        fontFamily: 'JetBrains Mono, monospace',
-        fontSize: 16,
-        fontWeight: '800',
-        fill: 0xfbbf24,
-      },
-    });
-    this.multiplierValueText.anchor.set(0.5);
-    this.multiplierValueText.position.set(156, 11);
-
-    this.landlordCardsArea.addChild(
-      baseLabel,
-      this.baseScoreValueText,
-      mulLabel,
-      this.multiplierValueText
-    );
 
     this.bottomTagBadge = new Container();
     this.bottomTagBadge.position.set(0, 40);
     const tagBg = new Graphics();
     tagBg
-      .roundRect(-38, -11, 76, 22, 11)
+      .roundRect(-42, -11, 84, 22, 11)
       .fill({ color: 0xd97706 })
       .stroke({ color: 0xfef08a, width: 1.5 });
     this.bottomTagText = new Text({
@@ -558,6 +583,13 @@ export class GameScene extends Container {
       }
     });
 
+    if (animate && this.vfxEngine && this.landlordCardsArea) {
+      this.vfxEngine.playLandlordConfirmedBurst(
+        this.landlordCardsArea.x,
+        this.landlordCardsArea.y
+      );
+    }
+
     if (this.bottomTagBadge && !this.bottomTagBadge.destroyed) {
       if (bonusTag) {
         this.bottomTagText.text = bonusTag;
@@ -629,23 +661,8 @@ export class GameScene extends Container {
     }
   }
 
-  private prevLeftCount: number = 17;
-  private prevRightCount: number = 17;
-
   updateOpponentCardCounts(leftCount: number, rightCount: number): void {
     if (this.destroyed) return;
-    if (leftCount > 0 && leftCount <= 2 && this.prevLeftCount > leftCount) {
-      soundEngine.playDdzSfx('alert');
-      const alertVoice = leftCount === 1 ? 'baojing1' : 'baojing2';
-      soundEngine.playDdzActionVoice(alertVoice);
-    }
-    if (rightCount > 0 && rightCount <= 2 && this.prevRightCount > rightCount) {
-      soundEngine.playDdzSfx('alert');
-      const alertVoice = rightCount === 1 ? 'baojing1' : 'baojing2';
-      soundEngine.playDdzActionVoice(alertVoice);
-    }
-    this.prevLeftCount = leftCount;
-    this.prevRightCount = rightCount;
 
     if (this.leftPlayer && !this.leftPlayer.destroyed) {
       this.leftPlayer.visible = leftCount > 0;
@@ -670,6 +687,25 @@ export class GameScene extends Container {
         this.rightAlertBadge.visible = showRightAlert;
       }
     }
+  }
+
+  /**
+   * Triggers the sliced 2-frame Police Siren Alarm Lamp (`alarm.png` + `alarm.plist`)
+   * at the specified player's seat when remaining cards drop to 1 or 2 (`报单` / `报双`).
+   */
+  public playSeatAlarm(relativePos: 'bottom' | 'left' | 'right', remainingCount: 1 | 2): void {
+    if (this.destroyed || !this.effectsLayer || this.effectsLayer.destroyed) return;
+    const deckX = Math.round((this.virtualWidth * this.layoutPcts.opponentDeckSideXPct) / 100);
+    const deckY = Math.round((DESIGN_HEIGHT * this.layoutPcts.opponentDeckTopPct) / 100);
+
+    const pos =
+      relativePos === 'left'
+        ? { x: deckX + 52, y: deckY - 12 }
+        : relativePos === 'right'
+          ? { x: this.virtualWidth - deckX - 52, y: deckY - 12 }
+          : { x: Math.round(this.virtualWidth * 0.22), y: Math.round(DESIGN_HEIGHT * 0.68) };
+
+    this.vfxEngine.playSeatAlarmLamp(pos.x, pos.y, remainingCount);
   }
 
   updateTurnState(
@@ -907,6 +943,15 @@ export class GameScene extends Container {
       badge.scale.set(0.5);
       slot.addChild(badge);
       gsap.to(badge.scale, { x: 1, y: 1, duration: 0.18, ease: 'back.out(1.7)' });
+
+      if (this.vfxEngine) {
+        this.vfxEngine.playSeatActionBurst(
+          anchorPos.x,
+          anchorPos.y,
+          action.type,
+          relativePos
+        );
+      }
       return;
     }
 
@@ -929,51 +974,56 @@ export class GameScene extends Container {
       : [...action.cards];
 
     const count = cards.length;
-    const step = 30;
+    // Adaptive card fan step so 8~12 card straights/airplanes stay compact inside seat zone
+    const step = count > 9 ? 22 : count > 6 ? 25 : 29;
     const totalW = (count - 1) * step;
-    const startX = -totalW / 2;
+    const startX =
+      relativePos === 'left'
+        ? Math.max(-90, -totalW * 0.35)
+        : relativePos === 'right'
+          ? Math.min(90 - totalW, -totalW * 0.65)
+          : -totalW / 2;
 
-    // Origin offset relative to slot for parabolic card throw onto table
     const originOffset =
       relativePos === 'bottom'
-        ? { x: 0, y: 120 }
+        ? { x: 0, y: 110 }
         : relativePos === 'left'
-          ? { x: -130, y: -10 }
-          : { x: 130, y: -10 };
+          ? { x: -115, y: -8 }
+          : { x: 115, y: -8 };
 
-    // Subtle table dust impact ring
     const impactRipple = new Graphics();
     impactRipple
-      .ellipse(0, 0, Math.max(55, totalW * 0.55), 28)
-      .stroke({ color: 0xfde68a, width: 1.5, alpha: 0.55 });
+      .ellipse(startX + totalW / 2, 0, Math.max(52, totalW * 0.52), 24)
+      .stroke({ color: 0xfde68a, width: 1.4, alpha: 0.45 });
     slot.addChild(impactRipple);
-    gsap.to(impactRipple.scale, { x: 1.35, y: 1.35, duration: 0.32, ease: 'power2.out' });
-    gsap.to(impactRipple, { alpha: 0, duration: 0.32 });
+    gsap.to(impactRipple.scale, { x: 1.3, y: 1.3, duration: 0.28, ease: 'power2.out' });
+    gsap.to(impactRipple, { alpha: 0, duration: 0.28 });
 
+    const playedScale = count > 8 ? 0.66 : 0.7;
     cards.forEach((cData, i) => {
       const isLandlordCard = Boolean(action.isLandlord && i === count - 1);
       const card = new Card(cData, true, isLandlordCard);
       card.pivot.set(CARD_WIDTH / 2, CARD_HEIGHT / 2);
-      card.scale.set(0.52);
+      card.scale.set(0.5);
       card.position.set(originOffset.x, originOffset.y);
-      card.rotation = (i - (count - 1) / 2) * 0.03;
+      card.rotation = (i - (count - 1) / 2) * 0.024;
       slot.addChild(card);
 
-      const finalRot = ((i % 3) - 1) * 0.018;
+      const finalRot = ((i % 3) - 1) * 0.012;
       gsap.to(card, {
         x: startX + i * step,
         y: 0,
         rotation: finalRot,
-        duration: 0.22,
-        delay: i * 0.015,
-        ease: 'back.out(1.4)',
+        duration: 0.2,
+        delay: i * 0.012,
+        ease: 'back.out(1.35)',
       });
       gsap.to(card.scale, {
-        x: 0.72,
-        y: 0.72,
-        duration: 0.22,
-        delay: i * 0.015,
-        ease: 'back.out(1.5)',
+        x: playedScale,
+        y: playedScale,
+        duration: 0.2,
+        delay: i * 0.012,
+        ease: 'back.out(1.4)',
       });
     });
 
@@ -1035,253 +1085,7 @@ export class GameScene extends Container {
       right: { x: this.virtualWidth - 140, y: 140 },
     };
 
-    const start = coords[fromRel];
-    const end = coords[toRel];
-
-    const propConfig: Record<
-      PropType,
-      { label: string; color: number; secondaryColor: number }
-    > = {
-      flower: { label: '赠送鲜花', color: 0xf43f5e, secondaryColor: 0xfda4af },
-      bomb_cup: { label: '投掷炸弹', color: 0xef4444, secondaryColor: 0xfbbf24 },
-      tea: { label: '清茶一盏', color: 0x10b981, secondaryColor: 0x6ee7b7 },
-      like: { label: '点赞喝彩', color: 0xf59e0b, secondaryColor: 0xfde047 },
-      ingot: { label: '招财进宝', color: 0xeab308, secondaryColor: 0xfef08a },
-    };
-    const cfg = propConfig[propType] ?? propConfig.flower;
-
-    const midX = (start.x + end.x) / 2;
-    const midY = Math.min(start.y, end.y) - 185;
-
-    const trajectoryContainer = new Container();
-    this.effectsLayer.addChild(trajectoryContainer);
-
-    const arcDots = 18;
-    for (let i = 1; i < arcDots; i++) {
-      const t = i / arcDots;
-      const omt = 1 - t;
-      const px = omt * omt * start.x + 2 * omt * t * midX + t * t * end.x;
-      const py = omt * omt * start.y + 2 * omt * t * midY + t * t * end.y;
-
-      const dot = new Graphics();
-      dot.circle(0, 0, i % 2 === 0 ? 3 : 2);
-      dot.fill({ color: cfg.secondaryColor, alpha: 0.55 * (1 - Math.abs(t - 0.5)) });
-      dot.position.set(px, py);
-      trajectoryContainer.addChild(dot);
-    }
-
-    const flyer = new Container();
-    flyer.position.set(start.x, start.y);
-
-    const glow = new Graphics();
-    glow.circle(0, 0, 30).fill({ color: cfg.color, alpha: 0.28 });
-    glow.stroke({ color: cfg.secondaryColor, width: 2.2 });
-
-    const propIllustration = new Graphics();
-    if (propType === 'bomb_cup') {
-      propIllustration.roundRect(-16, 2, 32, 18, 7);
-      propIllustration.fill({ color: 0xf8fafc });
-      propIllustration.stroke({ color: 0x38bdf8, width: 2 });
-      propIllustration.circle(0, -5, 13);
-      propIllustration.fill({ color: 0x18181b });
-      propIllustration.stroke({ color: 0xf59e0b, width: 1.5 });
-      propIllustration.circle(6, -18, 4).fill({ color: 0xfbbf24 });
-    } else if (propType === 'flower') {
-      for (let p = 0; p < 6; p++) {
-        const a = (p * Math.PI) / 3;
-        propIllustration.circle(Math.cos(a) * 11, Math.sin(a) * 11, 8);
-        propIllustration.fill({ color: 0xf43f5e, alpha: 0.9 });
-      }
-      propIllustration.circle(0, 0, 6).fill({ color: 0xfef08a });
-    } else if (propType === 'tea') {
-      propIllustration.roundRect(-14, -8, 28, 22, 6);
-      propIllustration.fill({ color: 0x10b981 });
-      propIllustration.stroke({ color: 0x6ee7b7, width: 2 });
-      propIllustration.circle(0, 16, 16).fill({ color: 0x064e3b });
-    } else if (propType === 'like') {
-      propIllustration.roundRect(-14, -12, 28, 24, 7);
-      propIllustration.fill({ color: 0xf59e0b });
-      propIllustration.stroke({ color: 0xfde047, width: 2 });
-      propIllustration.circle(0, -6, 6).fill({ color: 0xfef08a });
-    } else if (propType === 'ingot') {
-      try {
-        const ingotSprite = Sprite.from('/assets/ui/csr_yuanbao_xiao.png');
-        ingotSprite.anchor.set(0.5);
-        ingotSprite.width = 40;
-        ingotSprite.height = 32;
-        flyer.addChild(glow, ingotSprite);
-      } catch {
-        propIllustration.ellipse(0, 0, 18, 11).fill({ color: 0xeab308 });
-        propIllustration.stroke({ color: 0xfef08a, width: 2 });
-        propIllustration.circle(0, -2, 6).fill({ color: 0xfef08a });
-        flyer.addChild(glow, propIllustration);
-      }
-    }
-
-    if (flyer.children.length === 0) {
-      flyer.addChild(glow, propIllustration);
-    }
-    this.effectsLayer.addChild(flyer);
-
-    const animObj = { t: 0 };
-    let stepCounter = 0;
-
-    gsap.to(animObj, {
-      t: 1,
-      duration: 0.64,
-      ease: 'power1.inOut',
-      onUpdate: () => {
-        if (this.destroyed || flyer.destroyed || !flyer.scale) return;
-        const t = animObj.t;
-        const omt = 1 - t;
-        const nx = omt * omt * start.x + 2 * omt * t * midX + t * t * end.x;
-        const ny = omt * omt * start.y + 2 * omt * t * midY + t * t * end.y;
-
-        flyer.x = nx;
-        flyer.y = ny;
-        flyer.rotation =
-          propType === 'bomb_cup' ? t * Math.PI * 3.5 : Math.sin(t * Math.PI * 2) * 0.35;
-        const s = 1 + 0.38 * Math.sin(t * Math.PI);
-        flyer.scale.set(s);
-
-        stepCounter++;
-        if (stepCounter % 2 === 0 && !this.effectsLayer.destroyed) {
-          const trail = new Graphics();
-          trail.circle(0, 0, propType === 'bomb_cup' ? 4 : 3.5);
-          trail.fill({
-            color: stepCounter % 4 === 0 ? cfg.color : cfg.secondaryColor,
-            alpha: 0.85,
-          });
-          trail.position.set(nx + (Math.random() - 0.5) * 12, ny + (Math.random() - 0.5) * 12);
-          this.effectsLayer.addChild(trail);
-          gsap.to(trail, {
-            y: trail.y + (propType === 'bomb_cup' ? -14 : 16),
-            alpha: 0,
-            duration: 0.28,
-            onComplete: () => {
-              if (!trail.destroyed) {
-                if (trail.parent === this.effectsLayer && !this.effectsLayer.destroyed) {
-                  this.effectsLayer.removeChild(trail);
-                }
-                trail.destroy();
-              }
-            },
-          });
-        }
-      },
-      onComplete: () => {
-        if (!trajectoryContainer.destroyed) {
-          this.killTweensRecursively(trajectoryContainer);
-          if (
-            trajectoryContainer.parent === this.effectsLayer &&
-            !this.effectsLayer.destroyed
-          ) {
-            this.effectsLayer.removeChild(trajectoryContainer);
-          }
-          trajectoryContainer.destroy({ children: true });
-        }
-
-        if (flyer.destroyed || this.destroyed || this.effectsLayer.destroyed) return;
-
-        this.killTweensRecursively(flyer);
-        if (flyer.parent === this.effectsLayer) {
-          this.effectsLayer.removeChild(flyer);
-        }
-        flyer.destroy({ children: true });
-
-        const burst = new Container();
-        burst.position.set(end.x, end.y);
-        this.effectsLayer.addChild(burst);
-
-        if (propType === 'bomb_cup') {
-          this.triggerScreenShake(9, 0.38);
-        }
-
-        try {
-          const burstSprite = Sprite.from('/assets/ui/fx_light_burst.png');
-          burstSprite.anchor.set(0.5);
-          burstSprite.width = 96;
-          burstSprite.height = 96;
-          burstSprite.alpha = 0.85;
-          burst.addChild(burstSprite);
-          gsap.to(burstSprite.scale, { x: 1.5, y: 1.5, duration: 0.45, ease: 'power2.out' });
-          gsap.to(burstSprite, { rotation: Math.PI * 0.5, alpha: 0, duration: 0.48 });
-        } catch {
-          // Ignore fallback
-        }
-
-        const shockRing = new Graphics();
-        shockRing.circle(0, 0, 24).stroke({
-          color: propType === 'bomb_cup' ? 0xef4444 : cfg.color,
-          width: propType === 'bomb_cup' ? 4 : 3,
-        });
-        burst.addChild(shockRing);
-        gsap.to(shockRing.scale, {
-          x: propType === 'bomb_cup' ? 3.2 : 2.4,
-          y: propType === 'bomb_cup' ? 3.2 : 2.4,
-          duration: 0.45,
-          ease: 'power2.out',
-        });
-        gsap.to(shockRing, { alpha: 0, duration: 0.45 });
-
-        const particleTotal = propType === 'bomb_cup' ? 18 : 14;
-        for (let i = 0; i < particleTotal; i++) {
-          const p = new Graphics();
-          p.circle(0, 0, propType === 'bomb_cup' ? 5.5 : 4.5).fill({
-            color: i % 2 === 0 ? cfg.color : cfg.secondaryColor,
-          });
-          burst.addChild(p);
-          const angle = (Math.PI * 2 * i) / particleTotal;
-          const dist = propType === 'bomb_cup' ? 88 + (i % 3) * 16 : 68 + (i % 2) * 14;
-          gsap.to(p, {
-            x: Math.cos(angle) * dist,
-            y: Math.sin(angle) * dist,
-            alpha: 0,
-            duration: 0.52,
-            ease: 'power2.out',
-          });
-        }
-
-        const badgeBg = new Graphics();
-        badgeBg
-          .roundRect(-96, -52, 192, 30, 15)
-          .fill({
-            color: propType === 'bomb_cup' ? 0x7f1d1d : 0x062016,
-            alpha: 0.94,
-          })
-          .stroke({ color: cfg.secondaryColor, width: 1.8 });
-        burst.addChild(badgeBg);
-
-        const tag = new Text({
-          text: cfg.label,
-          style: {
-            fontFamily: 'PingFang SC, Microsoft YaHei, sans-serif',
-            fontSize: 13,
-            fontWeight: 'bold',
-            fill: 0xfef08a,
-          },
-        });
-        tag.anchor.set(0.5);
-        tag.position.set(0, -37);
-        burst.addChild(tag);
-
-        gsap.to(burst, {
-          alpha: 0,
-          y: end.y - 20,
-          delay: 0.58,
-          duration: 0.28,
-          onComplete: () => {
-            if (!burst.destroyed) {
-              this.killTweensRecursively(burst);
-              if (burst.parent === this.effectsLayer && !this.effectsLayer.destroyed) {
-                this.effectsLayer.removeChild(burst);
-              }
-              burst.destroy({ children: true });
-            }
-          },
-        });
-      },
-    });
+    this.vfxEngine.playInteractivePropThrow(coords[fromRel], coords[toRel], propType);
   }
 
   clearAllPlayedAreas(): void {
@@ -1364,12 +1168,17 @@ export class GameScene extends Container {
         onStart: () => {
           if (this.destroyed) return;
           hapticEngine.rocketBlast();
-          this.playRocketMissileEffect(patternLabel);
+          this.vfxEngine.playPatternEffect('ROCKET', patternLabel);
         },
       });
       return;
     }
-    if (patternType === 'BOMB') {
+    if (
+      patternType === 'BOMB' ||
+      patternType === 'LAIZI_BOMB' ||
+      patternType === 'PURE_LAIZI_BOMB' ||
+      patternType === 'SUPER_BOMB'
+    ) {
       effectCoordinator.enqueue({
         sceneId: 'ddz',
         type: 'ddz_bomb',
@@ -1382,7 +1191,7 @@ export class GameScene extends Container {
         onStart: () => {
           if (this.destroyed) return;
           hapticEngine.bombBlast();
-          this.playBombFuseBlastEffect(patternLabel);
+          this.vfxEngine.playPatternEffect(patternType, patternLabel);
         },
       });
       return;
@@ -1398,12 +1207,12 @@ export class GameScene extends Container {
         durationMs: 1250,
         onStart: () => {
           if (this.destroyed) return;
-          this.playBiplaneFlybyEffect(patternLabel);
+          this.vfxEngine.playPatternEffect(patternType, patternLabel);
         },
       });
       return;
     }
-    if (patternType === 'SPRING') {
+    if (patternType === 'SPRING' || patternType === 'ANTI_SPRING') {
       effectCoordinator.enqueue({
         sceneId: 'ddz',
         type: 'ddz_spring',
@@ -1415,13 +1224,13 @@ export class GameScene extends Container {
         preemptLowerPriority: true,
         onStart: () => {
           if (this.destroyed) return;
-          this.playSpringBlossomEffect(patternLabel);
+          this.vfxEngine.playPatternEffect(patternType, patternLabel);
         },
       });
       return;
     }
 
-    // Default: Straight / Consecutive Pairs / Four-with-Two Golden Dragon Streamer
+    // Default: Straight / Consecutive Pairs / Four-with-Two
     effectCoordinator.enqueue({
       sceneId: 'ddz',
       type: 'ddz_ribbon',
@@ -1432,450 +1241,9 @@ export class GameScene extends Container {
       durationMs: 920,
       onStart: () => {
         if (this.destroyed) return;
-        this.playGoldenDragonRibbonEffect(patternLabel);
+        this.vfxEngine.playPatternEffect(patternType, patternLabel);
       },
     });
-  }
-
-  /**
-   * 1. ROCKET (王炸) — Dragon Missile Launch, Sky Dive & Nuclear Shockwave
-   */
-  private playRocketMissileEffect(patternLabel: string): void {
-    const fx = new Container();
-    this.effectsLayer.addChild(fx);
-
-    const cx = this.virtualWidth / 2;
-    const cy = 310;
-
-    // Build bespoke vector Dragon Missile with authentic flame sprite exhaust
-    const missile = new Container();
-    missile.position.set(cx, DESIGN_HEIGHT + 60);
-    const body = new Graphics();
-    // Nose cone
-    body
-      .moveTo(0, -56)
-      .quadraticCurveTo(18, -28, 16, 18)
-      .lineTo(-16, 18)
-      .quadraticCurveTo(-18, -28, 0, -56)
-      .fill({ color: 0xdc2626 })
-      .stroke({ width: 2.2, color: 0xfef08a });
-    // Gold stripes & fins
-    body.rect(-14, -12, 28, 8).fill({ color: 0xf59e0b });
-    body
-      .moveTo(-16, 4)
-      .lineTo(-30, 26)
-      .lineTo(-16, 18)
-      .closePath()
-      .fill({ color: 0xf59e0b });
-    body
-      .moveTo(16, 4)
-      .lineTo(30, 26)
-      .lineTo(16, 18)
-      .closePath()
-      .fill({ color: 0xf59e0b });
-    // Exhaust flame
-    body
-      .moveTo(-11, 18)
-      .lineTo(0, 52)
-      .lineTo(11, 18)
-      .closePath()
-      .fill({ color: 0xfef08a });
-    missile.addChild(body);
-
-    try {
-      const fireTail = Sprite.from('/assets/ui/csr_huo.png');
-      fireTail.anchor.set(0.5, 0);
-      fireTail.y = 14;
-      fireTail.scale.set(0.85);
-      missile.addChild(fireTail);
-    } catch {
-      // Fallback vector exhaust already present
-    }
-
-    fx.addChild(missile);
-
-    // Phase 1: Ascend into the sky
-    gsap.to(missile, {
-      y: -90,
-      duration: 0.28,
-      ease: 'power2.in',
-      onComplete: () => {
-        if (fx.destroyed) return;
-        // Phase 2: Flip upside down and dive onto table center
-        missile.rotation = Math.PI;
-        missile.y = -90;
-        gsap.to(missile, {
-          y: cy,
-          duration: 0.18,
-          ease: 'power3.in',
-          onComplete: () => {
-            if (fx.destroyed) return;
-            missile.visible = false;
-            this.triggerScreenShake(16, 0.55);
-            this.spawnExplosionAt(fx, cx, cy, `${patternLabel} ×2`, true);
-          },
-        });
-      },
-    });
-  }
-
-  /**
-   * 2. BOMB (炸弹) — Authentic Bomb Sprite (/assets/ui/csr_zha.png) + Spark (/assets/ui/csr_huoxing.png) & Shrapnel Explosion
-   */
-  private playBombFuseBlastEffect(patternLabel: string): void {
-    const fx = new Container();
-    this.effectsLayer.addChild(fx);
-
-    const cx = this.virtualWidth / 2;
-    const cy = 310;
-
-    const bomb = new Container();
-    bomb.position.set(cx - 180, cy + 120);
-
-    try {
-      const bombSprite = Sprite.from('/assets/ui/csr_zha.png');
-      bombSprite.anchor.set(0.5);
-      bombSprite.scale.set(0.95);
-      bomb.addChild(bombSprite);
-
-      const sparkSprite = Sprite.from('/assets/ui/csr_huoxing.png');
-      sparkSprite.anchor.set(0.5);
-      sparkSprite.position.set(22, -26);
-      sparkSprite.scale.set(0.9);
-      bomb.addChild(sparkSprite);
-      gsap.to(sparkSprite.scale, { x: 1.35, y: 1.35, duration: 0.08, yoyo: true, repeat: 3 });
-    } catch {
-      const sphere = new Graphics();
-      sphere
-        .circle(0, 0, 28)
-        .fill({ color: 0x18181b })
-        .stroke({ width: 2.5, color: 0xf59e0b });
-      sphere.circle(-9, -9, 7).fill({ color: 0x52525b, alpha: 0.7 });
-      sphere
-        .moveTo(14, -20)
-        .quadraticCurveTo(26, -34, 32, -26)
-        .stroke({ width: 3, color: 0xd97706 });
-      sphere.circle(32, -26, 6).fill({ color: 0xfef08a });
-      bomb.addChild(sphere);
-    }
-
-    fx.addChild(bomb);
-
-    // Throw arc to center
-    gsap.to(bomb, {
-      x: cx,
-      y: cy,
-      rotation: Math.PI * 2,
-      duration: 0.26,
-      ease: 'back.out(1.4)',
-      onComplete: () => {
-        if (fx.destroyed) return;
-        // Pulse twice then detonate
-        gsap.to(bomb.scale, {
-          x: 1.35,
-          y: 1.35,
-          duration: 0.14,
-          onComplete: () => {
-            if (fx.destroyed) return;
-            bomb.visible = false;
-            this.triggerScreenShake(13, 0.48);
-            this.spawnExplosionAt(fx, cx, cy, `${patternLabel} ×2`, false);
-          },
-        });
-      },
-    });
-  }
-
-  private spawnExplosionAt(
-    fx: Container,
-    cx: number,
-    cy: number,
-    bannerTitle: string,
-    isNuclear: boolean
-  ): void {
-    const centerNode = new Container();
-    centerNode.position.set(cx, cy);
-    fx.addChild(centerNode);
-
-    // Full-table flash overlay
-    const flash = new Graphics();
-    flash
-      .rect(-cx, -cy, this.virtualWidth, DESIGN_HEIGHT)
-      .fill({ color: isNuclear ? 0xef4444 : 0xf59e0b, alpha: 0.28 });
-    centerNode.addChild(flash);
-    gsap.to(flash, { alpha: 0, duration: 0.38 });
-
-    // Authentic Radial Light Burst Sprite + Flame Core
-    try {
-      const lightBurst = Sprite.from('/assets/ui/fx_light_burst.png');
-      lightBurst.anchor.set(0.5);
-      lightBurst.width = isNuclear ? 420 : 340;
-      lightBurst.height = isNuclear ? 420 : 340;
-      lightBurst.alpha = 0.92;
-      centerNode.addChild(lightBurst);
-      gsap.fromTo(
-        lightBurst.scale,
-        { x: 0.35, y: 0.35 },
-        { x: isNuclear ? 1.85 : 1.45, y: isNuclear ? 1.85 : 1.45, duration: 0.58, ease: 'power2.out' }
-      );
-      gsap.to(lightBurst, { rotation: Math.PI * 0.4, alpha: 0, duration: 0.65 });
-
-      const flameCore = Sprite.from('/assets/ui/csr_huo.png');
-      flameCore.anchor.set(0.5);
-      flameCore.scale.set(isNuclear ? 1.65 : 1.25);
-      centerNode.addChild(flameCore);
-      gsap.to(flameCore.scale, {
-        x: isNuclear ? 2.4 : 1.85,
-        y: isNuclear ? 2.4 : 1.85,
-        duration: 0.48,
-        ease: 'power2.out',
-      });
-      gsap.to(flameCore, { alpha: 0, duration: 0.52 });
-    } catch {
-      // Fallback vector rings below still run
-    }
-
-    // Double Shockwave Rings
-    for (let r = 0; r < 2; r++) {
-      const ring = new Graphics();
-      ring.circle(0, 0, 42 + r * 18).stroke({
-        color: r === 0 ? 0xfef08a : 0xef4444,
-        width: 5 - r * 1.5,
-      });
-      centerNode.addChild(ring);
-      gsap.to(ring.scale, {
-        x: isNuclear ? 5.4 : 4.4,
-        y: isNuclear ? 5.4 : 4.4,
-        duration: 0.62 + r * 0.12,
-        ease: 'power2.out',
-      });
-      gsap.to(ring, { alpha: 0, duration: 0.62 + r * 0.12 });
-    }
-
-    // Shrapnel Sparks
-    const total = isNuclear ? 32 : 26;
-    for (let i = 0; i < total; i++) {
-      const p = new Graphics();
-      p.circle(0, 0, i % 3 === 0 ? 7 : 5).fill({
-        color: i % 2 === 0 ? 0xfef08a : 0xef4444,
-      });
-      centerNode.addChild(p);
-      const angle = (Math.PI * 2 * i) / total;
-      const dist = (isNuclear ? 260 : 210) + (i % 4) * 35;
-      gsap.to(p, {
-        x: Math.cos(angle) * dist,
-        y: Math.sin(angle) * dist,
-        alpha: 0,
-        duration: 0.68,
-        ease: 'power2.out',
-      });
-    }
-
-    // Heroic Banner
-    const banner = this.createSkillBanner(bannerTitle, 0x991b1b);
-    banner.scale.set(0.3);
-    centerNode.addChild(banner);
-    gsap.to(banner.scale, { x: 1.15, y: 1.15, duration: 0.24, ease: 'back.out(2.1)' });
-
-    gsap.to(fx, {
-      alpha: 0,
-      delay: 0.85,
-      duration: 0.28,
-      onComplete: () => this.cleanupFxNode(fx),
-    });
-  }
-
-  /**
-   * 3. AIRPLANE (飞机 / 飞机带翅膀) — 3D Golden Biplane Swooping Across Clouds
-   */
-  private playBiplaneFlybyEffect(patternLabel: string): void {
-    const fx = new Container();
-    this.effectsLayer.addChild(fx);
-
-    const plane = new Container();
-    plane.position.set(-180, 295);
-    fx.addChild(plane);
-
-    // Draw Twin-Wing Golden Biplane
-    const g = new Graphics();
-    // Contrail ribbons
-    g.roundRect(-190, -18, 150, 6, 3).fill({ color: 0xfef08a, alpha: 0.55 });
-    g.roundRect(-190, 12, 150, 6, 3).fill({ color: 0xfef08a, alpha: 0.55 });
-    // Fuselage
-    g.roundRect(-55, -14, 110, 28, 14)
-      .fill({ color: 0xf59e0b })
-      .stroke({ width: 2.5, color: 0xfef08a });
-    // Cockpit
-    g.ellipse(10, -4, 18, 8).fill({ color: 0x38bdf8 });
-    // Top & Bottom Swept Wings
-    g.roundRect(-24, -46, 38, 92, 8)
-      .fill({ color: 0xdc2626 })
-      .stroke({ width: 2, color: 0xfde047 });
-    // Tail fin
-    g.moveTo(-50, -10)
-      .lineTo(-72, -32)
-      .lineTo(-42, -10)
-      .closePath()
-      .fill({ color: 0xdc2626 });
-    // Nose spinner
-    g.circle(56, 0, 8).fill({ color: 0xfef08a });
-    plane.addChild(g);
-
-    const banner = this.createSkillBanner(patternLabel, 0x065f46);
-    banner.position.set(0, 68);
-    plane.addChild(banner);
-
-    gsap.to(plane, {
-      x: this.virtualWidth + 220,
-      y: 265,
-      duration: 1.15,
-      ease: 'power1.inOut',
-      onComplete: () => this.cleanupFxNode(fx),
-    });
-  }
-
-  /**
-   * 4. STRAIGHT / CONSECUTIVE PAIRS (顺子 / 连对) — Golden Dragon Ribbon & Radial Light Burst
-   */
-  private playGoldenDragonRibbonEffect(patternLabel: string): void {
-    const fx = new Container();
-    fx.position.set(this.virtualWidth / 2, 305);
-    this.effectsLayer.addChild(fx);
-
-    try {
-      const burst = Sprite.from('/assets/ui/fx_light_burst.png');
-      burst.anchor.set(0.5);
-      burst.width = 260;
-      burst.height = 260;
-      burst.alpha = 0.75;
-      fx.addChild(burst);
-      gsap.to(burst, { rotation: Math.PI * 0.5, alpha: 0, duration: 0.85 });
-    } catch {
-      // Ignore fallback
-    }
-
-    const ribbon = new Graphics();
-    ribbon
-      .moveTo(-260, 28)
-      .bezierCurveTo(-90, -65, 90, 65, 260, -28)
-      .stroke({ width: 8, color: 0xfbbf24, alpha: 0.85 });
-    ribbon
-      .moveTo(-240, 34)
-      .bezierCurveTo(-80, -55, 80, 75, 240, -20)
-      .stroke({ width: 3, color: 0xfef08a, alpha: 0.95 });
-    fx.addChild(ribbon);
-
-    for (let i = 0; i < 20; i++) {
-      const star = new Graphics();
-      star.circle(0, 0, i % 2 === 0 ? 5 : 3.5).fill({ color: 0xfef08a });
-      star.position.set((i - 10) * 24, Math.sin(i * 0.6) * 26);
-      fx.addChild(star);
-      gsap.to(star, {
-        y: star.y - 38,
-        alpha: 0,
-        duration: 0.65,
-        delay: i * 0.015,
-        ease: 'power2.out',
-      });
-    }
-
-    const banner = this.createSkillBanner(patternLabel, 0x065f46);
-    banner.scale.set(0.35);
-    fx.addChild(banner);
-    gsap.to(banner.scale, { x: 1.08, y: 1.08, duration: 0.24, ease: 'back.out(2)' });
-
-    gsap.to(fx, {
-      alpha: 0,
-      delay: 0.75,
-      duration: 0.28,
-      onComplete: () => this.cleanupFxNode(fx),
-    });
-  }
-
-  /**
-   * 5. SPRING (春天 / 反春) — Authentic Spring Callout Sprite (/assets/ui/sy_chuntian.png) + Full-Screen Peach Blossom Cascade
-   */
-  private playSpringBlossomEffect(patternLabel: string): void {
-    const fx = new Container();
-    this.effectsLayer.addChild(fx);
-
-    for (let i = 0; i < 36; i++) {
-      const petal = new Graphics();
-      const isGold = i % 3 === 0;
-      petal
-        .ellipse(0, 0, isGold ? 6 : 8, isGold ? 4 : 5)
-        .fill({ color: isGold ? 0xfbbf24 : 0xf43f5e, alpha: 0.9 });
-      petal.position.set(120 + Math.random() * (this.virtualWidth - 240), -20 - Math.random() * 120);
-      fx.addChild(petal);
-
-      gsap.to(petal, {
-        x: petal.x + (Math.random() - 0.5) * 180,
-        y: DESIGN_HEIGHT + 40,
-        rotation: Math.PI * (2 + Math.random() * 2),
-        duration: 1.25 + Math.random() * 0.45,
-        ease: 'sine.inOut',
-      });
-    }
-
-    const centerCallout = new Container();
-    centerCallout.position.set(this.virtualWidth / 2, 295);
-    centerCallout.scale.set(0.3);
-    fx.addChild(centerCallout);
-
-    try {
-      const burst = Sprite.from('/assets/ui/fx_light_burst.png');
-      burst.anchor.set(0.5);
-      burst.width = 320;
-      burst.height = 320;
-      centerCallout.addChild(burst);
-      gsap.to(burst, { rotation: Math.PI * 0.6, duration: 1.4 });
-
-      const springSprite = Sprite.from('/assets/ui/sy_chuntian.png');
-      springSprite.anchor.set(0.5);
-      centerCallout.addChild(springSprite);
-    } catch {
-      const banner = this.createSkillBanner(patternLabel, 0x9d174d);
-      centerCallout.addChild(banner);
-    }
-
-    gsap.to(centerCallout.scale, { x: 1.15, y: 1.15, duration: 0.32, ease: 'back.out(2)' });
-
-    gsap.to(fx, {
-      alpha: 0,
-      delay: 1.35,
-      duration: 0.35,
-      onComplete: () => this.cleanupFxNode(fx),
-    });
-  }
-
-  private createSkillBanner(text: string, bgColor: number): Container {
-    const banner = new Container();
-    const bg = new Graphics();
-    bg.roundRect(-142, -32, 284, 64, 32)
-      .fill({ color: bgColor, alpha: 0.95 })
-      .stroke({ color: 0xfef08a, width: 3 });
-
-    const label = new Text({
-      text,
-      style: {
-        fontFamily: 'Outfit, PingFang SC, Microsoft YaHei, sans-serif',
-        fontSize: 28,
-        fontWeight: '800',
-        fill: 0xfef08a,
-      },
-    });
-    label.anchor.set(0.5);
-    banner.addChild(bg, label);
-    return banner;
-  }
-
-  private cleanupFxNode(fx: Container): void {
-    if (fx.destroyed) return;
-    this.killTweensRecursively(fx);
-    if (this.effectsLayer && !this.effectsLayer.destroyed && fx.parent === this.effectsLayer) {
-      this.effectsLayer.removeChild(fx);
-    }
-    fx.destroy({ children: true });
   }
 
   private startCountdown(timeoutAt: number): void {
@@ -1911,48 +1279,13 @@ export class GameScene extends Container {
   }
 
   /**
-   * 6. LAIZI REVEAL (星耀赖子揭晓特效)
+   * 6. LAIZI REVEAL (星耀赖子揭晓特效) — Delegated to DdzVfxEngine
    */
   public playLaiziRevealEffect(wildRanks: Rank[]): void {
     if (this.destroyed || !this.effectsLayer || this.effectsLayer.destroyed || wildRanks.length === 0) {
       return;
     }
-
-    const fx = new Container();
-    fx.position.set(this.virtualWidth / 2, 260);
-    this.effectsLayer.addChild(fx);
-
-    const isDual = wildRanks.length >= 2;
-    const titleText = isDual
-      ? `天地双赖揭晓：天赖 [${wildRanks[0]}] · 地赖 [${wildRanks[1]}]`
-      : `百变赖子确定：天赖 [${wildRanks[0]}]`;
-
-    const banner = this.createSkillBanner(titleText, 0x92400e);
-    banner.scale.set(0.35);
-    fx.addChild(banner);
-
-    for (let i = 0; i < 16; i++) {
-      const spark = new Graphics();
-      spark.circle(0, 0, i % 2 === 0 ? 5 : 3.5).fill({ color: 0xfef08a });
-      const angle = (Math.PI * 2 * i) / 16;
-      fx.addChild(spark);
-      gsap.to(spark, {
-        x: Math.cos(angle) * 180,
-        y: Math.sin(angle) * 75,
-        alpha: 0,
-        duration: 0.65,
-        ease: 'power2.out',
-      });
-    }
-
-    gsap.to(banner.scale, { x: 0.92, y: 0.92, duration: 0.25, ease: 'back.out(2)' });
-    gsap.to(fx, {
-      alpha: 0,
-      y: 235,
-      delay: 1.15,
-      duration: 0.3,
-      onComplete: () => this.cleanupFxNode(fx),
-    });
+    this.vfxEngine.playLaiziRevealEffect(wildRanks);
   }
 
   private stopCountdown(): void {
