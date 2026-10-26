@@ -1,5 +1,5 @@
 {
-  "name": "欢乐斗地主 H5 商业版",
+  "name": "欢乐棋牌 H5 商业版",
   "description": "面向 H5 横屏平台的商业级多人实时在线斗地主游戏，采用服务端权威状态机、商业级拆牌博弈 AI 算法与 PixiJS v8 牌桌渲染。",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
